@@ -38,7 +38,7 @@ pub struct OverlaySettings {
 
 impl Default for OverlaySettings {
     fn default() -> Self {
-        OverlaySettings { enabled: true, corner: "top-right".into(), sound: true }
+        OverlaySettings { enabled: true, corner: "top-right".into(), sound: false }
     }
 }
 

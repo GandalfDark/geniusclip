@@ -25,6 +25,14 @@ pub fn t(lang: &str, key: &str) -> &'static str {
         "open_folder" => if ru { "Открыть папку клипов" } else { "Open clips folder" },
         "quit" => if ru { "Выход" } else { "Quit" },
         "desktop" => if ru { "Рабочий стол" } else { "Desktop" },
+        "ov.clip" => if ru { "Клип сохранён" } else { "Clip saved" },
+        "ov.recording" => if ru { "Запись сохранена" } else { "Recording saved" },
+        "ov.recording-start" => if ru { "Запись началась" } else { "Recording started" },
+        "ov.screenshot" => if ru { "Скриншот сохранён" } else { "Screenshot saved" },
+        "ov.replay-on" => if ru { "Повтор включён" } else { "Replay on" },
+        "ov.replay-off" | "ov.replay-off-hint" => if ru { "Повтор выключен" } else { "Replay off" },
+        "ov.replay-off-hint.sub" => if ru { "Включите его, чтобы сохранять клипы" } else { "Turn it on to save clips" },
+        "ov.error" => if ru { "Не получилось" } else { "Something went wrong" },
         _ => "",
     }
 }

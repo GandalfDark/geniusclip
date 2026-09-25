@@ -126,13 +126,3 @@ export type EngineEvent =
   | { type: 'screenshotFailed'; error: string }
   | { type: 'error'; message: string }
   | { type: 'status' };
-
-export interface Toast {
-  kind: string;
-  game: string;
-  seconds: number;
-  message: string;
-  lang: 'ru' | 'en';
-  accent: string;
-  corner: string;
-}
