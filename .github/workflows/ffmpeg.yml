@@ -1,0 +1,43 @@
+name: Build FFmpeg
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/build-ffmpeg.sh
+      - .github/workflows/ffmpeg.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mingw-w64 nasm pkg-config make llvm
+
+      - name: Build
+        run: bash scripts/build-ffmpeg.sh
+
+      - name: Package
+        run: |
+          cd ffbuild/out
+          zip -r ../../ffmpeg-geniusclip-win64.zip bin include lib LICENSE.txt BUILDINFO.txt -x "bin/*.lib"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-geniusclip-win64
+          path: ffmpeg-geniusclip-win64.zip
+
+      - name: Publish as release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ffmpeg-$(grep FFmpeg: ffbuild/out/BUILDINFO.txt | awk '{print $2}')-${GITHUB_SHA::7}"
+          gh release create "$TAG" ffmpeg-geniusclip-win64.zip \
+            --title "$TAG" --notes "$(cat ffbuild/out/BUILDINFO.txt)" --prerelease

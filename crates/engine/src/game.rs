@@ -1,0 +1,131 @@
+//! Detects which application (game) is in the foreground, for naming and
+//! sorting clips.
+
+use serde::Serialize;
+use std::path::Path;
+use windows::core::{HSTRING, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId};
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    /// Display name used for folders and file names ("Counter-Strike 2").
+    pub name: String,
+    pub exe: String,
+    /// True when the foreground is the Windows shell / desktop.
+    pub is_desktop: bool,
+}
+
+const SHELL_EXES: &[&str] = &[
+    "explorer.exe",
+    "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "lockapp.exe",
+    "textinputhost.exe",
+    "applicationframehost.exe",
+    "geniusclip.exe",
+];
+
+/// Hosts whose file description is meaningless; the window title names the app.
+const HOST_EXES: &[&str] = &["javaw.exe", "java.exe", "python.exe", "pythonw.exe", "electron.exe"];
+
+fn file_description(path: &str) -> Option<String> {
+    unsafe {
+        let wpath = HSTRING::from(path);
+        let size = GetFileVersionInfoSizeW(&wpath, None);
+        if size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        GetFileVersionInfoW(&wpath, None, size, buf.as_mut_ptr() as *mut _).ok()?;
+
+        // Use the first language/codepage from the translation table.
+        let mut ptr = std::ptr::null_mut();
+        let mut len = 0u32;
+        let (lang, cp) = if VerQueryValueW(buf.as_ptr() as *const _, &HSTRING::from("\\VarFileInfo\\Translation"), &mut ptr, &mut len)
+            .as_bool()
+            && len >= 4
+        {
+            let t = std::slice::from_raw_parts(ptr as *const u16, 2);
+            (t[0], t[1])
+        } else {
+            (0x0409, 0x04b0)
+        };
+        for key in ["FileDescription", "ProductName"] {
+            let q = HSTRING::from(format!("\\StringFileInfo\\{lang:04x}{cp:04x}\\{key}"));
+            if VerQueryValueW(buf.as_ptr() as *const _, &q, &mut ptr, &mut len).as_bool() && len > 1 {
+                let s = String::from_utf16_lossy(std::slice::from_raw_parts(ptr as *const u16, len as usize - 1));
+                let s = s.trim().to_string();
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+        None
+    }
+}
+
+fn window_title(hwnd: HWND) -> String {
+    let mut buf = [0u16; 256];
+    let n = unsafe { GetWindowTextW(hwnd, &mut buf) };
+    String::from_utf16_lossy(&buf[..n.max(0) as usize]).trim().to_string()
+}
+
+pub fn foreground_app() -> Option<AppInfo> {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(proc, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
+        let _ = CloseHandle(proc);
+        if !ok {
+            return None;
+        }
+        let full = String::from_utf16_lossy(&buf[..len as usize]);
+        let exe = Path::new(&full).file_name()?.to_string_lossy().to_string();
+        let lower = exe.to_lowercase();
+        if SHELL_EXES.contains(&lower.as_str()) {
+            return Some(AppInfo { name: "Desktop".into(), exe, is_desktop: true });
+        }
+        let stem = Path::new(&exe).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let name = if HOST_EXES.contains(&lower.as_str()) {
+            Some(window_title(hwnd)).filter(|t| !t.is_empty())
+        } else {
+            file_description(&full)
+        }
+        .unwrap_or(stem);
+        Some(AppInfo { name, exe, is_desktop: false })
+    }
+}
+
+/// Makes a string safe for use as a Windows file/folder name.
+pub fn sanitize(name: &str) -> String {
+    let mut s: String = name
+        .chars()
+        .map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    s = s.trim_end_matches(['.', ' ']).to_string();
+    if s.chars().count() > 60 {
+        s = s.chars().take(60).collect::<String>().trim_end().to_string();
+    }
+    const RESERVED: &[&str] = &["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2", "LPT3"];
+    if s.is_empty() || RESERVED.contains(&s.to_uppercase().as_str()) {
+        s = format!("_{s}");
+    }
+    s
+}
+

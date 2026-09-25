@@ -1,0 +1,4 @@
+[env]
+# FFmpeg 9 LGPL shared build (headers + import libs + DLLs), fetched by scripts/fetch-ffmpeg.ps1
+FFMPEG_DIR = { value = "third_party/ffmpeg", relative = true }
+LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"

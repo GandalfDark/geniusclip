@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/engine"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["GandalfArt"]
+
+[workspace.dependencies]
+anyhow = "1"
+log = "0.4"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ffmpeg-sys-next = { version = "9", default-features = false, features = ["avcodec", "avformat", "swresample", "swscale"] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Devices_Display",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Devices_Properties",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Performance",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+
+# Keep the engine fast even in debug builds: capture/encode loops are hot.
+[profile.dev.package.geniusclip-engine]
+opt-level = 2
