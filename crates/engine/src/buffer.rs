@@ -11,21 +11,31 @@ pub struct ReplayBuffer {
     queues: Vec<VecDeque<PacketRef>>,
     bytes: usize,
     max_us: i64,
+    /// End of the last saved clip; the next clip can continue from here
+    /// instead of repeating footage that is already saved.
+    pub last_saved_end_us: Option<i64>,
 }
 
 /// Packets selected for one clip, per stream, in decode order.
 pub struct ClipData {
     pub streams: Vec<StreamDesc>,
     pub packets: Vec<Vec<PacketRef>>,
-    /// Clip start on the engine timeline (first video keyframe).
-    pub start_us: i64,
+    /// Where playback starts (t = 0 in the file). Video begins at the
+    /// keyframe before it; those preroll frames are hidden via an MP4 edit list.
+    pub origin_us: i64,
     pub end_us: i64,
 }
 
 impl ReplayBuffer {
     pub fn new(streams: Vec<StreamDesc>, max_seconds: u32) -> Self {
         let n = streams.len();
-        ReplayBuffer { streams, queues: (0..n).map(|_| VecDeque::new()).collect(), bytes: 0, max_us: max_seconds as i64 * 1_000_000 }
+        ReplayBuffer {
+            streams,
+            queues: (0..n).map(|_| VecDeque::new()).collect(),
+            bytes: 0,
+            max_us: max_seconds as i64 * 1_000_000,
+            last_saved_end_us: None,
+        }
     }
 
     pub fn set_max_seconds(&mut self, s: u32) {
@@ -36,6 +46,15 @@ impl ReplayBuffer {
     pub fn clear(&mut self) {
         self.queues.iter_mut().for_each(|q| q.clear());
         self.bytes = 0;
+        self.last_saved_end_us = None;
+    }
+
+    /// Time of the newest video packet (or any packet for audio-only).
+    pub fn end_us(&self) -> Option<i64> {
+        match self.video_index() {
+            Some(v) => self.queues[v].back().map(|p| p.time_us),
+            None => self.queues.iter().filter_map(|q| q.back()).map(|p| p.time_us).max(),
+        }
     }
 
     pub fn bytes(&self) -> usize {
@@ -105,21 +124,23 @@ impl ReplayBuffer {
         }
     }
 
-    /// Selects the last `seconds` (starting at the keyframe at or before
-    /// `now - seconds`). Packets are shared (Arc), so this is cheap.
-    pub fn snapshot(&self, seconds: u32) -> Option<ClipData> {
+    /// Selects the `seconds` before `until` (default: newest packet), or only
+    /// what came after `since` when that is later. Packets are shared (Arc).
+    pub fn snapshot(&self, seconds: u32, since: Option<i64>, until: Option<i64>) -> Option<ClipData> {
         let v = self.video_index();
-        let end_us = match v {
-            Some(v) => self.queues[v].back()?.time_us,
-            None => self.queues.iter().filter_map(|q| q.back()).map(|p| p.time_us).max()?,
-        };
-        let want = end_us - seconds as i64 * 1_000_000;
+        let end_us = until.or_else(|| self.end_us())?;
+        let mut origin_us = end_us - seconds as i64 * 1_000_000;
+        if let Some(s) = since {
+            origin_us = origin_us.max(s + 1);
+        }
         let start_us = match v {
             Some(v) => {
                 let q = &self.queues[v];
-                q.iter().rev().find(|p| p.key && p.time_us <= want).or_else(|| q.iter().find(|p| p.key))?.time_us
+                let first_key = q.iter().find(|p| p.key)?.time_us;
+                origin_us = origin_us.max(first_key);
+                q.iter().rev().find(|p| p.key && p.time_us <= origin_us)?.time_us
             }
-            None => want,
+            None => origin_us,
         };
         let packets = self
             .queues
@@ -127,11 +148,11 @@ impl ReplayBuffer {
             .enumerate()
             .map(|(i, q)| {
                 q.iter()
-                    .filter(|p| if Some(i) == v { p.time_us >= start_us } else { p.time_us >= start_us && p.time_us <= end_us })
+                    .filter(|p| p.time_us <= end_us && p.time_us >= if Some(i) == v { start_us } else { origin_us })
                     .cloned()
                     .collect()
             })
             .collect();
-        Some(ClipData { streams: self.streams.clone(), packets, start_us, end_us })
+        Some(ClipData { streams: self.streams.clone(), packets, origin_us, end_us })
     }
 }

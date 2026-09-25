@@ -58,6 +58,7 @@ let settings: Settings = {
   },
   replayEnabled: true,
   replaySeconds: 300,
+  skipSaved: true,
   clipsDir: 'C:\\Users\\Player\\Videos\\GeniusClip',
   screenshotsDir: 'C:\\Users\\Player\\Pictures\\GeniusClip',
   sortByGame: true,

@@ -30,6 +30,7 @@ export interface Settings {
   engine: EngineConfig;
   replayEnabled: boolean;
   replaySeconds: number;
+  skipSaved: boolean;
   clipsDir: string;
   screenshotsDir: string;
   sortByGame: boolean;

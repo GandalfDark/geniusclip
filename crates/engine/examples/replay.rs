@@ -54,7 +54,11 @@ fn main() -> anyhow::Result<()> {
         );
     }
     engine.stop_recording()?;
-    engine.save_replay(out.join("clip.mp4"), None, "test".into())?;
+    println!("save 1: {:?}", engine.save_replay(out.join("clip.mp4"), None, "test".into(), true)?);
+    std::thread::sleep(Duration::from_secs(3));
+    println!("save 2: {:?}", engine.save_replay(out.join("clip2.mp4"), None, "test".into(), true)?);
+    std::thread::sleep(Duration::from_millis(300));
+    println!("save 3: {:?}", engine.save_replay(out.join("clip3.mp4"), None, "test".into(), true)?);
     engine.screenshot(out.join("shot.png"))?;
     std::thread::sleep(Duration::from_secs(3));
 

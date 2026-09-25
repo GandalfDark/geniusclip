@@ -48,6 +48,8 @@ pub struct Settings {
     pub engine: EngineConfig,
     pub replay_enabled: bool,
     pub replay_seconds: u32,
+    /// Start a new clip where the previous one ended (no repeated footage).
+    pub skip_saved: bool,
     pub clips_dir: PathBuf,
     pub screenshots_dir: PathBuf,
     pub sort_by_game: bool,
@@ -67,6 +69,7 @@ impl Default for Settings {
             engine: EngineConfig::default(),
             replay_enabled: true,
             replay_seconds: 300,
+            skip_saved: true,
             clips_dir: PathBuf::new(),
             screenshots_dir: PathBuf::new(),
             sort_by_game: true,

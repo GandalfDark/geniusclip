@@ -20,7 +20,7 @@ mod venc;
 pub use audio::{list_devices as list_audio_devices, AudioDevice};
 pub use config::{Codec, EngineConfig, Quality, Resolution};
 pub use d3d::{list_monitors, MonitorInfo};
-pub use engine::{Engine, EngineEvent, EngineStatus};
+pub use engine::{Engine, EngineEvent, EngineStatus, SaveOutcome};
 pub use venc::{output_size, target_bitrate};
 
 pub fn ffmpeg_version() -> String {

@@ -3,9 +3,10 @@ const ru = {
   'nav.gallery': 'Галерея',
   'nav.settings': 'Настройки',
 
-  'home.rec': 'Пишется',
+  'home.on': 'Повтор включён',
   'home.off': 'Повтор выключен',
-  'home.offHint': 'Включите, чтобы сохранять последние минуты по клавише.',
+  'home.offHint': 'Включите — и лучший момент можно будет сохранить одной клавишей',
+  'home.turnOn': 'Включить',
   'home.starting': 'Запуск захвата…',
   'home.now': 'сейчас',
   'home.ram': 'ОЗУ',
@@ -66,6 +67,8 @@ const ru = {
   'set.replayEnabled': 'Повтор',
   'set.replayEnabledHint': 'Держать последние минуты в памяти',
   'set.length': 'Длина',
+  'set.skipSaved': 'Не повторять сохранённое',
+  'set.skipSavedHint': 'Новый клип начнётся там, где закончился предыдущий',
   'set.quality': 'Качество',
   'set.q.low': 'Низкое',
   'set.q.medium': 'Среднее',
@@ -124,9 +127,10 @@ const en: Record<Key, string> = {
   'nav.gallery': 'Gallery',
   'nav.settings': 'Settings',
 
-  'home.rec': 'Recording',
+  'home.on': 'Replay is on',
   'home.off': 'Replay is off',
-  'home.offHint': 'Turn it on to save the last minutes with a hotkey.',
+  'home.offHint': 'Turn it on to save your best moments with one key',
+  'home.turnOn': 'Turn on',
   'home.starting': 'Starting capture…',
   'home.now': 'now',
   'home.ram': 'RAM',
@@ -187,6 +191,8 @@ const en: Record<Key, string> = {
   'set.replayEnabled': 'Replay',
   'set.replayEnabledHint': 'Keep the last minutes in memory',
   'set.length': 'Length',
+  'set.skipSaved': 'Skip what’s already saved',
+  'set.skipSavedHint': 'A new clip starts where the previous one ended',
   'set.quality': 'Quality',
   'set.q.low': 'Low',
   'set.q.medium': 'Medium',
@@ -240,6 +246,21 @@ const en: Record<Key, string> = {
 
 export type Lang = 'ru' | 'en';
 export type TKey = Key;
+
+/** "Последние 2 минуты всегда наготове" with proper Russian plurals. */
+export function readyLine(lang: Lang, seconds: number): string {
+  const m = seconds / 60;
+  if (lang === 'en') {
+    if (seconds < 60) return `The last ${seconds} seconds are always ready`;
+    return m === 1 ? 'The last minute is always ready' : `The last ${Number.isInteger(m) ? m : m.toFixed(1)} minutes are always ready`;
+  }
+  if (!Number.isInteger(m)) return `Последние ${m.toFixed(1).replace('.', ',')} минуты всегда наготове`;
+  if (m === 1) return 'Последняя минута всегда наготове';
+  const n10 = m % 10;
+  const n100 = m % 100;
+  const word = n10 === 1 && n100 !== 11 ? 'минута' : n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14) ? 'минуты' : 'минут';
+  return `Последние ${m} ${word} всегда наготове`;
+}
 
 export function translate(lang: Lang, key: Key, vars?: Record<string, string | number>): string {
   let s = (lang === 'ru' ? ru : en)[key] ?? key;

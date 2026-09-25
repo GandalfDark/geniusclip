@@ -76,10 +76,12 @@ pub fn save_clip(app: &AppHandle) {
     let path = target_path(&s, &s.clips_dir, &g, "", "mp4");
     let res = ensure_dir(&path).and_then(|_| {
         st.library.expect(&path, Kind::Clip, &g.name);
-        st.engine.save_replay(path.clone(), None, "GeniusClip".into())
+        st.engine.save_replay(path.clone(), None, "GeniusClip".into(), s.skip_saved)
     });
-    if let Err(e) = res {
-        fail(app, e);
+    match res {
+        Ok(geniusclip_engine::SaveOutcome::Started) => {}
+        Ok(geniusclip_engine::SaveOutcome::NothingNew) => overlay::toast(app, Toast::simple("already-saved")),
+        Err(e) => fail(app, e),
     }
 }
 

@@ -124,6 +124,9 @@
         <Row label={app.t('set.length')}>
           <Slider value={s.replaySeconds} min={60} max={1200} step={30} format={minutes} width="280px" onchange={(v) => app.change((x) => (x.replaySeconds = v), 600)} />
         </Row>
+        <Row label={app.t('set.skipSaved')} hint={app.t('set.skipSavedHint')}>
+          <Switch checked={s.skipSaved} onchange={(v) => app.change((x) => (x.skipSaved = v))} />
+        </Row>
         <Row label={app.t('set.quality')}>
           <Segmented
             value={s.engine.quality}

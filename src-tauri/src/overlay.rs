@@ -125,6 +125,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     let sub = match toast.kind.as_str() {
         "error" => toast.message.clone(),
         "replay-off-hint" => t(lang, "ov.replay-off-hint.sub").to_string(),
+        "already-saved" => t(lang, "ov.already-saved.sub").to_string(),
         _ => {
             let mut parts = Vec::new();
             if toast.seconds > 0.0 {
@@ -138,7 +139,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     };
     let bar = match toast.kind.as_str() {
         "error" | "recording-start" => REC_RED,
-        "replay-off" | "replay-off-hint" => MUTED,
+        "replay-off" | "replay-off-hint" | "already-saved" => MUTED,
         _ => accent(&s.accent),
     };
 

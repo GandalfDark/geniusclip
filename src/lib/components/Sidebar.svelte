@@ -25,7 +25,7 @@
       </a>
     {/each}
   </div>
-  <div class="state" title={live ? app.t('home.rec') : app.t('home.off')}>
+  <div class="state" title={live ? app.t('home.on') : app.t('home.off')}>
     <span class="dot" class:live></span>
     {#if app.status?.recording}<span class="rec mono">REC</span>{/if}
   </div>

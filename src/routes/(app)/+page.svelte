@@ -2,25 +2,22 @@
   import Icon from '$lib/components/Icon.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import Keys from '$lib/components/Keys.svelte';
-  import Timeline from '$lib/components/Timeline.svelte';
   import MediaCard from '$lib/components/MediaCard.svelte';
   import Viewer from '$lib/components/Viewer.svelte';
   import { api } from '$lib/api';
   import { app } from '$lib/app.svelte';
-  import { bytes, duration } from '$lib/format';
+  import { duration } from '$lib/format';
+  import { readyLine } from '$lib/i18n';
   import type { MediaEntry } from '$lib/types';
 
   let s = $derived(app.settings!);
   let st = $derived(app.status);
   let on = $derived(s.replayEnabled);
   let running = $derived(!!st?.running);
-  let buffered = $derived(on && st ? Math.min(st.bufferSeconds, s.replaySeconds) : 0);
   let recent = $derived(app.media.filter((m) => m.kind !== 'screenshot').slice(0, 8));
   let viewing = $state<MediaEntry | null>(null);
   let updating = $state(false);
 
-  const encoderLabel = (e: string) => (e.includes('nvenc') ? 'NVENC' : e.includes('amf') ? 'AMF' : e.includes('_mf') ? 'Media Foundation' : e.toUpperCase());
-  const codecLabel = (c: string) => ({ h264: 'H.264', hevc: 'HEVC', av1: 'AV1' })[c] ?? c;
 
   async function install() {
     updating = true;
@@ -35,33 +32,23 @@
 
 <div class="page">
   <section class="deck panel" class:off={!on}>
-    <div class="status">
-      {#if on && running && st}
-        <span class="dot"></span>
-        <span class="mono">
-          {app.t('home.rec')} · {st.width}×{st.height} · {Math.round(st.fps)} {app.t('home.fps')} · {encoderLabel(st.encoder)} {codecLabel(s.engine.codec)} · {bytes(st.bufferBytes, app.lang)} {app.t('home.ram')}
-        </span>
-        {#if st.droppedFrames > 30}<span class="warn mono">· {app.t('home.dropped', { n: st.droppedFrames })}</span>{/if}
-      {:else if on}
-        <span class="mono muted">{app.t('home.starting')}</span>
-      {:else}
-        <span class="mono muted">{app.t('home.off')}</span>
-      {/if}
-      <span class="grow"></span>
-      <Switch checked={on} label={app.t('set.replayEnabled')} onchange={(v) => api.setReplay(v)} />
-    </div>
-
-    {#if on}
-      <div class="clock mono">
-        <span class="now">{duration(buffered)}</span><span class="of">/ {duration(s.replaySeconds)}</span>
+    <div class="head">
+      <span class="dot" class:live={on && running} class:wait={on && !running}></span>
+      <div class="txt">
+        <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
+        <p>{on ? (running ? readyLine(app.lang, s.replaySeconds) : app.t('home.starting')) : app.t('home.offHint')}</p>
       </div>
-      <Timeline seconds={buffered} total={s.replaySeconds} live={running} />
-    {:else}
-      <p class="off-hint">{app.t('home.offHint')}</p>
-    {/if}
+      {#if on}
+        <Switch checked={on} label={app.t('set.replayEnabled')} onchange={(v) => api.setReplay(v)} />
+      {:else}
+        <button class="btn primary" onclick={() => api.setReplay(true)}>{app.t('home.turnOn')}</button>
+      {/if}
+    </div>
 
     {#if st?.lastError && on}
       <div class="err"><Icon name="alert" size={16} />{app.t('home.error')}: {st.lastError}</div>
+    {:else if on && st && st.droppedFrames > 120}
+      <div class="err warn"><Icon name="alert" size={16} />{app.t('home.dropped', { n: st.droppedFrames })}</div>
     {/if}
 
     <div class="actions">
@@ -130,70 +117,76 @@
     padding-top: 4px;
   }
   .deck {
-    padding: 18px 20px 20px;
+    padding: 22px 22px 20px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 22px;
   }
-  .status {
+  .head {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 12px;
-    color: var(--text-2);
-    min-height: 20px;
+    align-items: flex-start;
+    gap: 16px;
   }
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
+    margin-top: 11px;
     border-radius: 50%;
-    background: var(--rec);
+    background: var(--text-3);
     flex-shrink: 0;
-    animation: blink 1.6s steps(1) infinite;
   }
-  @keyframes blink {
-    50% {
-      opacity: 0.35;
+  .dot.live {
+    background: var(--rec);
+    animation: pulse 2s ease-out infinite;
+  }
+  .dot.wait {
+    background: var(--warn);
+  }
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 55%, transparent);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 9px transparent;
     }
   }
-  .warn {
-    color: var(--warn);
+  .txt {
+    flex: 1;
+    min-width: 0;
+  }
+  h1 {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+    line-height: 1.25;
+  }
+  .off h1 {
+    color: var(--text-2);
+  }
+  .txt p {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--text-2);
   }
   .grow {
     flex: 1;
-  }
-  .clock {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    line-height: 1;
-    margin-top: 4px;
-  }
-  .now {
-    font-size: 44px;
-    font-weight: 700;
-    letter-spacing: -1.5px;
-  }
-  .of {
-    font-size: 16px;
-    color: var(--text-3);
-  }
-  .off-hint {
-    margin: 6px 0 2px;
-    color: var(--text-2);
   }
   .err {
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-top: -8px;
     color: var(--danger);
     font-size: 12.5px;
+  }
+  .err.warn {
+    color: var(--warn);
   }
   .actions {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 4px;
   }
   .big {
     height: 38px;

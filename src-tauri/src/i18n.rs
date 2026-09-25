@@ -33,6 +33,8 @@ pub fn t(lang: &str, key: &str) -> &'static str {
         "ov.replay-off" | "ov.replay-off-hint" => if ru { "Повтор выключен" } else { "Replay off" },
         "ov.replay-off-hint.sub" => if ru { "Включите его, чтобы сохранять клипы" } else { "Turn it on to save clips" },
         "ov.error" => if ru { "Не получилось" } else { "Something went wrong" },
+        "ov.already-saved" => if ru { "Уже сохранено" } else { "Already saved" },
+        "ov.already-saved.sub" => if ru { "Новых моментов пока нет" } else { "Nothing new since the last clip" },
         _ => "",
     }
 }

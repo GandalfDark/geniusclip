@@ -73,6 +73,20 @@ pub struct EngineStatus {
 
 type EventSink = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 
+/// Result of a save request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveOutcome {
+    /// Writing started; `ClipSaved`/`ClipFailed` follows.
+    Started,
+    /// Everything in the buffer is already in the previous clip.
+    NothingNew,
+}
+
+/// A continuation clip shorter than this is not worth a file.
+const MIN_NEW_US: i64 = 1_000_000;
+/// Mixer latency (≈125 ms) plus AAC encoder delay, with margin.
+const AUDIO_CATCH_UP: Duration = Duration::from_millis(260);
+
 struct Shot {
     width: u32,
     height: u32,
@@ -311,26 +325,50 @@ impl Engine {
         (self.events)(EngineEvent::Status(self.status()));
     }
 
-    /// Saves the last `seconds` (default: whole buffer) to `path` in the background.
-    pub fn save_replay(&self, path: PathBuf, seconds: Option<u32>, comment: String) -> Result<()> {
+    /// Saves the last `seconds` (default: whole buffer) to `path` in the
+    /// background. With `continue_after_last`, footage already saved by the
+    /// previous clip is skipped, so the new clip starts where that one ended.
+    pub fn save_replay(&self, path: PathBuf, seconds: Option<u32>, comment: String, continue_after_last: bool) -> Result<SaveOutcome> {
         let secs = seconds.unwrap_or(self.state.lock().replay_seconds);
-        let clip = {
-            let b = self.shared.buffer.lock();
-            let b = b.as_ref().ok_or_else(|| anyhow!("replay buffer is off"))?;
-            b.snapshot(secs).ok_or_else(|| anyhow!("replay buffer is empty"))?
+        // The clip ends at the moment of the key press; claim that range now so
+        // a quick second press continues after it.
+        let (since, end, prev_end) = {
+            let mut guard = self.shared.buffer.lock();
+            let b = guard.as_mut().ok_or_else(|| anyhow!("replay buffer is off"))?;
+            let since = if continue_after_last { b.last_saved_end_us } else { None };
+            let end = b.end_us().ok_or_else(|| anyhow!("replay buffer is empty"))?;
+            if since.is_some_and(|s| end - s < MIN_NEW_US) {
+                return Ok(SaveOutcome::NothingNew);
+            }
+            (since, end, b.last_saved_end_us.replace(end))
         };
-        let events = self.events.clone();
+        let (events, shared) = (self.events.clone(), self.shared.clone());
         std::thread::Builder::new().name("gc-save".into()).spawn(move || {
-            let seconds = (clip.end_us - clip.start_us) as f64 / 1e6;
+            // Audio is encoded slightly behind video; let it catch up to `end`.
+            std::thread::sleep(AUDIO_CATCH_UP);
+            let clip = match shared.buffer.lock().as_ref().and_then(|b| b.snapshot(secs, since, Some(end))) {
+                Some(c) => c,
+                None => {
+                    events(EngineEvent::ClipFailed { error: "replay buffer is empty".into() });
+                    return;
+                }
+            };
+            let seconds = (clip.end_us - clip.origin_us) as f64 / 1e6;
             match mux::write_clip(&path, &clip, &comment) {
                 Ok(path) => events(EngineEvent::ClipSaved { path, seconds }),
                 Err(e) => {
                     log::error!("save clip: {e:#}");
+                    // Not saved after all: let the next clip cover this footage.
+                    if let Some(b) = shared.buffer.lock().as_mut() {
+                        if b.last_saved_end_us == Some(clip.end_us) {
+                            b.last_saved_end_us = prev_end;
+                        }
+                    }
                     events(EngineEvent::ClipFailed { error: format!("{e:#}") })
                 }
             }
         })?;
-        Ok(())
+        Ok(SaveOutcome::Started)
     }
 
     pub fn is_recording(&self) -> bool {

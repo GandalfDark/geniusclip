@@ -135,7 +135,7 @@ pub fn write_clip(dst: &Path, clip: &ClipData, comment: &str) -> Result<PathBuf>
     }
     order.sort_by_key(|&(t, s, i)| (t, s, i));
     for (_, si, pi) in order {
-        m.write(si, &clip.packets[si][pi], clip.start_us)?;
+        m.write(si, &clip.packets[si][pi], clip.origin_us)?;
     }
     m.finish()
 }
