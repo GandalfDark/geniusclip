@@ -17,7 +17,7 @@
     flex-shrink: 0;
   }
   .sw.on {
-    background: var(--accent);
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
   }
   .knob {
     position: absolute;

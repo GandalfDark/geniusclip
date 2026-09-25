@@ -53,16 +53,16 @@
 
     <div class="actions">
       <button class="btn primary big" disabled={!on} onclick={() => api.saveClip()}>
-        <Icon name="save" size={17} stroke={2} />{app.t('home.saveClip')}{#if s.hotkeys.saveClip}<Keys plain accel={s.hotkeys.saveClip} />{/if}
+        <Icon name="save" size={17} stroke={2} />{app.t('home.saveClip')}{#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
       </button>
       <button class="btn big" onclick={() => api.screenshot()}>
-        <Icon name="shot" size={17} />{app.t('home.screenshot')}{#if s.hotkeys.screenshot}<Keys plain accel={s.hotkeys.screenshot} />{/if}
+        <Icon name="shot" size={17} />{app.t('home.screenshot')}{#if s.hotkeys.screenshot}<Keys variant="chip" accel={s.hotkeys.screenshot} />{/if}
       </button>
       <button class="btn big" class:recording={st?.recording} onclick={() => api.toggleRecording()}>
         {#if st?.recording}
           <Icon name="stop" size={17} />{app.t('home.stopRecord')}<span class="mono rec-time">{duration(st.recordingSeconds)}</span>
         {:else}
-          <Icon name="record" size={17} />{app.t('home.record')}{#if s.hotkeys.toggleRecording}<Keys plain accel={s.hotkeys.toggleRecording} />{/if}
+          <Icon name="record" size={17} />{app.t('home.record')}{#if s.hotkeys.toggleRecording}<Keys variant="chip" accel={s.hotkeys.toggleRecording} />{/if}
         {/if}
       </button>
       <span class="grow"></span>
@@ -117,10 +117,34 @@
     padding-top: 4px;
   }
   .deck {
-    padding: 22px 22px 20px;
+    position: relative;
+    overflow: hidden;
+    padding: 24px 24px 22px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: 24px;
+    border-radius: 14px;
+  }
+  /* Soft accent glow in the corner; fades out when replay is off. */
+  .deck::before {
+    content: '';
+    position: absolute;
+    left: -90px;
+    top: -140px;
+    width: 420px;
+    height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 24%, transparent), transparent 66%);
+    pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  .deck.off::before {
+    opacity: 0.25;
+  }
+  .head,
+  .actions,
+  .err {
+    position: relative;
   }
   .head {
     display: flex;
@@ -137,18 +161,19 @@
   }
   .dot.live {
     background: var(--rec);
-    animation: pulse 2s ease-out infinite;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--rec) 16%, transparent);
+    animation: pulse 2.2s ease-out infinite;
   }
   .dot.wait {
     background: var(--warn);
   }
   @keyframes pulse {
     0% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 55%, transparent);
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 50%, transparent);
     }
     70%,
     100% {
-      box-shadow: 0 0 0 9px transparent;
+      box-shadow: 0 0 0 10px transparent;
     }
   }
   .txt {
@@ -189,12 +214,21 @@
     gap: 8px;
   }
   .big {
-    height: 38px;
-    padding: 0 14px;
+    height: 42px;
+    padding: 0 15px;
+    border-radius: 10px;
     font-size: 13.5px;
+    font-weight: 600;
+    gap: 9px;
+  }
+  .big:not(.primary):not(.ghost) {
+    background: var(--hover);
+  }
+  .big:not(.primary):not(.ghost):hover {
+    background: #2a2a31;
   }
   .big.icon {
-    width: 38px;
+    width: 42px;
     padding: 0;
   }
   .recording {

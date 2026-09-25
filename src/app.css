@@ -19,12 +19,14 @@
   --danger: #ff5c5c;
 
   --accent: #9580ff;
-  --accent-ink: #110c25;
+  --accent-2: #d77ce0;
+  --accent-grad: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --accent-ink: #150c26;
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
 
-  --r-sm: 4px;
-  --r: 6px;
-  --r-lg: 8px;
+  --r-sm: 5px;
+  --r: 8px;
+  --r-lg: 12px;
   --font: 'Onest Variable', 'Segoe UI', system-ui, sans-serif;
   --mono: 'JetBrains Mono Variable', 'Cascadia Mono', Consolas, monospace;
 
@@ -119,10 +121,11 @@ select {
   background: var(--hover);
 }
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-grad);
+  border-color: transparent;
   color: var(--accent-ink);
   font-weight: 600;
+  box-shadow: 0 10px 26px -14px var(--accent);
 }
 .btn.primary:hover {
   filter: brightness(1.07);

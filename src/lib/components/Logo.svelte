@@ -1,10 +1,26 @@
 <script lang="ts">
-  let { size = 24 }: { size?: number } = $props();
+  let { size = 28 }: { size?: number } = $props();
+  const id = `gem${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
-<!-- Replay loop with a record dot: the buffer that keeps rolling. -->
-<svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-label="GeniusClip">
-  <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" />
-  <path d="M4.5 4.2v3.5H8" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-  <circle cx="12" cy="12" r="2.2" fill="var(--rec)" />
+<!-- "Crystal": a brilliant-cut gem (the "genius" clip) with a play mark.
+     Brand colors are fixed and do not follow the accent setting. -->
+<svg width={size} height={size} viewBox="0 0 64 64" aria-label="GeniusClip">
+  <defs>
+    <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b3a4ff" />
+      <stop offset="0.55" stop-color="#9580ff" />
+      <stop offset="1" stop-color="#f472b6" />
+    </linearGradient>
+  </defs>
+  <path d="M18 11h28l12 15-26 29L6 26z" fill="url(#{id})" />
+  <path
+    d="M6 26h52M18 11l7 15 7 29 7-29 7-15M25 26l7-15 7 15"
+    fill="none"
+    stroke="#fff"
+    stroke-opacity="0.32"
+    stroke-width="1.4"
+    stroke-linejoin="round"
+  />
+  <path d="M28 30v12l10-6z" fill="#fff" />
 </svg>

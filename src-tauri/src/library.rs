@@ -200,7 +200,8 @@ fn entry(path: &Path, r: &Record) -> Entry {
     Entry {
         path: path.to_path_buf(),
         name: path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
-        game: r.game.clone(),
+        // Older versions could store version-info garbage (NULs) in names.
+        game: r.game.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" "),
         kind: r.kind,
         size: r.size,
         modified: r.modified,

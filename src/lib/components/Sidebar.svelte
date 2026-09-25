@@ -15,7 +15,7 @@
 </script>
 
 <nav class="side" data-tauri-drag-region>
-  <a class="logo" href="/" aria-label="GeniusClip"><Logo size={26} /></a>
+  <a class="logo" href="/" aria-label="GeniusClip"><Logo size={30} /></a>
   <div class="items">
     {#each items as it}
       {@const active = it.href === '/' ? path === '/' : path.startsWith(it.href)}
@@ -81,7 +81,8 @@
     top: 10px;
     bottom: 10px;
     width: 2px;
-    background: var(--accent);
+    border-radius: 2px;
+    background: linear-gradient(var(--accent), var(--accent-2));
   }
   .tip {
     position: absolute;
