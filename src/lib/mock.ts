@@ -64,7 +64,7 @@ let settings: Settings = {
   hotkeys: { saveClip: 'Alt+F8', toggleReplay: 'Alt+Shift+F8', screenshot: 'Alt+F6', toggleRecording: 'Alt+F7' },
   autostart: true,
   language: 'auto',
-  accent: 'aurora',
+  accent: 'violet',
   overlay: { enabled: true, corner: 'top-right', sound: true },
   autoUpdate: true,
 };

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import IconX from '@tabler/icons-svelte-runes/icons/x';
-  import IconAlertTriangle from '@tabler/icons-svelte-runes/icons/alert-triangle';
+  import Icon from './Icon.svelte';
   import Keys from './Keys.svelte';
   import { app } from '$lib/app.svelte';
 
@@ -46,56 +45,44 @@
     {:else}
       <span class="faint">{app.t('hk.none')}</span>
     {/if}
-    {#if conflict && !listening}
-      <IconAlertTriangle size={16} class="warn" />
-    {/if}
+    {#if conflict && !listening}<span class="warn"><Icon name="alert" size={15} /></span>{/if}
   </button>
-  {#if value}
-    <button class="btn ghost sm icon" title={app.t('hk.clear')} onclick={() => onchange('')}><IconX size={15} /></button>
-  {/if}
+  <button class="btn ghost sm icon" title={app.t('hk.clear')} disabled={!value} onclick={() => onchange('')}><Icon name="close" size={14} /></button>
 </div>
 
 <style>
   .hk {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
   .field {
-    min-width: 200px;
-    height: 38px;
-    padding: 0 12px;
+    min-width: 190px;
+    height: 32px;
+    padding: 0 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
     border-radius: var(--r);
-    background: rgba(13, 10, 23, 0.6);
+    background: var(--bg);
     border: 1px solid var(--line-2);
-    transition: border-color 0.15s;
   }
   .field:hover {
-    border-color: rgba(196, 181, 253, 0.3);
+    border-color: #45454d;
   }
   .field.listening {
-    border-color: var(--accent-a);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-a) 22%, transparent);
+    border-color: var(--accent);
   }
   .field.conflict {
-    border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+    border-color: color-mix(in srgb, var(--warn) 55%, transparent);
   }
   .listen {
-    color: var(--accent-a);
-    font-weight: 600;
-    font-size: 13px;
-    animation: blink 1.2s infinite;
+    color: var(--accent);
+    font-size: 12.5px;
   }
-  .field :global(.warn) {
+  .warn {
+    display: flex;
     color: var(--warn);
-  }
-  @keyframes blink {
-    50% {
-      opacity: 0.45;
-    }
   }
 </style>

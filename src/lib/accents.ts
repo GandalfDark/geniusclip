@@ -1,15 +1,14 @@
-export const ACCENTS: Record<string, { a: string; b: string; ru: string; en: string }> = {
-  aurora: { a: '#f472b6', b: '#a78bfa', ru: 'Аврора', en: 'Aurora' },
-  lagoon: { a: '#22d3ee', b: '#818cf8', ru: 'Лагуна', en: 'Lagoon' },
-  ember: { a: '#ff5a6e', b: '#ff9f43', ru: 'Пламя', en: 'Ember' },
-  toxic: { a: '#a3e635', b: '#2dd4bf', ru: 'Токсик', en: 'Toxic' },
-  gold: { a: '#fcd34d', b: '#f472b6', ru: 'Закат', en: 'Sunset' },
-  frost: { a: '#c7d2fe', b: '#60a5fa', ru: 'Иней', en: 'Frost' },
+// Flat accent presets. Keep in sync with `accent()` in src-tauri/src/overlay.rs.
+export const ACCENTS: Record<string, { color: string; ru: string; en: string }> = {
+  violet: { color: '#9580ff', ru: 'Фиолетовый', en: 'Violet' },
+  red: { color: '#ff5a36', ru: 'Красный', en: 'Red' },
+  lime: { color: '#c6f432', ru: 'Лайм', en: 'Lime' },
+  cyan: { color: '#38d2f0', ru: 'Бирюзовый', en: 'Cyan' },
+  amber: { color: '#ffb020', ru: 'Янтарный', en: 'Amber' },
+  mono: { color: '#e6e6ea', ru: 'Белый', en: 'White' },
 };
 
 export function applyAccent(id: string) {
-  const acc = ACCENTS[id] ?? ACCENTS.aurora;
-  const root = document.documentElement.style;
-  root.setProperty('--accent-a', acc.a);
-  root.setProperty('--accent-b', acc.b);
+  const acc = ACCENTS[id] ?? ACCENTS.violet;
+  document.documentElement.style.setProperty('--accent', acc.color);
 }

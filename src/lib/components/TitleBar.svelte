@@ -1,8 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import IconMinus from '@tabler/icons-svelte-runes/icons/minus';
-  import IconSquare from '@tabler/icons-svelte-runes/icons/square';
-  import IconX from '@tabler/icons-svelte-runes/icons/x';
+  import Icon from './Icon.svelte';
   import { api } from '$lib/api';
   import { app } from '$lib/app.svelte';
 
@@ -13,17 +11,16 @@
 <header class="bar" data-tauri-drag-region>
   <div class="spacer" data-tauri-drag-region></div>
   <div class="controls">
-    <button title={app.t('win.minimize')} onclick={() => win().minimize()}><IconMinus size={16} /></button>
-    <button title={app.t('win.maximize')} onclick={() => win().toggleMaximize()}><IconSquare size={13} /></button>
-    <button class="close" title={app.t('win.close')} onclick={() => api.closeMain()}><IconX size={17} /></button>
+    <button title={app.t('win.minimize')} onclick={() => win().minimize()}><Icon name="minimize" size={16} /></button>
+    <button title={app.t('win.maximize')} onclick={() => win().toggleMaximize()}><Icon name="maximize" size={15} /></button>
+    <button class="close" title={app.t('win.close')} onclick={() => api.closeMain()}><Icon name="close" size={16} /></button>
   </div>
 </header>
 
 <style>
   .bar {
-    height: 40px;
+    height: 36px;
     display: flex;
-    align-items: stretch;
     flex-shrink: 0;
   }
   .spacer {
@@ -33,20 +30,20 @@
     display: flex;
   }
   .controls button {
-    width: 46px;
+    width: 44px;
     display: grid;
     place-items: center;
-    color: var(--text-2);
+    color: var(--text-3);
     transition:
-      background 0.12s,
-      color 0.12s;
+      background 0.1s,
+      color 0.1s;
   }
   .controls button:hover {
     background: var(--hover);
     color: var(--text);
   }
   .controls .close:hover {
-    background: #e5484d;
-    color: white;
+    background: #c42b1c;
+    color: #fff;
   }
 </style>

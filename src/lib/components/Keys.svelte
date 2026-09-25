@@ -1,22 +1,25 @@
 <script lang="ts">
   import { hotkeyParts } from '$lib/format';
-  let { accel }: { accel: string } = $props();
+  /** `plain` renders "Alt F8" as text (inside buttons); otherwise as key caps. */
+  let { accel, plain = false }: { accel: string; plain?: boolean } = $props();
 </script>
 
-<span class="keys">
-  {#each hotkeyParts(accel) as k, i}
-    {#if i > 0}<span class="plus">+</span>{/if}<kbd>{k}</kbd>
-  {/each}
-</span>
+{#if plain}
+  <span class="plain mono">{hotkeyParts(accel).join(' ')}</span>
+{:else}
+  <span class="keys">
+    {#each hotkeyParts(accel) as k}<kbd>{k}</kbd>{/each}
+  </span>
+{/if}
 
 <style>
   .keys {
     display: inline-flex;
-    align-items: center;
     gap: 3px;
   }
-  .plus {
-    color: var(--text-3);
+  .plain {
     font-size: 11px;
+    font-weight: 500;
+    opacity: 0.65;
   }
 </style>

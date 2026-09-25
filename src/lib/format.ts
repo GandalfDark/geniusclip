@@ -1,3 +1,4 @@
+/** Timecode: 4:58, 12:03, 1:02:15. */
 export function duration(sec: number): string {
   if (!isFinite(sec) || sec < 0) sec = 0;
   const s = Math.floor(sec % 60);
@@ -7,10 +8,9 @@ export function duration(sec: number): string {
   return (h ? `${h}:` : '') + `${mm}:${String(s).padStart(2, '0')}`;
 }
 
+/** Timecode with tenths: 1:04.3 */
 export function preciseTime(sec: number): string {
-  const whole = duration(sec);
-  const tenth = Math.floor((sec % 1) * 10);
-  return `${whole}.${tenth}`;
+  return `${duration(sec)}.${Math.floor((sec % 1) * 10)}`;
 }
 
 export function bytes(n: number, lang: 'ru' | 'en'): string {
@@ -20,19 +20,19 @@ export function bytes(n: number, lang: 'ru' | 'en'): string {
     n /= 1024;
     i++;
   }
-  const v = i >= 2 ? n.toFixed(n < 10 ? 1 : 0) : Math.round(n).toString();
+  const v = i >= 3 ? n.toFixed(1) : Math.round(n).toString();
   return `${lang === 'ru' ? v.replace('.', ',') : v} ${units[i]}`;
 }
 
+/** "сегодня 21:10", "вчера 21:10", "24.09 21:10". */
 export function date(ms: number, lang: 'ru' | 'en'): string {
   const d = new Date(ms);
   const now = new Date();
   const time = d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
-  const sameDay = d.toDateString() === now.toDateString();
-  const yesterday = new Date(now.getTime() - 86400000).toDateString() === d.toDateString();
-  if (sameDay) return (lang === 'ru' ? 'Сегодня, ' : 'Today, ') + time;
-  if (yesterday) return (lang === 'ru' ? 'Вчера, ' : 'Yesterday, ') + time;
-  return d.toLocaleDateString(lang, { day: 'numeric', month: 'short' }) + ', ' + time;
+  if (d.toDateString() === now.toDateString()) return `${lang === 'ru' ? 'сегодня' : 'today'} ${time}`;
+  if (new Date(now.getTime() - 86400000).toDateString() === d.toDateString()) return `${lang === 'ru' ? 'вчера' : 'yesterday'} ${time}`;
+  const dd = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${dd} ${time}`;
 }
 
 /** "Alt+Shift+KeyA" → ["Alt", "Shift", "A"] for display. */

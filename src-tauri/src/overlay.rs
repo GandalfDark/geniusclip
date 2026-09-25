@@ -26,11 +26,13 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const WM_SHOW_TOAST: u32 = WM_APP + 2;
-const ENTER_MS: f32 = 320.0;
-const LEAVE_AT_MS: f32 = 2750.0;
-const LEAVE_MS: f32 = 300.0;
-const BAR_MS: f32 = 2900.0;
-const TOTAL_MS: u128 = 3080;
+const ENTER_MS: f32 = 220.0;
+const LEAVE_AT_MS: f32 = 2800.0;
+const LEAVE_MS: f32 = 240.0;
+const TOTAL_MS: u128 = 3060;
+
+const REC_RED: u32 = 0xff4f4f;
+const MUTED: u32 = 0x686872;
 
 #[derive(Clone, Default)]
 pub struct Toast {
@@ -54,9 +56,7 @@ impl Toast {
 struct Spec {
     title: String,
     sub: String,
-    glyph: char,
-    a: D2D1_COLOR_F,
-    b: D2D1_COLOR_F,
+    bar: D2D1_COLOR_F,
     right: bool,
     bottom: bool,
     mon: RECT,
@@ -79,14 +79,14 @@ fn rgb(hex: u32, a: f32) -> D2D1_COLOR_F {
 }
 
 /// Must match src/lib/accents.ts.
-fn accent(id: &str) -> (u32, u32) {
+fn accent(id: &str) -> u32 {
     match id {
-        "lagoon" => (0x22d3ee, 0x818cf8),
-        "ember" => (0xff5a6e, 0xff9f43),
-        "toxic" => (0xa3e635, 0x2dd4bf),
-        "gold" => (0xfcd34d, 0xf472b6),
-        "frost" => (0xc7d2fe, 0x60a5fa),
-        _ => (0xf472b6, 0xa78bfa),
+        "red" => 0xff5a36,
+        "lime" => 0xc6f432,
+        "cyan" => 0x38d2f0,
+        "amber" => 0xffb020,
+        "mono" => 0xe6e6ea,
+        _ => 0x9580ff,
     }
 }
 
@@ -136,18 +136,9 @@ pub fn toast(app: &AppHandle, toast: Toast) {
             parts.join(" · ")
         }
     };
-    let glyph = match toast.kind.as_str() {
-        "clip" => '\u{E945}',
-        "recording" => '\u{E714}',
-        "recording-start" => '\u{E7C8}',
-        "screenshot" => '\u{E722}',
-        "replay-on" => '\u{E768}',
-        "error" => '\u{E7BA}',
-        _ => '\u{E769}',
-    };
-    let (a, b) = match toast.kind.as_str() {
-        "error" => (0xff6b8b, 0xff9f43),
-        "recording-start" => (0xff4d6d, 0xff7aa2),
+    let bar = match toast.kind.as_str() {
+        "error" | "recording-start" => REC_RED,
+        "replay-off" | "replay-off-hint" => MUTED,
         _ => accent(&s.accent),
     };
 
@@ -166,9 +157,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     let spec = Spec {
         title,
         sub,
-        glyph,
-        a: rgb(a, 1.0),
-        b: rgb(b, 1.0),
+        bar: rgb(bar, 1.0),
         right: !s.overlay.corner.ends_with("left"),
         bottom: s.overlay.corner.starts_with("bottom"),
         mon,
@@ -185,13 +174,11 @@ pub fn toast(app: &AppHandle, toast: Toast) {
 // Render thread
 
 struct Renderer {
-    d2d: ID2D1Factory,
     dw: IDWriteFactory,
     rt: ID2D1DCRenderTarget,
     scale: f32,
     title_fmt: Option<IDWriteTextFormat>,
     sub_fmt: Option<IDWriteTextFormat>,
-    icon_fmt: Option<IDWriteTextFormat>,
     mem_dc: HDC,
     dib: HBITMAP,
     size: (i32, i32),
@@ -270,13 +257,6 @@ fn ease_out(x: f32) -> f32 {
     1.0 - (1.0 - x.clamp(0.0, 1.0)).powi(3)
 }
 
-fn ease_back(x: f32) -> f32 {
-    let x = x.clamp(0.0, 1.0);
-    let c1 = 1.70158;
-    let c3 = c1 + 1.0;
-    1.0 + c3 * (x - 1.0).powi(3) + c1 * (x - 1.0).powi(2)
-}
-
 fn rr(l: f32, t: f32, r: f32, b: f32, rad: f32) -> D2D1_ROUNDED_RECT {
     D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: l, top: t, right: r, bottom: b }, radiusX: rad, radiusY: rad }
 }
@@ -300,28 +280,24 @@ impl Renderer {
         let rt = d2d.CreateDCRenderTarget(&props)?;
         rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         let mem_dc = CreateCompatibleDC(None);
-        Ok(Renderer { d2d, dw, rt, scale: 0.0, title_fmt: None, sub_fmt: None, icon_fmt: None, mem_dc, dib: HBITMAP::default(), size: (0, 0) })
+        Ok(Renderer { dw, rt, scale: 0.0, title_fmt: None, sub_fmt: None, mem_dc, dib: HBITMAP::default(), size: (0, 0) })
     }
 
-    unsafe fn format(&self, family: PCWSTR, weight: DWRITE_FONT_WEIGHT, size: f32, center: bool) -> windows::core::Result<IDWriteTextFormat> {
+    unsafe fn format(&self, family: PCWSTR, weight: DWRITE_FONT_WEIGHT, size: f32) -> windows::core::Result<IDWriteTextFormat> {
         let f = self.dw.CreateTextFormat(family, None, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, w!(""))?;
         f.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
         f.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
-        if center {
-            f.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)?;
-        } else {
-            let sign = self.dw.CreateEllipsisTrimmingSign(&f)?;
-            let trim = DWRITE_TRIMMING { granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0 };
-            f.SetTrimming(&trim, &sign)?;
-        }
+        let sign = self.dw.CreateEllipsisTrimmingSign(&f)?;
+        let trim = DWRITE_TRIMMING { granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0 };
+        f.SetTrimming(&trim, &sign)?;
         Ok(f)
     }
 
     unsafe fn ensure(&mut self, scale: f32, w: i32, h: i32) -> windows::core::Result<()> {
         if (self.scale - scale).abs() > f32::EPSILON || self.title_fmt.is_none() {
-            self.title_fmt = Some(self.format(w!("Segoe UI"), DWRITE_FONT_WEIGHT_BOLD, 15.5 * scale, false)?);
-            self.sub_fmt = Some(self.format(w!("Segoe UI"), DWRITE_FONT_WEIGHT_SEMI_BOLD, 13.0 * scale, false)?);
-            self.icon_fmt = Some(self.format(w!("Segoe MDL2 Assets"), DWRITE_FONT_WEIGHT_NORMAL, 19.0 * scale, true)?);
+            self.title_fmt = Some(self.format(w!("Segoe UI"), DWRITE_FONT_WEIGHT_SEMI_BOLD, 14.0 * scale)?);
+            // Timecodes in a monospace face, like the app.
+            self.sub_fmt = Some(self.format(w!("Consolas"), DWRITE_FONT_WEIGHT_NORMAL, 12.5 * scale)?);
             self.scale = scale;
         }
         if self.size != (w, h) {
@@ -355,19 +331,20 @@ impl Renderer {
         let _ = GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
         let k = dx as f32 / 96.0;
 
-        let pad = 22.0 * k; // room for the shadow
-        let (cw, ch) = (360.0 * k, 78.0 * k);
+        let pad = 14.0 * k; // room for the shadow
+        let has_sub = !s.sub.is_empty();
+        let (cw, ch) = (300.0 * k, if has_sub { 58.0 } else { 42.0 } * k);
         let (ww, wh) = ((cw + pad * 2.0).ceil() as i32, (ch + pad * 2.0).ceil() as i32);
         self.ensure(k, ww, wh)?;
 
-        // Animation.
+        // Short slide + fade, like a system notification.
         let p = ease_out(t_ms / ENTER_MS);
         let q = 1.0 - ((t_ms - LEAVE_AT_MS) / LEAVE_MS).clamp(0.0, 1.0);
         let alpha = (p * q).clamp(0.0, 1.0);
         let dir = if s.right { 1.0 } else { -1.0 };
-        let slide = dir * ((1.0 - p) * 38.0 + (1.0 - q) * 22.0) * k;
+        let slide = dir * ((1.0 - p) * 16.0 + (1.0 - q) * 10.0) * k;
 
-        let margin = 20.0 * k;
+        let margin = 18.0 * k;
         let card_x = if s.right { s.mon.right as f32 - margin - cw } else { s.mon.left as f32 + margin };
         let card_y = if s.bottom { s.mon.bottom as f32 - margin - ch - 48.0 * k } else { s.mon.top as f32 + margin };
         let win_pos = POINT { x: (card_x - pad + slide).round() as i32, y: (card_y - pad).round() as i32 };
@@ -378,79 +355,32 @@ impl Renderer {
         rt.Clear(Some(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }));
 
         let (l, tp, r, b) = (pad, pad, pad + cw, pad + ch);
-        let radius = 18.0 * k;
+        let radius = 8.0 * k;
 
-        // Soft shadow.
-        let shadow = rt.CreateSolidColorBrush(&rgb(0x000000, 0.055), None)?;
-        for i in 0..9 {
-            let g = i as f32 * 1.8 * k;
-            rt.FillRoundedRectangle(&rr(l - g * 0.6, tp - g * 0.3 + 5.0 * k, r + g * 0.6, b + g + 5.0 * k, radius + g), &shadow);
+        // Tight shadow for separation from bright game scenes.
+        let shadow = rt.CreateSolidColorBrush(&rgb(0x000000, 0.08), None)?;
+        for i in 0..6 {
+            let g = i as f32 * 1.5 * k;
+            rt.FillRoundedRectangle(&rr(l - g * 0.5, tp - g * 0.2 + 3.0 * k, r + g * 0.5, b + g + 3.0 * k, radius + g), &shadow);
         }
 
-        // Card.
-        let bg = rt.CreateSolidColorBrush(&rgb(0x120d20, 0.96), None)?;
+        let bg = rt.CreateSolidColorBrush(&rgb(0x1c1c20, 0.97), None)?;
         let card = rr(l, tp, r, b, radius);
         rt.FillRoundedRectangle(&card, &bg);
-
-        // Accent glow from the top-left corner.
-        let glow_stops = [
-            D2D1_GRADIENT_STOP { position: 0.0, color: D2D1_COLOR_F { a: 0.24, ..s.a } },
-            D2D1_GRADIENT_STOP { position: 1.0, color: D2D1_COLOR_F { a: 0.0, ..s.a } },
-        ];
-        let glow_col = rt.CreateGradientStopCollection(&glow_stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)?;
-        let glow = rt.CreateRadialGradientBrush(
-            &D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES {
-                center: windows_numerics::Vector2 { X: l, Y: tp },
-                gradientOriginOffset: windows_numerics::Vector2 { X: 0.0, Y: 0.0 },
-                radiusX: cw * 0.75,
-                radiusY: ch * 1.5,
-            },
-            None,
-            &glow_col,
-        )?;
-        rt.FillRoundedRectangle(&card, &glow);
-
-        let border = rt.CreateSolidColorBrush(&rgb(0xc4b5fd, 0.18), None)?;
+        let border = rt.CreateSolidColorBrush(&rgb(0x33333a, 1.0), None)?;
         rt.DrawRoundedRectangle(&rr(l + 0.5, tp + 0.5, r - 0.5, b - 0.5, radius), &border, 1.0 * k.max(1.0), None);
 
-        // Icon tile with a gradient, popping in.
-        let grad_stops = [D2D1_GRADIENT_STOP { position: 0.0, color: s.a }, D2D1_GRADIENT_STOP { position: 1.0, color: s.b }];
-        let grad_col = rt.CreateGradientStopCollection(&grad_stops, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP)?;
-        let tile = 44.0 * k;
-        let (tx, ty) = (l + 17.0 * k, tp + (ch - tile) / 2.0);
-        let pop = 0.55 + 0.45 * ease_back((t_ms - 90.0) / 420.0);
-        let (cx, cy) = (tx + tile / 2.0, ty + tile / 2.0);
-        let half = tile / 2.0 * pop;
-        let tile_grad = rt.CreateLinearGradientBrush(
-            &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-                startPoint: windows_numerics::Vector2 { X: cx - half, Y: cy - half },
-                endPoint: windows_numerics::Vector2 { X: cx + half, Y: cy + half },
-            },
-            None,
-            &grad_col,
-        )?;
-        rt.FillRoundedRectangle(&rr(cx - half, cy - half, cx + half, cy + half, 13.0 * k * pop), &tile_grad);
-        let ink = rt.CreateSolidColorBrush(&rgb(0x1b1030, 1.0), None)?;
-        let glyph = wide(&s.glyph.to_string());
-        if let Some(f) = &self.icon_fmt {
-            rt.DrawText(
-                &glyph,
-                f,
-                &D2D_RECT_F { left: tx, top: ty, right: tx + tile, bottom: ty + tile },
-                &ink,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-                DWRITE_MEASURING_MODE_NATURAL,
-            );
-        }
+        // Accent bar.
+        let bar = rt.CreateSolidColorBrush(&s.bar, None)?;
+        let inset = 11.0 * k;
+        rt.FillRoundedRectangle(&rr(l + 12.0 * k, tp + inset, l + 15.0 * k, b - inset, 1.5 * k), &bar);
 
-        // Texts.
-        let text_l = tx + tile + 15.0 * k;
-        let text_r = r - 18.0 * k;
-        let white = rt.CreateSolidColorBrush(&rgb(0xf3eeff, 1.0), None)?;
-        let muted = rt.CreateSolidColorBrush(&rgb(0xa99dcb, 1.0), None)?;
-        let has_sub = !s.sub.is_empty();
+        let text_l = l + 26.0 * k;
+        let text_r = r - 16.0 * k;
+        let white = rt.CreateSolidColorBrush(&rgb(0xececef, 1.0), None)?;
+        let muted = rt.CreateSolidColorBrush(&rgb(0x9a9aa4, 1.0), None)?;
         let title_rect = if has_sub {
-            D2D_RECT_F { left: text_l, top: tp + 15.0 * k, right: text_r, bottom: tp + 39.0 * k }
+            D2D_RECT_F { left: text_l, top: tp + 9.0 * k, right: text_r, bottom: tp + 30.0 * k }
         } else {
             D2D_RECT_F { left: text_l, top: tp, right: text_r, bottom: b }
         };
@@ -459,28 +389,9 @@ impl Renderer {
         }
         if has_sub {
             if let Some(f) = &self.sub_fmt {
-                let rect = D2D_RECT_F { left: text_l, top: tp + 39.0 * k, right: text_r, bottom: tp + 61.0 * k };
+                let rect = D2D_RECT_F { left: text_l, top: tp + 30.0 * k, right: text_r, bottom: tp + 49.0 * k };
                 rt.DrawText(&wide(&s.sub), f, &rect, &muted, D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
             }
-        }
-
-        // Countdown bar.
-        let remain = 1.0 - (t_ms / BAR_MS).clamp(0.0, 1.0);
-        if remain > 0.0 {
-            let bar_l = l + 18.0 * k;
-            let bar_w = (cw - 36.0 * k) * remain;
-            let track = rt.CreateSolidColorBrush(&rgb(0xa78bfa, 0.12), None)?;
-            let (by0, by1) = (b - 8.0 * k, b - 5.5 * k);
-            rt.FillRoundedRectangle(&rr(bar_l, by0, r - 18.0 * k, by1, 1.5 * k), &track);
-            let bar_grad = rt.CreateLinearGradientBrush(
-                &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-                    startPoint: windows_numerics::Vector2 { X: bar_l, Y: by0 },
-                    endPoint: windows_numerics::Vector2 { X: r - 18.0 * k, Y: by0 },
-                },
-                None,
-                &grad_col,
-            )?;
-            rt.FillRoundedRectangle(&rr(bar_l, by0, bar_l + bar_w, by1, 1.5 * k), &bar_grad);
         }
 
         rt.EndDraw(None, None)?;
@@ -497,7 +408,6 @@ impl Renderer {
             Some(&blend),
             ULW_ALPHA,
         )?;
-        let _ = &self.d2d;
         Ok(())
     }
 }

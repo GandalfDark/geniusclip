@@ -1,5 +1,5 @@
 <script lang="ts">
-  import IconChevronDown from '@tabler/icons-svelte-runes/icons/chevron-down';
+  import Icon from './Icon.svelte';
   let {
     value,
     options,
@@ -14,7 +14,7 @@
       <option value={o.value}>{o.label}</option>
     {/each}
   </select>
-  <IconChevronDown size={16} class="chev" />
+  <span class="chev"><Icon name="down" size={15} /></span>
 </label>
 
 <style>
@@ -26,26 +26,26 @@
   select {
     appearance: none;
     width: 100%;
-    height: 38px;
-    padding: 0 36px 0 12px;
+    height: 32px;
+    padding: 0 32px 0 10px;
     border-radius: var(--r);
-    background: rgba(13, 10, 23, 0.6);
+    background: var(--bg);
     border: 1px solid var(--line-2);
-    font-size: 13.5px;
-    font-weight: 600;
+    font-size: 13px;
     cursor: pointer;
     text-overflow: ellipsis;
   }
   select:hover {
-    border-color: rgba(196, 181, 253, 0.3);
+    border-color: #45454d;
   }
   option {
-    background: #1a1330;
+    background: var(--panel-2);
   }
-  .sel :global(.chev) {
+  .chev {
     position: absolute;
-    right: 12px;
+    right: 9px;
+    display: flex;
     pointer-events: none;
-    color: var(--text-2);
+    color: var(--text-3);
   }
 </style>

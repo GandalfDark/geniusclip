@@ -1,142 +1,131 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import IconBolt from '@tabler/icons-svelte-runes/icons/bolt';
-  import IconLayoutGrid from '@tabler/icons-svelte-runes/icons/layout-grid';
-  import IconSettings from '@tabler/icons-svelte-runes/icons/settings';
+  import Icon, { type IconName } from './Icon.svelte';
   import Logo from './Logo.svelte';
   import { app } from '$lib/app.svelte';
 
-  const items = [
-    { href: '/', icon: IconBolt, key: 'nav.home' as const },
-    { href: '/gallery', icon: IconLayoutGrid, key: 'nav.gallery' as const },
-    { href: '/settings', icon: IconSettings, key: 'nav.settings' as const },
+  const items: { href: string; icon: IconName; key: 'nav.home' | 'nav.gallery' | 'nav.settings' }[] = [
+    { href: '/', icon: 'replay', key: 'nav.home' },
+    { href: '/gallery', icon: 'film', key: 'nav.gallery' },
+    { href: '/settings', icon: 'sliders', key: 'nav.settings' },
   ];
 
   let path = $derived(page.url.pathname);
-  let replayOn = $derived(!!app.status?.replayEnabled && !!app.status?.running);
-  let recording = $derived(!!app.status?.recording);
+  let live = $derived(!!app.status?.replayEnabled && !!app.status?.running);
 </script>
 
 <nav class="side" data-tauri-drag-region>
-  <a class="logo" href="/" aria-label="GeniusClip"><Logo size={34} /></a>
+  <a class="logo" href="/" aria-label="GeniusClip"><Logo size={26} /></a>
   <div class="items">
     {#each items as it}
       {@const active = it.href === '/' ? path === '/' : path.startsWith(it.href)}
       <a class="item" class:active href={it.href} aria-label={app.t(it.key)}>
-        <it.icon size={22} stroke={1.8} />
+        <Icon name={it.icon} size={21} />
         <span class="tip">{app.t(it.key)}</span>
       </a>
     {/each}
   </div>
-  <div class="state" title={replayOn ? app.t('home.replayOn') : app.t('home.replayOff')}>
-    {#if recording}
-      <span class="dot rec"></span>
-    {/if}
-    <span class="dot" class:on={replayOn}></span>
+  <div class="state" title={live ? app.t('home.rec') : app.t('home.off')}>
+    <span class="dot" class:live></span>
+    {#if app.status?.recording}<span class="rec mono">REC</span>{/if}
   </div>
 </nav>
 
 <style>
   .side {
-    width: 76px;
+    width: 56px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 18px 0 20px;
+    padding: 14px 0 18px;
+    background: var(--bg-side);
     border-right: 1px solid var(--line);
-    background: rgba(13, 10, 23, 0.55);
   }
   .logo {
     display: grid;
     place-items: center;
-    width: 48px;
-    height: 48px;
-    margin-bottom: 26px;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 18px;
   }
   .items {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
     flex: 1;
   }
   .item {
     position: relative;
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r);
     display: grid;
     place-items: center;
     color: var(--text-3);
     transition:
-      color 0.15s,
-      background 0.15s;
+      color 0.12s,
+      background 0.12s;
   }
   .item:hover {
     color: var(--text);
-    background: var(--hover);
   }
   .item.active {
-    color: var(--text);
-    background: var(--active);
+    color: var(--accent);
+    background: var(--hover);
   }
   .item.active::before {
     content: '';
     position: absolute;
-    left: -14px;
-    top: 12px;
-    bottom: 12px;
-    width: 4px;
-    border-radius: 0 4px 4px 0;
-    background: var(--accent-grad);
+    left: -8px;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    background: var(--accent);
   }
   .tip {
     position: absolute;
-    left: 60px;
-    padding: 5px 10px;
-    border-radius: 8px;
-    background: var(--panel-solid);
+    left: 48px;
+    padding: 4px 8px;
+    border-radius: var(--r-sm);
+    background: var(--panel-2);
     border: 1px solid var(--line-2);
-    font-size: 12.5px;
-    font-weight: 600;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
     white-space: nowrap;
     opacity: 0;
-    transform: translateX(-4px);
     pointer-events: none;
-    transition:
-      opacity 0.15s,
-      transform 0.15s var(--ease);
+    transition: opacity 0.12s;
     z-index: 20;
   }
   .item:hover .tip {
     opacity: 1;
-    transform: none;
   }
   .state {
     display: flex;
     flex-direction: column;
-    gap: 8px;
     align-items: center;
+    gap: 6px;
   }
   .dot {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--text-3);
   }
-  .dot.on {
-    background: var(--accent-a);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-a) 20%, transparent);
-    animation: pulse 2.4s infinite;
+  .dot.live {
+    background: var(--rec);
+    animation: blink 1.6s steps(1) infinite;
   }
-  .dot.rec {
-    background: #ff4d6d;
-    box-shadow: 0 0 0 4px rgba(255, 77, 109, 0.2);
-    animation: pulse 1.2s infinite;
+  .rec {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--rec);
   }
-  @keyframes pulse {
+  @keyframes blink {
     50% {
-      box-shadow: 0 0 0 7px transparent;
+      opacity: 0.35;
     }
   }
 </style>

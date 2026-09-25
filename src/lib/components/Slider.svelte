@@ -14,42 +14,36 @@
 
 <div class="slider" style:width>
   <input type="range" {min} {max} {step} {value} style:--pct="{pct}%" oninput={(e) => onchange(Number((e.currentTarget as HTMLInputElement).value))} />
-  <span class="val">{format(value)}</span>
+  <span class="val mono">{format(value)}</span>
 </div>
 
 <style>
   .slider {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
   }
   input {
     flex: 1;
     appearance: none;
-    height: 6px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--accent-a), var(--accent-b)) 0 / var(--pct) 100% no-repeat, rgba(167, 139, 250, 0.16);
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(var(--accent), var(--accent)) 0 / var(--pct) 100% no-repeat, #2e2e35;
     cursor: pointer;
   }
   input::-webkit-slider-thumb {
     appearance: none;
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: #f5f0ff;
-    box-shadow:
-      0 0 0 4px color-mix(in srgb, var(--accent-a) 30%, transparent),
-      0 2px 8px rgba(0, 0, 0, 0.4);
-    transition: transform 0.1s;
-  }
-  input:active::-webkit-slider-thumb {
-    transform: scale(1.12);
+    background: #ececef;
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--line-2);
   }
   .val {
-    min-width: 58px;
+    min-width: 54px;
     text-align: right;
-    font-family: var(--font-display);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12.5px;
+    color: var(--text-2);
   }
 </style>

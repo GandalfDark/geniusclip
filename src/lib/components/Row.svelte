@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  let { label, hint = '', children, stacked = false }: { label: string; hint?: string; children: Snippet; stacked?: boolean } = $props();
+  let { label, hint = '', children }: { label: string; hint?: string; children: Snippet } = $props();
 </script>
 
-<div class="row" class:stacked>
+<div class="row">
   <div class="text">
     <div class="label">{label}</div>
     {#if hint}<div class="hint">{hint}</div>{/if}
@@ -17,30 +17,28 @@
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    padding: 16px 0;
+    min-height: 52px;
+    padding: 10px 0;
     border-top: 1px solid var(--line);
   }
   .row:first-of-type {
     border-top: none;
   }
-  .row.stacked {
-    flex-direction: column;
-    align-items: stretch;
-  }
   .label {
-    font-weight: 600;
-    font-size: 14px;
+    font-size: 13.5px;
+    font-weight: 500;
   }
   .hint {
-    color: var(--text-2);
-    font-size: 12.5px;
-    margin-top: 2px;
-    max-width: 440px;
+    color: var(--text-3);
+    font-size: 12px;
+    margin-top: 1px;
+    max-width: 420px;
+    overflow-wrap: anywhere;
   }
   .ctl {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-shrink: 0;
   }
 </style>

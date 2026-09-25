@@ -5,35 +5,34 @@
 
 <div class="notices">
   {#each app.notices as n (n.id)}
-    <div class="notice {n.tone}" transition:fly={{ y: 12, duration: 220 }}>{n.text}</div>
+    <div class="notice {n.tone}" transition:fly={{ y: 8, duration: 160 }}>{n.text}</div>
   {/each}
 </div>
 
 <style>
   .notices {
     position: fixed;
-    right: 24px;
-    bottom: 24px;
+    right: 20px;
+    bottom: 20px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     z-index: 100;
     max-width: 420px;
   }
   .notice {
-    padding: 12px 16px;
+    padding: 10px 14px 10px 12px;
     border-radius: var(--r);
-    background: var(--panel-solid);
+    background: var(--panel-2);
     border: 1px solid var(--line-2);
-    box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.7);
-    font-weight: 600;
+    border-left: 3px solid var(--text-3);
     font-size: 13px;
     user-select: text;
   }
   .notice.error {
-    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    border-left-color: var(--danger);
   }
   .notice.ok {
-    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    border-left-color: var(--accent);
   }
 </style>

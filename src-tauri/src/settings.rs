@@ -73,7 +73,7 @@ impl Default for Settings {
             hotkeys: Hotkeys::default(),
             autostart: true,
             language: "auto".into(),
-            accent: "aurora".into(),
+            accent: "violet".into(),
             overlay: OverlaySettings::default(),
             auto_update: true,
         }
@@ -103,6 +103,10 @@ impl Settings {
             self.screenshots_dir = p.picture_dir().unwrap_or_else(|_| PathBuf::from(".")).join("GeniusClip");
         }
         self.replay_seconds = self.replay_seconds.clamp(10, 3600);
+        // Presets from before the "Studio" redesign map to the default.
+        if !["violet", "red", "lime", "cyan", "amber", "mono"].contains(&self.accent.as_str()) {
+            self.accent = "violet".into();
+        }
     }
 
     pub fn save(&self, app: &AppHandle) -> anyhow::Result<()> {

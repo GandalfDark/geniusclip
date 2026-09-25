@@ -83,7 +83,7 @@ pub fn foreground_app() -> Option<AppInfo> {
     app_for_window(unsafe { GetForegroundWindow() })
 }
 
-/// The top-most visible window that covers the whole given screen rect
+/// The top-most visible window that exactly fills the given screen rect
 /// (a fullscreen or borderless-fullscreen game), if any.
 pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
     struct Search {
@@ -104,7 +104,10 @@ pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
         if GetWindowRect(hwnd, &mut r).is_err() {
             return true.into();
         }
-        if r.left <= s.want.left && r.top <= s.want.top && r.right >= s.want.right && r.bottom >= s.want.bottom {
+        // Fullscreen/borderless games match the monitor exactly; maximized
+        // regular windows overhang it by their frame, so they don't count.
+        let near = |a: i32, b: i32| (a - b).abs() <= 1;
+        if near(r.left, s.want.left) && near(r.top, s.want.top) && near(r.right, s.want.right) && near(r.bottom, s.want.bottom) {
             s.found = Some(hwnd);
             return false.into(); // stop: windows are enumerated top-most first
         }

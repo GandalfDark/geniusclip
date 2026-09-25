@@ -1,13 +1,6 @@
 <script lang="ts">
-  import { fade, scale } from 'svelte/transition';
-  import IconX from '@tabler/icons-svelte-runes/icons/x';
-  import IconFolder from '@tabler/icons-svelte-runes/icons/folder';
-  import IconExternalLink from '@tabler/icons-svelte-runes/icons/external-link';
-  import IconTrash from '@tabler/icons-svelte-runes/icons/trash';
-  import IconPencil from '@tabler/icons-svelte-runes/icons/pencil';
-  import IconScissors from '@tabler/icons-svelte-runes/icons/scissors';
-  import IconArrowLeft from '@tabler/icons-svelte-runes/icons/arrow-left';
-  import IconArrowRight from '@tabler/icons-svelte-runes/icons/arrow-right';
+  import { fade } from 'svelte/transition';
+  import Icon from './Icon.svelte';
   import { api, fileUrl } from '$lib/api';
   import { app } from '$lib/app.svelte';
   import { bytes, date, preciseTime } from '$lib/format';
@@ -36,8 +29,6 @@
     trimming = false;
     renaming = false;
     confirmDelete = false;
-    start = 0;
-    end = 0;
   });
 
   function loaded() {
@@ -141,8 +132,8 @@
 
 <svelte:window onkeydown={onkey} />
 
-<div class="backdrop" transition:fade={{ duration: 150 }} onclick={onclose} role="presentation"></div>
-<div class="viewer" transition:scale={{ start: 0.97, duration: 200 }}>
+<div class="backdrop" transition:fade={{ duration: 120 }} onclick={onclose} role="presentation"></div>
+<div class="viewer" transition:fade={{ duration: 120 }}>
   <header>
     <div class="title">
       {#if renaming}
@@ -151,25 +142,26 @@
       {:else}
         <h3>{entry.name}</h3>
       {/if}
-      <div class="sub">
-        {#if entry.game}<span class="chip">{entry.game}</span>{/if}
-        <span class="muted">{date(entry.modified, app.lang)} · {bytes(entry.size, app.lang)}{entry.width ? ` · ${entry.width}×${entry.height}` : ''}</span>
+      <div class="meta mono">
+        {entry.game ? `${entry.game} · ` : ''}{date(entry.modified, app.lang)} · {bytes(entry.size, app.lang)}{entry.width ? ` · ${entry.width}×${entry.height}` : ''}
       </div>
     </div>
     <div class="actions">
-      <button class="btn sm ghost icon" title={app.t('gallery.rename')} onclick={() => ((newName = entry.name), (renaming = true))}><IconPencil size={17} /></button>
-      <button class="btn sm ghost icon" title={app.t('gallery.reveal')} onclick={() => api.revealPath(entry.path)}><IconFolder size={17} /></button>
-      <button class="btn sm ghost icon" title={app.t('gallery.open')} onclick={() => api.openPath(entry.path)}><IconExternalLink size={17} /></button>
-      <button class="btn sm ghost danger" class:icon={!confirmDelete} title={app.t('gallery.delete')} onclick={del}>
-        <IconTrash size={17} />{#if confirmDelete}<span>{app.t('gallery.delete')}?</span>{/if}
+      <button class="btn ghost icon" title={app.t('gallery.rename')} onclick={() => ((newName = entry.name), (renaming = true))}><Icon name="rename" size={18} /></button>
+      <button class="btn ghost icon" title={app.t('gallery.reveal')} onclick={() => api.revealPath(entry.path)}><Icon name="folder" size={18} /></button>
+      <button class="btn ghost icon" title={app.t('gallery.open')} onclick={() => api.openPath(entry.path)}><Icon name="open" size={18} /></button>
+      <button class="btn ghost danger" class:icon={!confirmDelete} title={app.t('gallery.delete')} onclick={del}>
+        <Icon name="trash" size={18} />{#if confirmDelete}{app.t('gallery.confirmDelete')}{/if}
       </button>
       <span class="sep"></span>
-      <button class="btn sm ghost icon" title={app.t('gallery.close')} onclick={onclose}><IconX size={19} /></button>
+      <button class="btn ghost icon" title={app.t('gallery.close')} onclick={onclose}><Icon name="close" size={18} /></button>
     </div>
   </header>
 
   <div class="stage">
-    <button class="nav prev" disabled={index <= 0} onclick={() => go(-1)} aria-label="prev"><IconArrowLeft size={20} /></button>
+    {#if index > 0}
+      <button class="nav prev" onclick={() => go(-1)} aria-label="prev"><Icon name="left" size={20} /></button>
+    {/if}
     {#key entry.path}
       {#if isVideo}
         <!-- svelte-ignore a11y_media_has_caption -->
@@ -178,19 +170,17 @@
         <img src={fileUrl(entry.path)} alt={entry.name} />
       {/if}
     {/key}
-    <button class="nav next" disabled={index >= list.length - 1} onclick={() => go(1)} aria-label="next"><IconArrowRight size={20} /></button>
+    {#if index < list.length - 1}
+      <button class="nav next" onclick={() => go(1)} aria-label="next"><Icon name="right" size={20} /></button>
+    {/if}
   </div>
 
   {#if isVideo && total > 0}
-    <div class="trim" class:open={trimming}>
+    <div class="trim">
       <div class="trim-head">
-        <button class="btn sm" class:active={trimming} onclick={() => (trimming = !trimming)}><IconScissors size={16} />{app.t('gallery.trim')}</button>
+        <button class="btn sm" class:on={trimming} onclick={() => (trimming = !trimming)}><Icon name="trim" size={16} />{app.t('gallery.trim')}</button>
         {#if trimming}
-          <span class="times">
-            <span class="muted">{app.t('gallery.trimStart')}</span> <b>{preciseTime(start)}</b>
-            <span class="muted">{app.t('gallery.trimEnd')}</span> <b>{preciseTime(end)}</b>
-            <span class="len grad-text">{preciseTime(end - start)}</span>
-          </span>
+          <span class="times mono">{preciseTime(start)} – {preciseTime(end)} <span class="len">{preciseTime(end - start)}</span></span>
           <span class="grow"></span>
           <button class="btn sm ghost" onclick={setIn}>{app.t('gallery.setIn')}</button>
           <button class="btn sm ghost" onclick={setOut}>{app.t('gallery.setOut')}</button>
@@ -200,10 +190,12 @@
       </div>
       {#if trimming}
         <div class="track" bind:this={track} onpointerdown={(e) => drag('seek', e)} role="presentation">
+          <div class="dim" style:left="0" style:width="{(start / total) * 100}%"></div>
+          <div class="dim" style:left="{(end / total) * 100}%" style:right="0"></div>
           <div class="sel" style:left="{(start / total) * 100}%" style:width="{((end - start) / total) * 100}%"></div>
           <div class="head" style:left="{(current / total) * 100}%"></div>
-          <button class="handle" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label="start"></button>
-          <button class="handle" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label="end"></button>
+          <button class="handle in" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label="start"></button>
+          <button class="handle out" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label="end"></button>
         </div>
       {/if}
     </div>
@@ -214,27 +206,25 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(6, 4, 12, 0.72);
-    backdrop-filter: blur(6px);
+    background: rgba(8, 8, 10, 0.78);
     z-index: 50;
   }
   .viewer {
     position: fixed;
-    inset: 44px 36px 28px 112px;
+    inset: 40px 28px 24px 84px;
     z-index: 51;
     display: flex;
     flex-direction: column;
-    background: var(--panel-solid);
+    background: var(--panel);
     border: 1px solid var(--line-2);
-    border-radius: 22px;
-    box-shadow: 0 40px 120px -30px rgba(0, 0, 0, 0.9);
+    border-radius: var(--r-lg);
     overflow: hidden;
   }
   header {
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 14px 16px 12px 22px;
+    padding: 10px 10px 10px 18px;
     border-bottom: 1px solid var(--line);
   }
   .title {
@@ -242,7 +232,7 @@
     min-width: 0;
   }
   h3 {
-    font-size: 16px;
+    font-size: 14.5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -250,29 +240,29 @@
   .rename {
     width: 100%;
     max-width: 520px;
-    height: 32px;
-    padding: 0 10px;
-    border-radius: 8px;
-    border: 1px solid var(--accent-a);
-    background: rgba(13, 10, 23, 0.7);
-    font-weight: 700;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--accent);
+    background: var(--bg);
+    font-weight: 600;
     user-select: text;
   }
-  .sub {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 4px;
-    font-size: 12.5px;
+  .meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .actions {
     display: flex;
     align-items: center;
-    gap: 2px;
   }
   .sep {
     width: 1px;
-    height: 22px;
+    height: 20px;
     background: var(--line-2);
     margin: 0 6px;
   }
@@ -282,12 +272,10 @@
     min-height: 0;
     display: grid;
     place-items: center;
-    background: #07050d;
+    background: #0b0b0d;
   }
   video,
   img {
-    max-width: 100%;
-    max-height: 100%;
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -296,97 +284,112 @@
   .nav {
     position: absolute;
     top: 50%;
-    margin-top: -22px;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
+    margin-top: -20px;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r);
     display: grid;
     place-items: center;
-    background: rgba(26, 19, 48, 0.8);
+    background: rgba(20, 20, 22, 0.85);
     border: 1px solid var(--line-2);
+    color: var(--text-2);
     z-index: 2;
     opacity: 0;
-    transition: opacity 0.2s;
+    transition: opacity 0.15s;
   }
-  .stage:hover .nav:not(:disabled) {
+  .nav:hover {
+    color: var(--text);
+  }
+  .stage:hover .nav {
     opacity: 1;
   }
-  .nav:disabled {
-    display: none;
-  }
   .prev {
-    left: 16px;
+    left: 12px;
   }
   .next {
-    right: 16px;
+    right: 12px;
   }
   .trim {
-    padding: 12px 18px 14px;
+    padding: 10px 14px 12px;
     border-top: 1px solid var(--line);
   }
   .trim-head {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
-  .trim-head .active {
-    border-color: var(--accent-a);
+  .btn.on {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .times {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-  }
-  .times b {
-    font-family: var(--font-display);
-    font-weight: 500;
-    margin-right: 8px;
+    font-size: 12px;
+    color: var(--text-2);
+    margin-left: 6px;
   }
   .len {
-    font-family: var(--font-display);
-    font-weight: 600;
+    color: var(--accent);
+    margin-left: 8px;
   }
   .grow {
     flex: 1;
   }
   .track {
     position: relative;
-    height: 44px;
-    margin-top: 12px;
-    border-radius: 10px;
-    background: repeating-linear-gradient(90deg, rgba(167, 139, 250, 0.1) 0 2px, transparent 2px 10px), rgba(13, 10, 23, 0.8);
-    border: 1px solid var(--line);
+    height: 36px;
+    margin-top: 10px;
+    border-radius: var(--r-sm);
+    background: repeating-linear-gradient(90deg, transparent 0 7px, #26262c 7px 8px), var(--bg);
+    border: 1px solid var(--line-2);
     cursor: pointer;
+  }
+  .dim {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: none;
   }
   .sel {
     position: absolute;
     top: -1px;
     bottom: -1px;
-    border: 2px solid var(--accent-a);
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--accent-a) 14%, transparent);
+    border-top: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
     pointer-events: none;
   }
   .head {
     position: absolute;
-    top: -4px;
-    bottom: -4px;
+    top: -3px;
+    bottom: -3px;
     width: 2px;
     margin-left: -1px;
     background: #fff;
-    border-radius: 2px;
     pointer-events: none;
   }
   .handle {
     position: absolute;
-    top: 50%;
-    width: 14px;
-    height: 34px;
-    margin: -17px 0 0 -7px;
-    border-radius: 6px;
-    background: var(--accent-grad);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    top: -1px;
+    bottom: -1px;
+    width: 10px;
+    background: var(--accent);
     cursor: ew-resize;
+  }
+  .handle.in {
+    margin-left: -10px;
+    border-radius: 3px 0 0 3px;
+  }
+  .handle.out {
+    border-radius: 0 3px 3px 0;
+  }
+  .handle::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: var(--accent-ink);
+    opacity: 0.6;
   }
 </style>
