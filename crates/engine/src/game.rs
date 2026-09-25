@@ -9,7 +9,8 @@ use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    EnumWindows, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+    IsWindowVisible, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -32,6 +33,22 @@ const SHELL_EXES: &[&str] = &[
     "textinputhost.exe",
     "applicationframehost.exe",
     "geniusclip.exe",
+];
+
+/// Overlays that cover the whole screen on top of games (never the game itself).
+const OVERLAY_EXES: &[&str] = &[
+    "nvidia overlay.exe",
+    "nvidia share.exe",
+    "nvidia app.exe",
+    "radeonsoftware.exe",
+    "amdrsserv.exe",
+    "gameoverlayui.exe",
+    "discord.exe",
+    "rtss.exe",
+    "gamebar.exe",
+    "gamebarftserver.exe",
+    "overwolf.exe",
+    "medal.exe",
 ];
 
 /// Hosts whose file description is meaningless; the window title names the app.
@@ -62,8 +79,11 @@ fn file_description(path: &str) -> Option<String> {
         for key in ["FileDescription", "ProductName"] {
             let q = HSTRING::from(format!("\\StringFileInfo\\{lang:04x}{cp:04x}\\{key}"));
             if VerQueryValueW(buf.as_ptr() as *const _, &q, &mut ptr, &mut len).as_bool() && len > 1 {
-                let s = String::from_utf16_lossy(std::slice::from_raw_parts(ptr as *const u16, len as usize - 1));
-                let s = s.trim().to_string();
+                // `len` is not reliable across files: stop at the first NUL.
+                let raw = std::slice::from_raw_parts(ptr as *const u16, len as usize);
+                let end = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+                let s = String::from_utf16_lossy(&raw[..end]);
+                let s: String = s.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string();
                 if !s.is_empty() {
                     return Some(s);
                 }
@@ -88,11 +108,18 @@ pub fn foreground_app() -> Option<AppInfo> {
 pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
     struct Search {
         want: RECT,
-        found: Option<HWND>,
+        found: Option<AppInfo>,
     }
     unsafe extern "system" fn visit(hwnd: HWND, lp: LPARAM) -> windows::core::BOOL {
         let s = &mut *(lp.0 as *mut Search);
         if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return true.into();
+        }
+        // Click-through / non-activating / tool windows are overlays (vendor
+        // overlays, notifications, our own toast), not games.
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let overlay_bits = WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0;
+        if ex & overlay_bits != 0 || (ex & WS_EX_LAYERED.0 != 0 && ex & WS_EX_TRANSPARENT.0 != 0) {
             return true.into();
         }
         let mut cloaked = 0u32;
@@ -108,8 +135,10 @@ pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
         // regular windows overhang it by their frame, so they don't count.
         let near = |a: i32, b: i32| (a - b).abs() <= 1;
         if near(r.left, s.want.left) && near(r.top, s.want.top) && near(r.right, s.want.right) && near(r.bottom, s.want.bottom) {
-            s.found = Some(hwnd);
-            return false.into(); // stop: windows are enumerated top-most first
+            if let Some(a) = app_for_window(hwnd).filter(|a| !a.is_desktop && !OVERLAY_EXES.contains(&a.exe.to_lowercase().as_str())) {
+                s.found = Some(a);
+                return false.into(); // stop: windows are enumerated top-most first
+            }
         }
         true.into()
     }
@@ -117,7 +146,7 @@ pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
     unsafe {
         let _ = EnumWindows(Some(visit), LPARAM(&mut s as *mut Search as isize));
     }
-    s.found.and_then(app_for_window).filter(|a| !a.is_desktop)
+    s.found
 }
 
 fn app_for_window(hwnd: HWND) -> Option<AppInfo> {
