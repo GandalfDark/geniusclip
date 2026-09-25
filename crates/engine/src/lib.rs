@@ -21,7 +21,7 @@ pub use audio::{list_devices as list_audio_devices, AudioDevice};
 pub use config::{Codec, EngineConfig, Quality, Resolution};
 pub use d3d::{list_monitors, MonitorInfo};
 pub use engine::{Engine, EngineEvent, EngineStatus};
-pub use venc::target_bitrate;
+pub use venc::{output_size, target_bitrate};
 
 pub fn ffmpeg_version() -> String {
     unsafe { std::ffi::CStr::from_ptr(ffmpeg_sys_next::av_version_info()).to_string_lossy().into_owned() }

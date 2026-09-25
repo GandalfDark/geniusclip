@@ -1,6 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "geniusclip",
+  "productName": "GeniusClip",
+  "mainBinaryName": "GeniusClip",
   "version": "0.1.0",
   "identifier": "com.geniusclip.app",
   "build": {
@@ -10,26 +11,50 @@
     "frontendDist": "../build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "geniusclip",
-        "width": 800,
-        "height": 600
-      }
-    ],
+    "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "GeniusClip",
+    "shortDescription": "Instant replay clip recorder",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../third_party/ffmpeg/bin/avcodec-63.dll": "avcodec-63.dll",
+      "../third_party/ffmpeg/bin/avformat-63.dll": "avformat-63.dll",
+      "../third_party/ffmpeg/bin/avutil-61.dll": "avutil-61.dll",
+      "../third_party/ffmpeg/bin/swresample-7.dll": "swresample-7.dll",
+      "../third_party/ffmpeg/bin/swscale-10.dll": "swscale-10.dll",
+      "../third_party/ffmpeg/LICENSE.txt": "FFMPEG-LICENSE.txt"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Russian", "English"],
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdGMTRCNUE1MDM5RjRGMzYKUldRMlQ1OERwYlVVZithaWRHQ1VtSjNYL243ODBiMnljNWZXVGxLanlJV0N2b3Q5S1Izb1pKVDMK",
+      "endpoints": ["https://github.com/OWNER/GeniusClip-releases/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }
