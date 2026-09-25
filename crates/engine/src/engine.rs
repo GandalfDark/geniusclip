@@ -581,7 +581,7 @@ fn video_thread(
         };
         Ok((device, ctx, dup, enc, conv, cursor_r))
     })();
-    let (device, ctx, mut dup, mut enc, mut conv, mut cursor_r) = match setup {
+    let (device, ctx, mut dup, enc, mut conv, mut cursor_r) = match setup {
         Ok(v) => v,
         Err(e) => {
             let msg = format!("{e:#}");
@@ -594,6 +594,32 @@ fn video_thread(
     if !go_rx.recv_timeout(Duration::from_secs(10)).unwrap_or(false) {
         return Ok(());
     }
+    let (enc_w, enc_h) = (enc.width, enc.height);
+
+    // Encoding runs on its own thread so a slow encoder call (Media
+    // Foundation can block for tens of ms) never delays frame capture.
+    let pool = enc.pool();
+    let (enc_tx, enc_rx) = bounded::<(crate::venc::HwFrame, i64, bool)>(8);
+    let enc_thread = {
+        let shared = shared.clone();
+        std::thread::Builder::new().name("gc-encode".into()).spawn(move || -> Result<()> {
+            unsafe {
+                let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+            }
+            let mut enc = enc;
+            let mut sink = |p: Packet| shared.on_packet(0, p);
+            let mut res = Ok(());
+            while let Ok((frame, pts, key)) = enc_rx.recv() {
+                if let Err(e) = enc.submit(frame, pts, key, &mut sink) {
+                    res = Err(e);
+                    break;
+                }
+            }
+            enc.flush(&mut sink);
+            res
+        })?
+    };
+    let mut queue_drops = 0u64;
 
     let bind = D3D11_BIND_FLAG(D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0);
     let dev2 = device.clone();
@@ -611,22 +637,35 @@ fn video_thread(
     let mut stat_t = Instant::now();
     let mut stat_frames = 0u32;
     let mut warmed_up = false;
-    let mut sink = |p: Packet| shared.on_packet(0, p);
+    // Per-stage timing (poll, compose, convert, encode) for the periodic log.
+    let mut prof = [(0u64, 0u64); 4];
+    let mut prof_n = 0u64;
+    let mut prof_t = Instant::now();
+    let mut dropped_at_log = 0u64;
+    let mut lap;
+    let mark = |i: usize, lap: &mut Instant, prof: &mut [(u64, u64); 4]| {
+        let us = lap.elapsed().as_micros() as u64;
+        prof[i].0 += us;
+        prof[i].1 = prof[i].1.max(us);
+        *lap = Instant::now();
+    };
 
     while !stop.load(Ordering::Relaxed) {
         timer.wait_until(tick_time(tick));
+        lap = Instant::now();
 
         match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
             Poll::Changed { desktop: d } => {
                 if d && (conv.in_w != dup.width || conv.in_h != dup.height) {
                     log::info!("desktop resized to {}x{}", dup.width, dup.height);
-                    conv = Converter::new(&device, &ctx, dup.width, dup.height, enc.width, enc.height, fps)?;
+                    conv = Converter::new(&device, &ctx, dup.width, dup.height, enc_w, enc_h, fps)?;
                     composed = None;
                 }
                 dirty = true;
             }
             Poll::Idle | Poll::Lost => {}
         }
+        mark(0, &mut lap, &mut prof);
 
         if dirty {
             if let Some(src) = desktop.as_ref() {
@@ -662,11 +701,26 @@ fn video_thread(
             }
         }
 
+        mark(1, &mut lap, &mut prof);
         if let Some(inp) = input.as_ref() {
-            let (surf, slice) = enc.acquire_surface()?;
+            let (frame, surf, slice) = pool.acquire()?;
             conv.convert(inp, &surf, slice).context("convert")?;
-            let force = shared.force_key.swap(false, Ordering::Relaxed);
-            enc.submit(tick, force, &mut sink).context("encode")?;
+            mark(2, &mut lap, &mut prof);
+            let force = shared.force_key.load(Ordering::Relaxed);
+            match enc_tx.try_send((frame, tick, force)) {
+                Ok(()) => {
+                    if force {
+                        shared.force_key.store(false, Ordering::Relaxed);
+                    }
+                }
+                Err(crossbeam_channel::TrySendError::Full(_)) => {
+                    queue_drops += 1;
+                    shared.dropped.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
+            }
+            mark(3, &mut lap, &mut prof);
+            prof_n += 1;
             stat_frames += 1;
         }
 
@@ -687,8 +741,30 @@ fn video_thread(
             stat_t = Instant::now();
             stat_frames = 0;
         }
+        if prof_t.elapsed() >= Duration::from_secs(10) && prof_n > 0 {
+            let d = shared.dropped.load(Ordering::Relaxed);
+            let f = |i: usize| format!("{:.1}/{:.1}", prof[i].0 as f64 / prof_n as f64 / 1000.0, prof[i].1 as f64 / 1000.0);
+            log::info!(
+                "video: {:.1} fps, dropped {} (encoder busy {}) | ms avg/max poll {} compose {} convert {} queue {}",
+                prof_n as f64 / prof_t.elapsed().as_secs_f64(),
+                d - dropped_at_log,
+                queue_drops,
+                f(0),
+                f(1),
+                f(2),
+                f(3)
+            );
+            dropped_at_log = d;
+            queue_drops = 0;
+            prof = [(0, 0); 4];
+            prof_n = 0;
+            prof_t = Instant::now();
+        }
     }
-    enc.flush(&mut sink);
+    drop(enc_tx);
     shared.fps_x100.store(0, Ordering::Relaxed);
-    Ok(())
+    match enc_thread.join() {
+        Ok(r) => r.context("encoder"),
+        Err(_) => bail!("encoder thread panicked"),
+    }
 }

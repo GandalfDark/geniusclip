@@ -36,7 +36,6 @@ pub struct VideoEncoder {
     ctx: CodecCtx,
     hw_device: *mut ff::AVBufferRef,
     hw_frames: *mut ff::AVBufferRef,
-    frame: AvFrame,
     pkt: AvPacket,
     pub name: String,
     pub width: u32,
@@ -189,7 +188,6 @@ impl VideoEncoder {
             ctx,
             hw_device: hw_device.into_raw(),
             hw_frames: hw_frames.into_raw(),
-            frame: AvFrame::new(),
             pkt: AvPacket::new(),
             name: name.to_string(),
             width,
@@ -198,26 +196,20 @@ impl VideoEncoder {
         })
     }
 
-    /// Takes a free encoder surface; returns (texture array, slice index).
-    pub fn acquire_surface(&mut self) -> Result<(ID3D11Texture2D, u32)> {
-        unsafe {
-            ff::av_frame_unref(self.frame.0);
-            check(ff::av_hwframe_get_buffer(self.hw_frames, self.frame.0, 0), "av_hwframe_get_buffer")?;
-            let f = &*self.frame.0;
-            let raw = f.data[0] as *mut c_void;
-            let tex = ID3D11Texture2D::from_raw_borrowed(&raw).ok_or_else(|| anyhow!("null surface"))?.clone();
-            Ok((tex, f.data[1] as usize as u32))
-        }
+    /// Surface allocator that can live on the capture thread while the
+    /// encoder itself runs on its own thread.
+    pub fn pool(&self) -> SurfacePool {
+        SurfacePool(unsafe { ff::av_buffer_ref(self.hw_frames) })
     }
 
-    /// Submits the surface from `acquire_surface` and drains produced packets.
-    pub fn submit(&mut self, pts: i64, force_key: bool, out: &mut dyn FnMut(Packet)) -> Result<()> {
+    /// Encodes a surface obtained from the pool and drains produced packets.
+    pub fn submit(&mut self, frame: HwFrame, pts: i64, force_key: bool, out: &mut dyn FnMut(Packet)) -> Result<()> {
         unsafe {
-            let f = &mut *self.frame.0;
+            let f = &mut *(frame.0).0;
             f.pts = pts;
             f.pict_type = if force_key { ff::AVPictureType::AV_PICTURE_TYPE_I } else { ff::AVPictureType::AV_PICTURE_TYPE_NONE };
-            let r = ff::avcodec_send_frame(self.ctx.0, self.frame.0);
-            ff::av_frame_unref(self.frame.0);
+            let r = ff::avcodec_send_frame(self.ctx.0, (frame.0).0);
+            drop(frame);
             if r < 0 && !is_eagain(r) {
                 check(r, "avcodec_send_frame")?;
             }
@@ -253,12 +245,39 @@ impl VideoEncoder {
 impl Drop for VideoEncoder {
     fn drop(&mut self) {
         unsafe {
-            ff::av_frame_unref(self.frame.0);
             // Context must go before the frames/device it references.
             ff::avcodec_free_context(&mut self.ctx.0);
             ff::av_buffer_unref(&mut self.hw_frames);
             ff::av_buffer_unref(&mut self.hw_device);
         }
+    }
+}
+
+/// A D3D11 NV12 encoder surface (refcounted AVFrame from the hw pool).
+pub struct HwFrame(AvFrame);
+unsafe impl Send for HwFrame {}
+
+pub struct SurfacePool(*mut ff::AVBufferRef);
+unsafe impl Send for SurfacePool {}
+
+impl SurfacePool {
+    /// Takes a free surface; returns the frame plus its texture and array slice.
+    pub fn acquire(&self) -> Result<(HwFrame, ID3D11Texture2D, u32)> {
+        unsafe {
+            let frame = AvFrame::new();
+            check(ff::av_hwframe_get_buffer(self.0, frame.0, 0), "av_hwframe_get_buffer")?;
+            let f = &*frame.0;
+            let raw = f.data[0] as *mut c_void;
+            let tex = ID3D11Texture2D::from_raw_borrowed(&raw).ok_or_else(|| anyhow!("null surface"))?.clone();
+            let slice = f.data[1] as usize as u32;
+            Ok((HwFrame(frame), tex, slice))
+        }
+    }
+}
+
+impl Drop for SurfacePool {
+    fn drop(&mut self) {
+        unsafe { ff::av_buffer_unref(&mut self.0) };
     }
 }
 

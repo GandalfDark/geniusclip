@@ -117,7 +117,6 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -201,6 +200,7 @@ pub fn run() {
             commands::check_update,
             commands::install_update,
             commands::close_main,
+            commands::preview_toast,
             commands::quit_app,
         ])
         .build(tauri::generate_context!())

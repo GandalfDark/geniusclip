@@ -16,12 +16,13 @@ pub struct Hotkeys {
 
 impl Default for Hotkeys {
     fn default() -> Self {
-        // Same layout as NVIDIA ShadowPlay, familiar to most players.
+        // Chosen to avoid the defaults of NVIDIA App (Alt+F1/F9/F10),
+        // AMD Adrenalin (Ctrl+Shift+…), Xbox Game Bar (Win+Alt+…) and Steam (F12).
         Hotkeys {
-            save_clip: "Alt+F10".into(),
-            toggle_replay: "Alt+Shift+F10".into(),
-            screenshot: "Alt+F1".into(),
-            toggle_recording: "Alt+F9".into(),
+            save_clip: "Alt+F8".into(),
+            toggle_replay: "Alt+Shift+F8".into(),
+            screenshot: "Alt+F6".into(),
+            toggle_recording: "Alt+F7".into(),
         }
     }
 }

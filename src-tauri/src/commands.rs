@@ -272,6 +272,13 @@ pub fn close_main(app: AppHandle) {
     }
 }
 
+/// Shows a sample toast so the user can check the overlay position.
+#[tauri::command]
+pub fn preview_toast(app: AppHandle) {
+    let game = crate::actions::current_game(&app).name;
+    crate::overlay::toast(&app, crate::overlay::Toast { kind: "clip".into(), game, seconds: 300.0, ..Default::default() });
+}
+
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);

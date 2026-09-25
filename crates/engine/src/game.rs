@@ -4,10 +4,13 @@
 use serde::Serialize;
 use std::path::Path;
 use windows::core::{HSTRING, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,8 +80,45 @@ fn window_title(hwnd: HWND) -> String {
 }
 
 pub fn foreground_app() -> Option<AppInfo> {
+    app_for_window(unsafe { GetForegroundWindow() })
+}
+
+/// The top-most visible window that covers the whole given screen rect
+/// (a fullscreen or borderless-fullscreen game), if any.
+pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
+    struct Search {
+        want: RECT,
+        found: Option<HWND>,
+    }
+    unsafe extern "system" fn visit(hwnd: HWND, lp: LPARAM) -> windows::core::BOOL {
+        let s = &mut *(lp.0 as *mut Search);
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return true.into();
+        }
+        let mut cloaked = 0u32;
+        let _ = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut _, 4);
+        if cloaked != 0 {
+            return true.into();
+        }
+        let mut r = RECT::default();
+        if GetWindowRect(hwnd, &mut r).is_err() {
+            return true.into();
+        }
+        if r.left <= s.want.left && r.top <= s.want.top && r.right >= s.want.right && r.bottom >= s.want.bottom {
+            s.found = Some(hwnd);
+            return false.into(); // stop: windows are enumerated top-most first
+        }
+        true.into()
+    }
+    let mut s = Search { want: RECT { left: x, top: y, right: x + w as i32, bottom: y + h as i32 }, found: None };
     unsafe {
-        let hwnd = GetForegroundWindow();
+        let _ = EnumWindows(Some(visit), LPARAM(&mut s as *mut Search as isize));
+    }
+    s.found.and_then(app_for_window).filter(|a| !a.is_desktop)
+}
+
+fn app_for_window(hwnd: HWND) -> Option<AppInfo> {
+    unsafe {
         if hwnd.0.is_null() {
             return None;
         }

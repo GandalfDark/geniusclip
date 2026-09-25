@@ -10,10 +10,21 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
-/// The game a clip belongs to: the foreground app, or the last game seen
-/// while the replay window was recording if the user is on the desktop / in our UI.
+/// A fullscreen app on the monitor being recorded (the game), if any.
+fn fullscreen_on_capture_monitor(app: &AppHandle) -> Option<AppInfo> {
+    let want = app.state::<AppState>().settings.read().engine.monitor.clone();
+    let mons = geniusclip_engine::list_monitors().ok()?;
+    let m = want.as_deref().and_then(|id| mons.iter().find(|m| m.id == id)).or_else(|| mons.iter().find(|m| m.primary))?;
+    game::fullscreen_app(m.x, m.y, m.width, m.height)
+}
+
+/// The game a clip belongs to: a fullscreen app on the recorded monitor,
+/// else the foreground app, else the last game seen during the replay window.
 pub fn current_game(app: &AppHandle) -> AppInfo {
     let st = app.state::<AppState>();
+    if let Some(a) = fullscreen_on_capture_monitor(app) {
+        return a;
+    }
     let fg = game::foreground_app();
     if let Some(a) = fg.as_ref().filter(|a| !a.is_desktop) {
         return a.clone();
@@ -127,7 +138,7 @@ pub fn toggle_recording(app: &AppHandle) {
 
 /// Called every second: remembers the last game in focus.
 pub fn track_foreground(app: &AppHandle) {
-    if let Some(a) = game::foreground_app().filter(|a| !a.is_desktop) {
+    if let Some(a) = fullscreen_on_capture_monitor(app).or_else(|| game::foreground_app().filter(|a| !a.is_desktop)) {
         *app.state::<AppState>().last_game.lock() = Some((a, Instant::now()));
     }
 }

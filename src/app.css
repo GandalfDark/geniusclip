@@ -1,0 +1,210 @@
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/unbounded';
+
+:root {
+  /* Aurora palette */
+  --bg: #0d0a17;
+  --bg-2: #120d20;
+  --panel: rgba(28, 20, 49, 0.72);
+  --panel-solid: #1a1330;
+  --panel-2: rgba(40, 30, 70, 0.55);
+  --hover: rgba(167, 139, 250, 0.08);
+  --active: rgba(167, 139, 250, 0.14);
+  --line: rgba(196, 181, 253, 0.09);
+  --line-2: rgba(196, 181, 253, 0.16);
+  --text: #efe9ff;
+  --text-2: #a99dcb;
+  --text-3: #6f6592;
+  --danger: #ff6b8b;
+  --ok: #5eead4;
+  --warn: #fbbf24;
+
+  --accent-a: #f472b6;
+  --accent-b: #a78bfa;
+  --accent-grad: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  --accent-soft: color-mix(in srgb, var(--accent-a) 16%, transparent);
+  --accent-ink: #1b1030;
+
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 18px;
+  --font: 'Manrope Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Unbounded Variable', 'Manrope Variable', sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+html.overlay,
+html.overlay body {
+  background: transparent;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-a);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.18);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(167, 139, 250, 0.32);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--r);
+  font-weight: 600;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  transition:
+    background 0.15s,
+    transform 0.1s,
+    border-color 0.15s;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--active);
+  border-color: rgba(196, 181, 253, 0.26);
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn.primary {
+  background: var(--accent-grad);
+  color: var(--accent-ink);
+  border: none;
+  box-shadow: 0 10px 30px -12px var(--accent-a);
+}
+.btn.primary:hover {
+  filter: brightness(1.08);
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn.ghost:hover {
+  background: var(--hover);
+}
+.btn.danger {
+  color: var(--danger);
+}
+.btn.sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: var(--r-sm);
+}
+.btn.icon {
+  width: 38px;
+  padding: 0;
+}
+.btn.sm.icon {
+  width: 30px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(20px);
+}
+
+.muted {
+  color: var(--text-2);
+}
+.faint {
+  color: var(--text-3);
+}
+
+.grad-text {
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+kbd {
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(167, 139, 250, 0.12);
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  color: var(--text);
+}
