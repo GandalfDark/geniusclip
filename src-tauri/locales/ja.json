@@ -46,6 +46,6 @@
   "setup.retry": "再試行",
   "setup.close": "閉じる",
   "setup.minimize": "最小化",
-  "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable": "ここではメニューを開けません",
+  "ov.menu-unavailable.sub": "ゲームをボーダーレスウィンドウに切り替えてください"
 }

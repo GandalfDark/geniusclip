@@ -46,6 +46,6 @@
   "setup.retry": "Réessayer",
   "setup.close": "Fermer",
   "setup.minimize": "Réduire",
-  "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable": "Menu indisponible ici",
+  "ov.menu-unavailable.sub": "Passez le jeu en mode fenêtré sans bordure"
 }

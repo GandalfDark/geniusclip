@@ -46,6 +46,6 @@
   "setup.retry": "Erneut versuchen",
   "setup.close": "Schließen",
   "setup.minimize": "Minimieren",
-  "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable": "Menü hier nicht verfügbar",
+  "ov.menu-unavailable.sub": "Stell im Spiel „Randloses Fenster“ ein"
 }

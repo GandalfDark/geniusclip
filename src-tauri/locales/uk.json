@@ -46,6 +46,6 @@
   "setup.retry": "Спробувати ще раз",
   "setup.close": "Закрити",
   "setup.minimize": "Згорнути",
-  "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable": "Меню тут не відкриється",
+  "ov.menu-unavailable.sub": "Увімкніть у грі віконний режим без рамки"
 }

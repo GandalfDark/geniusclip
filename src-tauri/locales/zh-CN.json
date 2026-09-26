@@ -46,6 +46,6 @@
   "setup.retry": "重试",
   "setup.close": "关闭",
   "setup.minimize": "最小化",
-  "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable": "无法在此处打开菜单",
+  "ov.menu-unavailable.sub": "请将游戏切换为无边框窗口模式"
 }

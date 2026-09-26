@@ -46,6 +46,6 @@
   "setup.retry": "Tekrar dene",
   "setup.close": "Kapat",
   "setup.minimize": "Küçült",
-  "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable": "Menü burada açılamıyor",
+  "ov.menu-unavailable.sub": "Oyunu kenarlıksız pencere moduna al"
 }

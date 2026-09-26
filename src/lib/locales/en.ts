@@ -177,6 +177,8 @@ const locale: Locale = {
     'menu.gameVolume': 'Game volume',
     'menu.micVolume': 'Mic volume',
     'menu.close': 'Close — Esc',
+    'menu.shot': 'Screenshot',
+    'menu.settings': 'Settings',
   },
   readyMin: {
     exact1: 'The last minute is always ready',

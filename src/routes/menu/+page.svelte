@@ -125,7 +125,7 @@
   let actions = $derived<Action[]>(
     s && st
       ? [
-          { icon: shotFlash ? 'check' : 'shot', label: app.t('home.screenshot'), run: screenshot },
+          { icon: shotFlash ? 'check' : 'shot', label: app.t('menu.shot'), run: screenshot },
           { icon: st.recording ? 'stop' : 'record', label: app.t(st.recording ? 'home.stopRecord' : 'home.record'), on: st.recording, run: () => api.toggleRecording() },
           {
             icon: s.engine.micMuted ? 'micOff' : 'mic',
@@ -134,7 +134,7 @@
             run: () => app.change((x) => (x.engine.micMuted = !x.engine.micMuted), 0),
           },
           { icon: 'replay', label: app.t('menu.replay'), on: s.replayEnabled, alert: !s.replayEnabled, run: () => api.setReplay(!s.replayEnabled) },
-          { icon: 'sliders', label: app.t('nav.settings'), on: view === 'settings', run: () => (view = view === 'settings' ? 'clips' : 'settings') },
+          { icon: 'sliders', label: app.t('menu.settings'), on: view === 'settings', run: () => (view = view === 'settings' ? 'clips' : 'settings') },
         ]
       : [],
   );

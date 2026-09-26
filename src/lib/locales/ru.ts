@@ -177,6 +177,8 @@ export const strings = {
   'menu.gameVolume': 'Громкость игры',
   'menu.micVolume': 'Громкость микрофона',
   'menu.close': 'Закрыть — Esc',
+  'menu.shot': 'Скриншот',
+  'menu.settings': 'Настройки',
 };
 
 const locale: Locale = {
