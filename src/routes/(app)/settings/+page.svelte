@@ -235,7 +235,7 @@
           <Row label={app.t('set.volume')}>
             <Slider value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 600)} />
           </Row>
-          <Row label={app.t('set.noise')} hint={app.t('set.noiseHint')}>
+          <Row label={app.t('set.noise')} hint={app.status?.noiseUnavailable ? app.t('set.noiseFailed') : app.t('set.noiseHint')}>
             <Switch checked={s.engine.noiseSuppression} onchange={(v) => app.change((x) => (x.engine.noiseSuppression = v), 0)} />
           </Row>
           {#if s.engine.noiseSuppression}

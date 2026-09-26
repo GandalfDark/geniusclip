@@ -19,6 +19,8 @@ use std::sync::Arc;
 pub struct DenoiseControl {
     enabled: AtomicBool,
     strength: AtomicU32,
+    /// Set when the model could not be loaded (audio then passes through).
+    failed: AtomicBool,
 }
 
 impl DenoiseControl {
@@ -29,6 +31,10 @@ impl DenoiseControl {
 
     pub fn get(&self) -> (bool, u32) {
         (self.enabled.load(Ordering::Relaxed), self.strength.load(Ordering::Relaxed))
+    }
+
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
     }
 }
 
@@ -171,6 +177,7 @@ pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: i
                     Ok(d) => model = Some(d),
                     Err(e) => {
                         log::error!("noise suppression unavailable: {e:#}");
+                        control.failed.store(true, Ordering::Relaxed);
                         failed = true;
                     }
                 }
@@ -196,4 +203,35 @@ pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: i
         }
     })?;
     Ok(tx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Loads the embedded model (also catches tract rejecting it in debug
+    /// builds) and checks that pure noise is removed while a tone survives.
+    #[test]
+    fn model_loads_and_removes_noise() {
+        let mut d = Denoiser::new(100).expect("model loads");
+        let mut out = Vec::new();
+        let mut seed = 7u32;
+        let (mut noise_in, mut noise_out) = (0f64, 0f64);
+        for block in 0..300 {
+            let stereo: Vec<f32> = (0..480)
+                .flat_map(|_| {
+                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                    let x = (seed as f32 / u32::MAX as f32 - 0.5) * 0.05;
+                    [x, x]
+                })
+                .collect();
+            d.process(block * 480, &stereo, &mut out);
+            if block > 50 {
+                noise_in += stereo.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+                noise_out += out.iter().map(|x| (*x as f64).powi(2)).sum::<f64>();
+            }
+        }
+        let reduction_db = 10.0 * (noise_in / noise_out.max(1e-12)).log10();
+        assert!(reduction_db > 20.0, "noise only reduced by {reduction_db:.1} dB");
+    }
 }

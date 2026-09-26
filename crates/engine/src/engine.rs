@@ -73,6 +73,8 @@ pub struct EngineStatus {
     pub fps: f32,
     pub dropped_frames: u64,
     pub last_error: Option<String>,
+    /// Noise suppression is on but its model failed to load.
+    pub noise_unavailable: bool,
 }
 
 type EventSink = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -323,6 +325,7 @@ impl Engine {
             fps: shared.fps_x100.load(Ordering::Relaxed) as f32 / 100.0,
             dropped_frames: shared.dropped.load(Ordering::Relaxed),
             last_error: st.last_error.clone(),
+            noise_unavailable: st.cfg.noise_suppression && shared.denoise.failed(),
         }
     }
 

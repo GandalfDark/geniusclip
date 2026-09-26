@@ -61,6 +61,7 @@ export interface EngineStatus {
   fps: number;
   droppedFrames: number;
   lastError: string | null;
+  noiseUnavailable: boolean;
 }
 
 export interface MonitorInfo {

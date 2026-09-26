@@ -124,6 +124,7 @@ function status() {
     fps: 60,
     droppedFrames: 0,
     lastError: null,
+    noiseUnavailable: false,
   };
 }
 
