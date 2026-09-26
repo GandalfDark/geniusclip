@@ -1,0 +1,20 @@
+[package]
+name = "geniusclip-setup"
+description = "GeniusClip installer: a branded window around the NSIS setup"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "GeniusClip-Setup"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+windows = { workspace = true, features = ["Win32_Graphics_Imaging", "Win32_System_Registry"] }
+# Direct2D takes points as windows_numerics::Vector2.
+windows-numerics = "0.3"
+
+[build-dependencies]
+embed-resource = "3"
+serde_json.workspace = true

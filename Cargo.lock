@@ -1694,6 +1694,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "geniusclip-setup"
+version = "0.1.0"
+dependencies = [
+ "embed-resource",
+ "serde_json",
+ "windows 0.62.2",
+ "windows-numerics 0.3.1",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

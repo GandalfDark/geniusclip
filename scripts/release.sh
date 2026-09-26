@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Builds GeniusClip and publishes a release to the public releases repo:
+#   GeniusClip-Setup.exe         the installer people download (branded window)
+#   GeniusClip-<v>-update.exe    the plain NSIS setup the in-app updater runs
+#   latest.json                  the updater manifest (with the signature)
+#
+#   scripts/release.sh "Что нового"                 build and publish
+#   scripts/release.sh "Что нового" --build-only    build only
+#
+# Run from Git Bash (the updater key has an empty password, which can't be
+# passed through the Windows environment, only as `-p ""`). Bump the version
+# in src-tauri/tauri.conf.json, Cargo.toml and package.json first. Needs the
+# GitHub CLI logged in as the repo owner and the key in ~/.tauri/geniusclip.key.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+NOTES="${1:?release notes required}"
+MODE="${2:-}"
+REPO=GandalfDark/geniusclip-releases
+VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+TAG="v$VERSION"
+KEY="$HOME/.tauri/geniusclip.key"
+[ -f "$KEY" ] || { echo "updater key not found: $KEY" >&2; exit 1; }
+if [ "$MODE" != "--build-only" ] && gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+    echo "release $TAG already exists: bump the version first" >&2
+    exit 1
+fi
+
+echo "== App and NSIS setup ($VERSION)"
+npx tauri build --config scripts/tauri-release.json
+NSIS="target/release/bundle/nsis/GeniusClip_${VERSION}_x64-setup.exe"
+OUT=target/release/publish
+rm -rf "$OUT" && mkdir -p "$OUT"
+UPDATE_NAME="GeniusClip-$VERSION-update.exe"
+cp "$NSIS" "$OUT/$UPDATE_NAME"
+npx tauri signer sign -f "$KEY" -p "" "$OUT/$UPDATE_NAME" >/dev/null
+[ -s "$OUT/$UPDATE_NAME.sig" ] || { echo "signing failed" >&2; exit 1; }
+
+echo "== Installer"
+GC_SETUP_PAYLOAD="$(cygpath -w "$PWD/$NSIS")" cargo build --release -p geniusclip-setup
+cp target/release/GeniusClip-Setup.exe "$OUT/GeniusClip-Setup.exe"
+
+echo "== latest.json"
+node -e '
+const [version, notes, sigFile, url, out] = process.argv.slice(1);
+const signature = require("fs").readFileSync(sigFile, "utf8").trim();
+const pub_date = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+require("fs").writeFileSync(out, JSON.stringify({ version, notes, pub_date,
+  platforms: { "windows-x86_64": { signature, url } } }, null, 2));
+' "$VERSION" "$NOTES" "$OUT/$UPDATE_NAME.sig" "https://github.com/$REPO/releases/download/$TAG/$UPDATE_NAME" "$OUT/latest.json"
+
+ls -la "$OUT"
+if [ "$MODE" = "--build-only" ]; then
+    echo "Not published (--build-only). Files: $OUT"
+    exit 0
+fi
+gh release create "$TAG" "$OUT/GeniusClip-Setup.exe" "$OUT/$UPDATE_NAME" "$OUT/latest.json" \
+    --repo "$REPO" --title "GeniusClip $VERSION" --notes "$NOTES"
+echo "Published https://github.com/$REPO/releases/tag/$TAG"

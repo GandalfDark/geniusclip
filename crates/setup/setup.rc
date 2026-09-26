@@ -1,0 +1,3 @@
+#include <winres.h>
+1 ICON "../../src-tauri/icons/icon.ico"
+1 RT_MANIFEST "setup.manifest"
