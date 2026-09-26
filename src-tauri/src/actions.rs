@@ -144,3 +144,15 @@ pub fn track_foreground(app: &AppHandle) {
         *app.state::<AppState>().last_game.lock() = Some((a, Instant::now()));
     }
 }
+
+/// Copies the newest clip or recording to the clipboard (tray action).
+pub fn copy_last_clip(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    let s = st.settings.read().clone();
+    let newest = st.library.scan(&s).into_iter().find(|e| e.kind != Kind::Screenshot);
+    let Some(e) = newest else { return };
+    match crate::overlay::window().ok_or_else(|| anyhow::anyhow!("no window")).and_then(|w| crate::share::copy_files(w, &[e.path])) {
+        Ok(()) => overlay::toast(app, Toast::simple("copied")),
+        Err(err) => fail(app, err),
+    }
+}

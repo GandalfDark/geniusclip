@@ -21,6 +21,7 @@
     rename: '<g class="m1"><path d="M5 19l1-4 9.5-9.5a2.1 2.1 0 0 1 3 3L9 18z"/><path d="M13.5 7.5l3 3"/></g>',
     trash: '<g class="m1"><path d="M5 7h14M10 4.5h4"/></g><path d="M7 7l.8 11.2A1.9 1.9 0 0 0 9.7 20h4.6a1.9 1.9 0 0 0 1.9-1.8L17 7"/><path d="M10.5 11v5M13.5 11v5"/>',
     open: '<g class="m1"><path d="M13.5 5H19v5.5M19 5l-8 8"/></g><path d="M17 14v4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 5 18V8.5A1.5 1.5 0 0 1 6.5 7H10"/>',
+    send: '<g class="m1"><path d="M20 4L3.8 10.6a.6.6 0 0 0 0 1.1l6.2 2.3 2.3 6.2a.6.6 0 0 0 1.1 0z"/><path d="M20 4l-10 10"/></g>',
     search: '<g class="m1"><circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l4.5 4.5"/></g>',
     check: '<path class="draw" pathLength="1" d="M5.5 12.5l4 4 9-9"/>',
     alert: '<path d="M12 4.5l8.5 14.5h-17z"/><path d="M12 10v4"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/>',
@@ -120,6 +121,9 @@
   :global(:is(a, button, label):hover) .ic-open :global(.m1) {
     transform: translate(1.5px, -1.5px);
   }
+  :global(:is(a, button, label):hover) .ic-send :global(.m1) {
+    animation: ic-fly 0.6s var(--ease);
+  }
   :global(:is(a, button, label):hover) .ic-search :global(.m1) {
     transform: rotate(-12deg) scale(1.06);
   }
@@ -171,6 +175,21 @@
     }
     60% {
       transform: rotate(1.5deg);
+    }
+  }
+  @keyframes -global-ic-fly {
+    0%,
+    100% {
+      transform: translate(0, 0);
+      opacity: 1;
+    }
+    40% {
+      transform: translate(5px, -5px);
+      opacity: 0;
+    }
+    41% {
+      transform: translate(-5px, 5px);
+      opacity: 0;
     }
   }
   @keyframes -global-ic-focus {

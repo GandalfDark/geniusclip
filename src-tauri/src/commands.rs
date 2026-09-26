@@ -275,6 +275,16 @@ pub fn close_main(app: AppHandle) {
     }
 }
 
+/// Puts the files on the clipboard so they can be pasted into a chat.
+#[tauri::command]
+pub fn copy_media(st: State<'_, AppState>, paths: Vec<PathBuf>) -> CmdResult<()> {
+    for p in &paths {
+        check_media_path(&st, p)?;
+    }
+    let owner = crate::overlay::window().ok_or("no window")?;
+    crate::share::copy_files(owner, &paths).map_err(err)
+}
+
 /// Shows a sample toast so the user can check the overlay position.
 #[tauri::command]
 pub fn preview_toast(app: AppHandle) {

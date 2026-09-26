@@ -35,6 +35,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 label(t(lang, if recording { "record_stop" } else { "record_start" }), &s.hotkeys.toggle_recording),
             )?,
             &item("screenshot", label(t(lang, "screenshot"), &s.hotkeys.screenshot))?,
+            &item("copy_last", t(lang, "copy_last").into())?,
             &PredefinedMenuItem::separator(app)?,
             &item("open_folder", t(lang, "open_folder").into())?,
             &item("quit", t(lang, "quit").into())?,
@@ -58,6 +59,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                 "toggle_replay" => crate::actions::toggle_replay(&app),
                 "toggle_recording" => crate::actions::toggle_recording(&app),
                 "screenshot" => crate::actions::screenshot(&app),
+                "copy_last" => crate::actions::copy_last_clip(&app),
                 "open_folder" => {
                     let dir = app.state::<AppState>().settings.read().clips_dir.clone();
                     let _ = std::fs::create_dir_all(&dir);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { startDrag } from '@crabnebula/tauri-plugin-drag';
   import { api, fileUrl } from '$lib/api';
   import { app } from '$lib/app.svelte';
   import { bytes, date, duration } from '$lib/format';
@@ -6,6 +7,7 @@
 
   let { entry, onopen }: { entry: MediaEntry; onopen: (e: MediaEntry, from: DOMRect, thumb: string | null) => void } = $props();
   let thumb = $state<string | null>(null);
+  let thumbPath: string | null = null;
   let loaded = $state(false);
   let el: HTMLElement;
   let frame: HTMLElement;
@@ -20,7 +22,8 @@
         if (!e.isIntersecting) return;
         io.disconnect();
         try {
-          thumb = fileUrl(await api.thumbnail(path));
+          thumbPath = await api.thumbnail(path);
+          thumb = fileUrl(thumbPath);
         } catch {
           /* keep the empty frame */
         }
@@ -32,7 +35,19 @@
   });
 </script>
 
-<button class="m" class:fresh bind:this={el} data-path={entry.path} onclick={() => onopen(entry, frame.getBoundingClientRect(), loaded ? thumb : null)}>
+<!-- Drag the card into Telegram/Explorer to attach the file itself. -->
+<button
+  class="m"
+  class:fresh
+  bind:this={el}
+  data-path={entry.path}
+  draggable="true"
+  ondragstart={(e) => {
+    e.preventDefault();
+    if (thumbPath) startDrag({ item: [entry.path], icon: thumbPath }).catch(() => {});
+  }}
+  onclick={() => onopen(entry, frame.getBoundingClientRect(), loaded ? thumb : null)}
+>
   <div class="thumb" bind:this={frame}>
     {#if thumb}<img src={thumb} alt="" draggable="false" class:loaded onload={() => (loaded = true)} />{/if}
     {#if entry.kind === 'recording'}<span class="tag rec mono">REC</span>{/if}

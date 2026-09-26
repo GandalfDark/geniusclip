@@ -6,6 +6,7 @@ mod i18n;
 mod library;
 mod overlay;
 mod settings;
+mod share;
 mod sound;
 mod state;
 mod tray;
@@ -39,6 +40,9 @@ pub fn show_main(app: &AppHandle) {
         .inner_size(1200.0, 780.0)
         .min_inner_size(980.0, 640.0)
         .decorations(false)
+        // HTML5 drag-and-drop (dragging clips out to Telegram) needs the
+        // webview's own file-drop handler off.
+        .disable_drag_drop_handler()
         .center()
         .visible(false)
         .background_color(Color(20, 20, 22, 255))
@@ -122,6 +126,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_drag::init())
         .setup(|app| {
             let handle = app.handle().clone();
             let settings = Settings::load(&handle);
@@ -203,6 +208,7 @@ pub fn run() {
             commands::install_update,
             commands::close_main,
             commands::preview_toast,
+            commands::copy_media,
             commands::quit_app,
         ])
         .build(tauri::generate_context!())

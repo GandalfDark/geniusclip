@@ -5,7 +5,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { DUR, EASE, reduced } from '$lib/motion';
+  import { DUR, EASE, reduced, rise } from '$lib/motion';
   import Icon from './Icon.svelte';
   import { api, fileUrl } from '$lib/api';
   import { app } from '$lib/app.svelte';
@@ -86,6 +86,18 @@
   let renaming = $state(false);
   let newName = $state('');
   let confirmDelete = $state(false);
+  let copied = $state(false);
+
+  async function send() {
+    try {
+      await api.copyMedia([entry.path]);
+      copied = true;
+      app.notify(app.t('gallery.pasteHint'), 'ok');
+      setTimeout(() => (copied = false), 1800);
+    } catch (e) {
+      app.notify(String(e), 'error');
+    }
+  }
   let track: HTMLElement | null = $state(null);
 
   let isVideo = $derived(entry.kind !== 'screenshot');
@@ -214,6 +226,14 @@
       </div>
     </div>
     <div class="actions">
+      <button class="btn send" class:done={copied} title={app.t('gallery.sendHint')} onclick={send}>
+        {#key copied}
+          <span class="send-in" in:rise={{ y: 5, duration: 240 }}>
+            {#if copied}<Icon name="check" size={17} stroke={2.2} />{app.t('gallery.copied')}{:else}<Icon name="send" size={17} />{app.t('gallery.send')}{/if}
+          </span>
+        {/key}
+      </button>
+      <span class="sep"></span>
       <button class="btn ghost icon" title={app.t('gallery.rename')} onclick={() => ((newName = entry.name), (renaming = true))}><Icon name="rename" size={18} /></button>
       <button class="btn ghost icon" title={app.t('gallery.reveal')} onclick={() => api.revealPath(entry.path)}><Icon name="folder" size={18} /></button>
       <button class="btn ghost icon" title={app.t('gallery.open')} onclick={() => api.openPath(entry.path)}><Icon name="open" size={18} /></button>
@@ -339,6 +359,19 @@
   .actions {
     display: flex;
     align-items: center;
+  }
+  .send {
+    min-width: 132px;
+    height: 34px;
+  }
+  .send-in {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .send.done {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .sep {
     width: 1px;

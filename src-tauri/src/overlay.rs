@@ -64,6 +64,8 @@ struct Spec {
 
 struct Worker {
     thread_id: u32,
+    /// The toast window; also serves as clipboard owner for the app.
+    hwnd: isize,
     pending: Mutex<Option<Spec>>,
 }
 
@@ -106,9 +108,15 @@ pub fn create(_app: &AppHandle) -> tauri::Result<()> {
             .name("gc-overlay".into())
             .spawn(move || unsafe { run(tx) })
             .expect("spawn overlay thread");
-        Worker { thread_id: rx.recv().unwrap_or(0), pending: Mutex::new(None) }
+        let (thread_id, hwnd) = rx.recv().unwrap_or((0, 0));
+        Worker { thread_id, hwnd, pending: Mutex::new(None) }
     });
     Ok(())
+}
+
+/// A window owned by this process that always exists (the toast window).
+pub fn window() -> Option<HWND> {
+    WORKER.get().filter(|w| w.hwnd != 0).map(|w| HWND(w.hwnd as *mut _))
 }
 
 pub fn toast(app: &AppHandle, toast: Toast) {
@@ -126,6 +134,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
         "error" => toast.message.clone(),
         "replay-off-hint" => t(lang, "ov.replay-off-hint.sub").to_string(),
         "already-saved" => t(lang, "ov.already-saved.sub").to_string(),
+        "copied" => t(lang, "ov.copied.sub").to_string(),
         _ => {
             let mut parts = Vec::new();
             if toast.seconds > 0.0 {
@@ -189,7 +198,7 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     DefWindowProcW(h, m, wp, lp)
 }
 
-unsafe fn run(ready: std::sync::mpsc::Sender<u32>) {
+unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
     let mut msg = MSG::default();
     let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
 
@@ -214,7 +223,7 @@ unsafe fn run(ready: std::sync::mpsc::Sender<u32>) {
     .unwrap_or_default();
 
     let mut renderer = Renderer::new().map_err(|e| log::error!("overlay renderer: {e}")).ok();
-    let _ = ready.send(GetCurrentThreadId());
+    let _ = ready.send((GetCurrentThreadId(), hwnd.0 as isize));
 
     let mut active: Option<(Spec, Instant)> = None;
     while GetMessageW(&mut msg, None, 0, 0).as_bool() {

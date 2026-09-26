@@ -22,6 +22,7 @@ export const api = {
   openMediaDir: (screenshots: boolean) => invoke<void>('open_media_dir', { screenshots }),
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
+  copyMedia: (paths: string[]) => invoke<void>('copy_media', { paths }),
   closeMain: () => invoke<void>('close_main'),
   quit: () => invoke<void>('quit_app'),
 };
