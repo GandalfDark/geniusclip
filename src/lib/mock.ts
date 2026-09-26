@@ -123,6 +123,7 @@ function status() {
     height: 1440,
     fps: 60,
     droppedFrames: 0,
+    droppedRecent: 0,
     lastError: null,
     noiseUnavailable: false,
   };

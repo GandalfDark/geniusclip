@@ -61,6 +61,7 @@ export interface EngineStatus {
   height: number;
   fps: number;
   droppedFrames: number;
+  droppedRecent: number;
   lastError: string | null;
   noiseUnavailable: boolean;
 }
