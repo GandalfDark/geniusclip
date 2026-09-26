@@ -104,12 +104,13 @@
   const MAX_DISK = 3600;
   const minutes = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const memLabel = (mb: number) => bytes(mb * 1048576, app.lang);
-  const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' | 'hk.saveShort' }[] = [
+  const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' | 'hk.saveShort' | 'hk.toggleMenu' }[] = [
     { key: 'saveClip', label: 'hk.saveClip' },
     { key: 'saveShort', label: 'hk.saveShort' },
     { key: 'toggleReplay', label: 'hk.toggleReplay' },
     { key: 'screenshot', label: 'hk.screenshot' },
     { key: 'toggleRecording', label: 'hk.toggleRecording' },
+    { key: 'toggleMenu', label: 'hk.toggleMenu' },
   ];
   const shortOptions = [10, 15, 30, 60];
 </script>

@@ -45,5 +45,7 @@
   "setup.failed": "Kurulum başarısız oldu",
   "setup.retry": "Tekrar dene",
   "setup.close": "Kapat",
-  "setup.minimize": "Küçült"
+  "setup.minimize": "Küçült",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }

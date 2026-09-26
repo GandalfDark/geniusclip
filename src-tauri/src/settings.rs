@@ -14,6 +14,8 @@ pub struct Hotkeys {
     pub toggle_recording: String,
     /// Saves only the last `short_seconds`; unset by default.
     pub save_short: String,
+    /// Opens the in-game menu.
+    pub toggle_menu: String,
 }
 
 impl Default for Hotkeys {
@@ -26,6 +28,7 @@ impl Default for Hotkeys {
             screenshot: "Alt+F6".into(),
             toggle_recording: "Alt+F7".into(),
             save_short: String::new(),
+            toggle_menu: "Alt+KeyX".into(),
         }
     }
 }

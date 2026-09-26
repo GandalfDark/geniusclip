@@ -45,5 +45,7 @@
   "setup.failed": "Не вдалося встановити",
   "setup.retry": "Спробувати ще раз",
   "setup.close": "Закрити",
-  "setup.minimize": "Згорнути"
+  "setup.minimize": "Згорнути",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }

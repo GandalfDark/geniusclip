@@ -45,5 +45,7 @@
   "setup.failed": "安装失败",
   "setup.retry": "重试",
   "setup.close": "关闭",
-  "setup.minimize": "最小化"
+  "setup.minimize": "最小化",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }

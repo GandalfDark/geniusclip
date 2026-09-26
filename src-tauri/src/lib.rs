@@ -4,11 +4,13 @@ mod commands;
 mod hotkeys;
 mod i18n;
 mod library;
+mod menu;
 mod overlay;
 mod settings;
 mod share;
 mod sound;
 mod state;
+mod stats;
 mod tray;
 mod updates;
 
@@ -26,16 +28,24 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuil
 const MAIN: &str = "main";
 
 pub fn show_main(app: &AppHandle) {
+    show_main_at(app, None);
+}
+
+/// Shows the main window on a page ("gallery", "settings").
+pub fn show_main_at(app: &AppHandle, route: Option<&str>) {
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        if let Some(r) = route {
+            let _ = app.emit_to(MAIN, "app://navigate", format!("/{r}"));
+        }
         return;
     }
     // Created on demand (and destroyed on close) so the WebView costs no
     // memory while the app sits in the tray. The page shows the window once
     // it has rendered, avoiding a white flash.
-    let res = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
+    let res = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(route.unwrap_or("index.html").into()))
         .title("GeniusClip")
         .inner_size(1200.0, 780.0)
         .min_inner_size(980.0, 640.0)
@@ -220,6 +230,10 @@ pub fn run() {
             commands::preview_toast,
             commands::copy_media,
             commands::mic_test,
+            commands::menu_close,
+            commands::system_stats,
+            commands::open_in_app,
+            commands::take_pending_open,
             commands::quit_app,
         ])
         .build(tauri::generate_context!())

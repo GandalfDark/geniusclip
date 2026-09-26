@@ -6,6 +6,8 @@
   import Notices from '$lib/components/Notices.svelte';
   import { app } from '$lib/app.svelte';
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
+  import { listen } from '@tauri-apps/api/event';
   import { rise, leave } from '$lib/motion';
 
   // Language-specific glyph shapes (Han characters in ja vs zh) and fonts
@@ -23,6 +25,8 @@
     }
     try {
       await app.init();
+      // The in-game menu can send the main window to a page.
+      await listen<string>('app://navigate', (e) => goto(e.payload));
     } finally {
       ready = true;
       // Show only after the first render (no white flash).

@@ -83,6 +83,7 @@ let settings: Settings = {
     diskBuffer: false,
     noiseSuppression: false,
     noiseStrength: 80,
+    micMuted: false,
   },
   replayEnabled: true,
   replaySeconds: 300,
@@ -97,6 +98,7 @@ let settings: Settings = {
     screenshot: "Alt+F6",
     toggleRecording: "Alt+F7",
     saveShort: "",
+    toggleMenu: "Alt+KeyX",
   },
   autostart: true,
   language: "auto",
@@ -255,6 +257,12 @@ export function installMock() {
           const i = Number(String(args.path).split("//")[1]);
           return thumb(i, media.find((m) => m.path === args.path)?.game ?? "");
         }
+        case "system_stats":
+          return { cpu: 18 + Math.random() * 12, ramUsedGb: 11.4, ramTotalGb: 32, gpu: 52 + Math.random() * 20, gpuTemp: 61 };
+        case "menu_close":
+        case "open_in_app":
+        case "take_pending_open":
+          return null;
         case "mic_test": {
           clearInterval(micTimer);
           if (args.on)

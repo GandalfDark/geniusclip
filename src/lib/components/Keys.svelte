@@ -34,7 +34,8 @@
     border: 1px solid #3a3a42;
     color: var(--text-2);
   }
-  :global(.btn.primary) .chip {
+  :global(.btn.primary) .chip,
+  :global(.on-accent) .chip {
     border-color: transparent;
     background: rgba(21, 12, 38, 0.2);
     color: var(--accent-ink);

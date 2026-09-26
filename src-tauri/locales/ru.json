@@ -45,5 +45,7 @@
   "setup.failed": "Не удалось установить",
   "setup.retry": "Попробовать ещё раз",
   "setup.close": "Закрыть",
-  "setup.minimize": "Свернуть"
+  "setup.minimize": "Свернуть",
+  "ov.menu-unavailable": "Меню здесь не откроется",
+  "ov.menu-unavailable.sub": "Включите в игре оконный режим без рамки"
 }

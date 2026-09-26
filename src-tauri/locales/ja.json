@@ -45,5 +45,7 @@
   "setup.failed": "インストールに失敗しました",
   "setup.retry": "再試行",
   "setup.close": "閉じる",
-  "setup.minimize": "最小化"
+  "setup.minimize": "最小化",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }

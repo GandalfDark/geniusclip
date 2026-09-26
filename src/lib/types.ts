@@ -20,6 +20,16 @@ export interface EngineConfig {
   diskBuffer: boolean;
   noiseSuppression: boolean;
   noiseStrength: number;
+  micMuted: boolean;
+}
+
+/** Hardware load shown in the in-game menu. */
+export interface SystemStats {
+  cpu: number;
+  ramUsedGb: number;
+  ramTotalGb: number;
+  gpu: number | null;
+  gpuTemp: number | null;
 }
 
 export interface Hotkeys {
@@ -28,6 +38,7 @@ export interface Hotkeys {
   screenshot: string;
   toggleRecording: string;
   saveShort: string;
+  toggleMenu: string;
 }
 
 export interface Settings {

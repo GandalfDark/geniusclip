@@ -39,6 +39,16 @@ export function date(ms: number, lang: Lang): string {
   return `${d.toLocaleDateString(lang, { day: '2-digit', month: '2-digit' })} ${time}`;
 }
 
+/** "2 min ago", "yesterday" in the UI language. */
+export function ago(ms: number, lang: Lang): string {
+  const rel = new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style: 'short' });
+  const s = (ms - Date.now()) / 1000;
+  if (s > -45) return rel.format(0, 'second');
+  if (s > -3600) return rel.format(Math.round(s / 60), 'minute');
+  if (s > -86400) return rel.format(Math.round(s / 3600), 'hour');
+  return rel.format(Math.round(s / 86400), 'day');
+}
+
 /** "Alt+Shift+KeyA" → ["Alt", "Shift", "A"] for display. */
 export function hotkeyParts(accel: string): string[] {
   if (!accel) return [];

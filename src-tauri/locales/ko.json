@@ -45,5 +45,7 @@
   "setup.failed": "설치하지 못했어요",
   "setup.retry": "다시 시도",
   "setup.close": "닫기",
-  "setup.minimize": "최소화"
+  "setup.minimize": "최소화",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }

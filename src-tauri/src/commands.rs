@@ -322,6 +322,33 @@ pub fn copy_media(st: State<'_, AppState>, paths: Vec<PathBuf>) -> CmdResult<()>
 }
 
 /// Shows a sample toast so the user can check the overlay position.
+/// Hides the in-game menu (after its closing animation) and gives the game focus back.
+#[tauri::command]
+pub fn menu_close(app: AppHandle) {
+    crate::menu::hide(&app, true);
+}
+
+#[tauri::command]
+pub fn system_stats() -> crate::stats::Stats {
+    crate::stats::snapshot()
+}
+
+static PENDING_OPEN: parking_lot::Mutex<Option<PathBuf>> = parking_lot::Mutex::new(None);
+
+/// From the in-game menu: show the main window on a page, optionally with a
+/// clip open in the viewer (picked up by the gallery via `take_pending_open`).
+#[tauri::command]
+pub fn open_in_app(app: AppHandle, route: String, path: Option<PathBuf>) {
+    *PENDING_OPEN.lock() = path;
+    crate::menu::hide(&app, false);
+    crate::show_main_at(&app, Some(&route));
+}
+
+#[tauri::command]
+pub fn take_pending_open() -> Option<PathBuf> {
+    PENDING_OPEN.lock().take()
+}
+
 /// Microphone check: plays the mic back with the current noise suppression.
 /// Emits `mic://level` [before, after] and `mic://stopped` (error or null).
 #[tauri::command]

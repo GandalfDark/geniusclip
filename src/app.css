@@ -38,6 +38,12 @@
   color-scheme: dark;
 }
 
+/* The in-game menu window shows the game through its background. */
+html.menu-window,
+html.menu-window body {
+  background: transparent;
+}
+
 /* Onest covers Latin and Cyrillic; CJK text falls back to the Windows UI font
    for that script, chosen by <html lang> so Han characters get the right shapes. */
 :root:lang(zh-CN) {

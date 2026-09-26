@@ -135,6 +135,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
         "replay-off-hint" => t(lang, "ov.replay-off-hint.sub").to_string(),
         "already-saved" => t(lang, "ov.already-saved.sub").to_string(),
         "copied" => t(lang, "ov.copied.sub").to_string(),
+        "menu-unavailable" => t(lang, "ov.menu-unavailable.sub").to_string(),
         _ => {
             let mut parts = Vec::new();
             if toast.seconds > 0.0 {
@@ -221,6 +222,8 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
         None,
     )
     .unwrap_or_default();
+    // Toasts never end up in clips or screenshots.
+    let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
     let mut renderer = Renderer::new().map_err(|e| log::error!("overlay renderer: {e}")).ok();
     let _ = ready.send((GetCurrentThreadId(), hwnd.0 as isize));

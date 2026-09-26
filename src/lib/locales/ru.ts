@@ -164,6 +164,19 @@ export const strings = {
   'accent.cyan': 'Бирюзовый',
   'accent.amber': 'Янтарный',
   'accent.mono': 'Белый',
+  'hk.toggleMenu': 'Игровое меню',
+  'menu.replayOn': 'Повтор включён',
+  'menu.replayOff': 'Повтор выключен',
+  'menu.mic': 'Микрофон',
+  'menu.replay': 'Повтор',
+  'menu.recent': 'Последние повторы',
+  'menu.empty': 'Здесь появятся сохранённые клипы',
+  'menu.open': 'Открыть в GeniusClip',
+  'menu.allSettings': 'Все настройки',
+  'menu.back': 'Назад',
+  'menu.gameVolume': 'Громкость игры',
+  'menu.micVolume': 'Громкость микрофона',
+  'menu.close': 'Закрыть — Esc',
 };
 
 const locale: Locale = {

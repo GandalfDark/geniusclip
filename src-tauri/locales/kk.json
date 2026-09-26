@@ -45,5 +45,7 @@
   "setup.failed": "Орнату сәтсіз аяқталды",
   "setup.retry": "Қайталап көру",
   "setup.close": "Жабу",
-  "setup.minimize": "Жию"
+  "setup.minimize": "Жию",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }

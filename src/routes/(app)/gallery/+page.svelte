@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
   import Icon from '$lib/components/Icon.svelte';
   import Select from '$lib/components/Select.svelte';
   import MediaCard from '$lib/components/MediaCard.svelte';
@@ -15,6 +17,23 @@
   let game = $state('');
   let query = $state('');
   let viewing = $state<MediaEntry | null>(null);
+
+  // A clip picked in the in-game menu ("Open in GeniusClip").
+  async function openPending() {
+    const path = await api.takePendingOpen().catch(() => null);
+    if (!path) return;
+    await app.refreshMedia();
+    const e = app.media.find((m) => m.path === path);
+    if (e) {
+      origin = null;
+      viewing = e;
+    }
+  }
+  onMount(() => {
+    openPending();
+    const off = listen('app://navigate', openPending);
+    return () => off.then((f) => f());
+  });
   let origin = $state<Origin | null>(null);
   function open(e: MediaEntry, rect: DOMRect, src: string | null) {
     origin = { rect, src };

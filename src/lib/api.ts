@@ -1,5 +1,5 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import type { Estimate, MediaEntry, Settings, Snapshot, EngineStatus, UpdateInfo } from './types';
+import type { Estimate, MediaEntry, Settings, Snapshot, EngineStatus, UpdateInfo, SystemStats } from './types';
 
 export const api = {
   snapshot: () => invoke<Snapshot>('get_snapshot'),
@@ -25,6 +25,11 @@ export const api = {
   installUpdate: () => invoke<void>('install_update'),
   copyMedia: (paths: string[]) => invoke<void>('copy_media', { paths }),
   micTest: (on: boolean) => invoke<void>('mic_test', { on }),
+  menuClose: () => invoke<void>('menu_close'),
+  systemStats: () => invoke<SystemStats>('system_stats'),
+  /** Main window on a page, optionally opening a clip in the viewer. */
+  openInApp: (route: string, path: string | null = null) => invoke<void>('open_in_app', { route, path }),
+  takePendingOpen: () => invoke<string | null>('take_pending_open'),
   closeMain: () => invoke<void>('close_main'),
   quit: () => invoke<void>('quit_app'),
 };

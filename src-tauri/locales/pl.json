@@ -45,5 +45,7 @@
   "setup.failed": "Instalacja nie powiodła się",
   "setup.retry": "Spróbuj ponownie",
   "setup.close": "Zamknij",
-  "setup.minimize": "Minimalizuj"
+  "setup.minimize": "Minimalizuj",
+  "ov.menu-unavailable": "The menu can't open here",
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
 }
