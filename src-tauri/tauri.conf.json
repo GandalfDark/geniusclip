@@ -45,7 +45,7 @@
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Russian", "English"],
+        "languages": ["Russian", "English", "Ukrainian", "German", "French", "SpanishInternational", "PortugueseBR", "Turkish", "Italian", "SimpChinese", "Japanese", "Korean"],
         "displayLanguageSelector": false
       }
     }

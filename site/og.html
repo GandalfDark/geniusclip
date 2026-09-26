@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- Link-preview card (1200×630), rendered to img/og.png by scripts/site-shots.mjs. -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      width: 1200px;
+      height: 630px;
+      overflow: hidden;
+      background:
+        radial-gradient(700px 420px at 78% -40px, rgba(149, 128, 255, 0.35), transparent 70%),
+        radial-gradient(500px 300px at 10% 110%, rgba(215, 124, 224, 0.16), transparent 70%),
+        #0b0b0d;
+    }
+    .card {
+      position: absolute;
+      inset: 0;
+      padding: 76px 84px;
+      display: flex;
+      flex-direction: column;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+    .top img {
+      width: 92px;
+      height: 92px;
+      border-radius: 22px;
+      filter: drop-shadow(0 14px 34px rgba(149, 128, 255, 0.55));
+    }
+    .name {
+      font-size: 54px;
+      font-weight: 750;
+      letter-spacing: -0.03em;
+    }
+    .title {
+      margin-top: 54px;
+      font-size: 70px;
+      line-height: 1.04;
+      font-weight: 760;
+      letter-spacing: -0.04em;
+    }
+    .title .grad {
+      display: block;
+      animation: none;
+    }
+    .foot {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 26px;
+      color: var(--text-2);
+    }
+    .foot kbd {
+      animation: none;
+      height: 46px;
+      min-width: 58px;
+      font-size: 22px;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="top"><img src="img/logo.png" alt="" /><span class="name">GeniusClip</span></div>
+    <div class="title">Нажми одну клавишу.<span class="grad">Момент уже твой.</span></div>
+    <div class="foot"><kbd>Alt</kbd>+<kbd>F8</kbd><span style="margin-left: 14px">Бесплатно для Windows 10 и 11</span></div>
+  </div>
+</body>
+</html>

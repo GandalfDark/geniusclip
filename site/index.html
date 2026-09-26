@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GeniusClip — лучшие моменты игр одной клавишей</title>
+  <meta name="description" content="Бесплатная программа для Windows: последние минуты игры всегда наготове, клип сохраняется одной клавишей. Без лагов, с обрезкой и отправкой в Telegram." />
+  <meta name="theme-color" content="#0b0b0d" />
+  <!-- Link previews (Telegram, Discord): Russian, the main audience. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="GeniusClip" />
+  <meta property="og:title" content="GeniusClip — лучшие моменты игр одной клавишей" />
+  <meta property="og:description" content="Последние минуты игры всегда наготове. Клип — одной клавишей, без лагов." />
+  <meta property="og:image" content="https://gandalfdark.github.io/img/og.png" />
+  <meta property="og:url" content="https://gandalfdark.github.io/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" type="image/png" href="img/favicon.png" />
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png" />
+  <link rel="preload" href="fonts/onest-cyrillic-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="fonts/onest-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="brand" href="#top" aria-label="GeniusClip">
+      <img src="img/logo.png" alt="" width="30" height="30" />
+      <span>GeniusClip</span>
+    </a>
+    <nav class="links">
+      <a href="#features" data-i18n="nav.features">Возможности</a>
+      <a href="#screens" data-i18n="nav.screens">Скриншоты</a>
+      <a href="#faq" data-i18n="nav.faq">Вопросы</a>
+      <a href="#news" data-i18n="nav.news">Что нового</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang">
+        <button class="lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.4 2.6 3.5 5.4 3.5 8.5s-1.1 5.9-3.5 8.5c-2.4-2.6-3.5-5.4-3.5-8.5s1.1-5.9 3.5-8.5z" /></svg>
+          <span class="lang-name">Русский</span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
+        </button>
+        <ul class="lang-menu" role="listbox" hidden></ul>
+      </div>
+      <a class="btn-small download-link" href="https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/GeniusClip-Setup.exe" data-i18n="nav.download">Скачать</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero: headline, the replay tape demo, download. -->
+    <section class="hero">
+      <div class="badge reveal" data-i18n="hero.badge">Бесплатно · Windows 10 и 11</div>
+      <h1 class="reveal">
+        <span data-i18n="hero.title1">Нажми одну клавишу.</span>
+        <span class="grad" data-i18n="hero.title2">Момент уже твой.</span>
+      </h1>
+      <p class="lead reveal" data-i18n="hero.lead">GeniusClip всегда держит последние минуты игры наготове. Эйс, баг или смешной момент в войсе — сохраняются одной клавишей, без записи всего подряд.</p>
+
+      <div class="demo reveal" aria-hidden="true">
+        <div class="toast"><i></i><b data-i18n="demo.toast">Клип сохранён</b><span>· 0:30</span></div>
+        <div class="tape">
+          <div class="frames"></div>
+          <div class="buffer"><span data-i18n="demo.buffer">последние 5 минут</span></div>
+          <div class="saved"></div>
+          <div class="flash"></div>
+        </div>
+        <div class="scale">
+          <span>−5:00</span>
+          <span class="keys"><kbd class="k1">Alt</kbd><em>+</em><kbd class="k2">F8</kbd></span>
+          <span data-i18n="demo.now">сейчас</span>
+        </div>
+      </div>
+
+      <div class="download reveal">
+        <a class="btn-download download-link" href="https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/GeniusClip-Setup.exe">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v10M8 10.5l4 4 4-4M5 15.5v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" /></svg>
+          <span data-i18n="dl.button">Скачать для Windows</span>
+        </a>
+        <p class="dl-meta"><span data-i18n="dl.meta">Windows 10 и 11 · бесплатно</span><span class="dl-version"></span></p>
+        <div class="mobile-note" hidden>
+          <p data-i18n="dl.mobile">GeniusClip работает на компьютере с Windows. Откройте эту страницу там или скопируйте ссылку.</p>
+          <button class="btn-small copy-link" type="button" data-i18n="dl.copy">Скопировать ссылку</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <h2 class="reveal" data-i18n="features.title">Всё для лучших моментов</h2>
+      <p class="sub reveal" data-i18n="features.lead">Лёгкая программа, которая не мешает играть.</p>
+      <div class="grid">
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" /><path d="M4.5 4.5v3.2h3.2" /><circle cx="12" cy="12" r="1.7" class="fill" /></svg></div>
+          <h3 data-i18n="f1.title">Мгновенный повтор</h3>
+          <p data-i18n="f1.text">Последние минуты всегда в памяти. Клип сохранится, даже если вы не нажимали «запись».</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M13 3.5L6 13h5l-1 7.5L17 11h-5z" /></svg></div>
+          <h3 data-i18n="f2.title">Без просадок FPS</h3>
+          <p data-i18n="f2.text">Видео кодирует видеокарта — NVIDIA, AMD или Intel. Игра этого почти не замечает.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M9 4.5H6v15h3" /><path d="M15 4.5h3v15h-3" /><path d="M12 8.5v7" /></svg></div>
+          <h3 data-i18n="f3.title">Обрезка со звуком</h3>
+          <p data-i18n="f3.text">Обрежьте лишнее и отдельно настройте громкость игры и микрофона.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="10.5" rx="3" /><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3" /></svg></div>
+          <h3 data-i18n="f4.title">Шумоподавление</h3>
+          <p data-i18n="f4.text">Нейросеть убирает из микрофона клавиатуру, вентилятор и фон.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24"><path d="M20 4L3.8 10.6a.6.6 0 0 0 0 1.1l6.2 2.3 2.3 6.2a.6.6 0 0 0 1.1 0z" /><path d="M20 4l-10 10" /></svg></div>
+          <h3 data-i18n="f5.title">Сразу в Telegram</h3>
+          <p data-i18n="f5.text">«Отправить» копирует клип — вставьте его в чат через Ctrl+V.</p>
+        </article>
+        <article class="card reveal">
+          <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.4 2.6 3.5 5.4 3.5 8.5s-1.1 5.9-3.5 8.5c-2.4-2.6-3.5-5.4-3.5-8.5s1.1-5.9 3.5-8.5z" /></svg></div>
+          <h3 data-i18n="f6.title">14 языков</h3>
+          <p data-i18n="f6.text">Русский, қазақша, English и ещё 11. Обновления приходят сами.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="screens" class="section">
+      <h2 class="reveal" data-i18n="screens.title">Как это выглядит</h2>
+      <div class="tabs reveal" role="tablist">
+        <span class="tab-pill" aria-hidden="true"></span>
+        <button role="tab" aria-selected="true" data-shot="home" data-i18n="screens.home">Главная</button>
+        <button role="tab" aria-selected="false" data-shot="gallery" data-i18n="screens.gallery">Галерея</button>
+        <button role="tab" aria-selected="false" data-shot="trim" data-i18n="screens.trim">Обрезка</button>
+      </div>
+      <p class="sub shot-caption reveal" data-i18n="screens.homeText">Повтор включён: сохраняйте клипы, скриншоты и записи.</p>
+      <div class="window reveal">
+        <div class="shots">
+          <img data-shot="home" class="active" src="img/screens/ru-home.webp" alt="" width="1200" height="780" />
+          <img data-shot="gallery" src="img/screens/ru-gallery.webp" alt="" width="1200" height="780" loading="lazy" />
+          <img data-shot="trim" src="img/screens/ru-trim.webp" alt="" width="1200" height="780" loading="lazy" />
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="section narrow">
+      <h2 class="reveal" data-i18n="faq.title">Вопросы и ответы</h2>
+      <div class="faq">
+        <details class="reveal"><summary data-i18n="faq.q1">Windows пишет «Windows защитила ваш компьютер». Это нормально?</summary><div><p data-i18n="faq.a1">Да. У установщика пока нет платной цифровой подписи, поэтому Windows его не узнаёт. Нажмите «Подробнее», а затем «Выполнить в любом случае».</p></div></details>
+        <details class="reveal"><summary data-i18n="faq.q2">Меня не забанят античиты?</summary><div><p data-i18n="faq.a2">Нет. GeniusClip не внедряется в игры и не трогает их файлы — он записывает экран средствами Windows, как OBS или Discord.</p></div></details>
+        <details class="reveal"><summary data-i18n="faq.q3">Какой нужен компьютер?</summary><div><p data-i18n="faq.a3">Windows 10 или 11 (64-bit). Лучше всего с видеокартой NVIDIA, AMD или Intel последних лет — тогда запись почти не нагружает систему.</p></div></details>
+        <details class="reveal"><summary data-i18n="faq.q4">Где лежат клипы?</summary><div><p data-i18n="faq.a4">В папке «Видео\GeniusClip», по папке на каждую игру. Папку можно поменять в настройках.</p></div></details>
+        <details class="reveal"><summary data-i18n="faq.q5">Это бесплатно?</summary><div><p data-i18n="faq.a5">Да. Без рекламы, регистрации и подписок.</p></div></details>
+        <details class="reveal"><summary data-i18n="faq.q6">Как обновлять?</summary><div><p data-i18n="faq.a6">Никак: программа сама проверяет обновления и ставит их одним нажатием.</p></div></details>
+      </div>
+    </section>
+
+    <section id="news" class="section narrow">
+      <h2 class="reveal" data-i18n="news.title">Что нового</h2>
+      <ol class="releases reveal"><li class="empty" data-i18n="news.empty">Скоро здесь появится история версий.</li></ol>
+      <a class="all-releases" href="https://github.com/GandalfDark/geniusclip-releases/releases" data-i18n="news.all">Все версии на GitHub</a>
+    </section>
+
+    <section class="cta reveal">
+      <img src="img/logo.png" alt="" width="64" height="64" />
+      <h2 data-i18n="cta.title">Готовы поймать лучший момент?</h2>
+      <p class="sub" data-i18n="cta.text">Установка займёт меньше минуты.</p>
+      <a class="btn-download download-link" href="https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/GeniusClip-Setup.exe">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v10M8 10.5l4 4 4-4M5 15.5v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" /></svg>
+        <span data-i18n="dl.button">Скачать для Windows</span>
+      </a>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span class="brand small"><img src="img/logo.png" alt="" width="20" height="20" />GeniusClip</span>
+    <span data-i18n="footer.made">Сделано для игроков</span>
+    <a href="https://github.com/GandalfDark/geniusclip-releases">GitHub</a>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

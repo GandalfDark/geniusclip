@@ -22,3 +22,4 @@ vite.config.ts.timestamp-*
 /static/dev-clip_*.m4a
 /static/dev-clip.peaks.json
 /third_party/ffmpeg-*
+/static/dev-clip-thumb.jpg

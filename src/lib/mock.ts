@@ -54,12 +54,12 @@ const media: MediaEntry[] = Array.from({ length: 14 }, (_, i) => {
 // A real local video (static/dev-clip.mp4, not in git) to test the player layout.
 media.unshift({
   path: "/dev-clip.mp4",
-  name: "Dev clip",
+  name: "Brawlhalla 2026-09-26 21-58-04",
   game: "Brawlhalla",
   kind: "clip",
-  size: 1_196_567,
+  size: 18_547_707,
   modified: now,
-  duration: 3,
+  duration: 24,
   width: 2560,
   height: 1440,
 });
@@ -132,6 +132,9 @@ let micTimer: ReturnType<typeof setInterval> | undefined;
 
 export function installMock() {
   (window as any).__GC_MOCK__ = true;
+  // Screenshots for the website: /?lang=en picks the UI language.
+  const lang = new URLSearchParams(location.search).get("lang");
+  if (lang) settings.language = lang;
   mockWindows("main");
   mockIPC(
     async (cmd, args: any) => {
@@ -247,6 +250,7 @@ export function installMock() {
         case "list_media":
           return media;
         case "thumbnail": {
+          if (args.path === "/dev-clip.mp4") return "/dev-clip-thumb.jpg";
           const i = Number(String(args.path).split("//")[1]);
           return thumb(i, media.find((m) => m.path === args.path)?.game ?? "");
         }
