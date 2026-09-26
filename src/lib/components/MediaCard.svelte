@@ -4,13 +4,17 @@
   import { bytes, date, duration } from '$lib/format';
   import type { MediaEntry } from '$lib/types';
 
-  let { entry, onopen }: { entry: MediaEntry; onopen: (e: MediaEntry) => void } = $props();
+  let { entry, onopen }: { entry: MediaEntry; onopen: (e: MediaEntry, from: DOMRect, thumb: string | null) => void } = $props();
   let thumb = $state<string | null>(null);
+  let loaded = $state(false);
   let el: HTMLElement;
+  let frame: HTMLElement;
+  let fresh = $derived(!!app.fresh[entry.path]);
 
   $effect(() => {
     const path = entry.path;
     thumb = null;
+    loaded = false;
     const io = new IntersectionObserver(
       async ([e]) => {
         if (!e.isIntersecting) return;
@@ -28,9 +32,9 @@
   });
 </script>
 
-<button class="m" bind:this={el} onclick={() => onopen(entry)}>
-  <div class="thumb">
-    {#if thumb}<img src={thumb} alt="" draggable="false" />{/if}
+<button class="m" class:fresh bind:this={el} data-path={entry.path} onclick={() => onopen(entry, frame.getBoundingClientRect(), loaded ? thumb : null)}>
+  <div class="thumb" bind:this={frame}>
+    {#if thumb}<img src={thumb} alt="" draggable="false" class:loaded onload={() => (loaded = true)} />{/if}
     {#if entry.kind === 'recording'}<span class="tag rec mono">REC</span>{/if}
     {#if entry.kind === 'screenshot'}
       <span class="tag mono">PNG</span>
@@ -57,17 +61,41 @@
     background: #1c1c21;
     outline: 1px solid var(--line);
     outline-offset: -1px;
-    transition: outline-color 0.12s;
+    transition: outline-color var(--dur-fast) var(--ease);
   }
-  .m:hover .thumb {
+  .m:hover .thumb,
+  .m.fresh .thumb {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
+  }
+  .m.fresh .thumb {
+    animation: fresh 2.2s var(--ease);
+  }
+  @keyframes fresh {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+    }
+    40% {
+      box-shadow: 0 0 0 6px transparent;
+    }
   }
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
+    opacity: 0;
+    transform: scale(1.04);
+    transition:
+      opacity var(--dur) var(--ease),
+      transform 0.6s var(--ease);
+  }
+  img.loaded {
+    opacity: 1;
+    transform: none;
+  }
+  .m:hover img.loaded {
+    transform: scale(1.03);
   }
   .tc,
   .tag {

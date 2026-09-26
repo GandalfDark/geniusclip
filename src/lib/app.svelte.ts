@@ -19,6 +19,10 @@ class AppStore {
   hotkeyErrors = $state<string[]>([]);
   notices = $state<Notice[]>([]);
   savedPulse = $state(0);
+  /** Bumped when a clip finishes saving (drives the button's "Saved" state). */
+  clipSavedAt = $state(0);
+  /** Paths saved during this session, highlighted briefly in lists. */
+  fresh = $state<Record<string, true>>({});
 
   #systemLang: Lang = 'en';
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -51,10 +55,18 @@ class AppStore {
       applyAccent(e.payload.accent);
       api.hotkeyErrors().then((h) => (this.hotkeyErrors = h));
     });
-    await listen('library://changed', () => this.refreshMedia());
+    await listen<{ path: string } | null>('library://changed', (e) => {
+      const path = e.payload?.path;
+      if (path) {
+        this.fresh[path] = true;
+        setTimeout(() => delete this.fresh[path], 2200);
+      }
+      this.refreshMedia();
+    });
     await listen<UpdateInfo>('update://available', (e) => (this.update = e.payload));
     await listen<EngineEvent>('engine://event', (e) => {
       const ev = e.payload;
+      if (ev.type === 'clipSaved') this.clipSavedAt = Date.now();
       if (ev.type === 'clipFailed' || ev.type === 'recordingFailed' || ev.type === 'screenshotFailed') {
         this.notify(ev.error, 'error');
       }

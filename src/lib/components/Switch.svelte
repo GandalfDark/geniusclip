@@ -13,7 +13,7 @@
     height: 20px;
     border-radius: 10px;
     background: #2e2e35;
-    transition: background 0.15s;
+    transition: background var(--dur) var(--ease);
     flex-shrink: 0;
   }
   .sw.on {
@@ -25,12 +25,22 @@
     left: 3px;
     width: 14px;
     height: 14px;
-    border-radius: 50%;
+    border-radius: 7px;
     background: #d9d9de;
-    transition: transform 0.18s cubic-bezier(0.3, 0.7, 0.4, 1);
+    transition:
+      transform var(--dur) var(--ease),
+      width var(--dur-fast) var(--ease),
+      background var(--dur) var(--ease);
   }
   .sw.on .knob {
     transform: translateX(16px);
     background: var(--bg);
+  }
+  /* The knob stretches while pressed, like a real toggle. */
+  .sw:active .knob {
+    width: 18px;
+  }
+  .sw.on:active .knob {
+    transform: translateX(12px);
   }
 </style>

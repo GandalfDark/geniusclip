@@ -11,12 +11,17 @@
   ];
 
   let path = $derived(page.url.pathname);
+  let activeIndex = $derived(items.findIndex((it) => (it.href === '/' ? path === '/' : path.startsWith(it.href))));
   let live = $derived(!!app.status?.replayEnabled && !!app.status?.running);
 </script>
 
 <nav class="side" data-tauri-drag-region>
   <a class="logo" href="/" aria-label="GeniusClip"><Logo size={34} /></a>
   <div class="items">
+    <!-- One highlight that slides between items instead of jumping. -->
+    {#if activeIndex >= 0}
+      <span class="hl" style:transform="translateY({activeIndex * 44}px)"><span class="mark"></span></span>
+    {/if}
     {#each items as it}
       {@const active = it.href === '/' ? path === '/' : path.startsWith(it.href)}
       <a class="item" class:active href={it.href} aria-label={app.t(it.key)}>
@@ -50,6 +55,7 @@
     margin-bottom: 18px;
   }
   .items {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -63,19 +69,25 @@
     display: grid;
     place-items: center;
     color: var(--text-3);
-    transition:
-      color 0.12s,
-      background 0.12s;
+    transition: color var(--dur) var(--ease);
   }
   .item:hover {
     color: var(--text);
   }
   .item.active {
     color: var(--accent);
-    background: var(--hover);
   }
-  .item.active::before {
-    content: '';
+  .hl {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r);
+    background: var(--hover);
+    transition: transform var(--dur) var(--ease);
+  }
+  .mark {
     position: absolute;
     left: -8px;
     top: 10px;
@@ -96,12 +108,16 @@
     font-weight: 500;
     white-space: nowrap;
     opacity: 0;
+    transform: translateX(-4px);
     pointer-events: none;
-    transition: opacity 0.12s;
+    transition:
+      opacity var(--dur-fast) var(--ease),
+      transform var(--dur) var(--ease);
     z-index: 20;
   }
   .item:hover .tip {
     opacity: 1;
+    transform: none;
   }
   .state {
     display: flex;

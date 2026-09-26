@@ -24,6 +24,11 @@
   --accent-ink: #150c26;
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
 
+  /* Motion: one soft curve everywhere (see src/lib/motion.ts). */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur: 320ms;
+
   --r-sm: 5px;
   --r: 8px;
   --r-lg: 12px;
@@ -102,6 +107,7 @@ select {
 }
 
 .btn {
+  transform: translateZ(0);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -113,12 +119,18 @@ select {
   font-weight: 500;
   border: 1px solid var(--line-2);
   transition:
-    background 0.12s,
-    border-color 0.12s;
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease),
+    filter var(--dur-fast) var(--ease),
+    box-shadow var(--dur) var(--ease);
   white-space: nowrap;
 }
 .btn:hover {
   background: var(--hover);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .btn.primary {
   background: var(--accent-grad);
@@ -174,4 +186,19 @@ kbd {
   border-radius: 3px;
   border: 1px solid var(--line-2);
   color: var(--text-2);
+}
+
+/* Respect "reduce motion": keep state changes, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

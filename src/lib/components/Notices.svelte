@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition';
+  import { leave, rise } from '$lib/motion';
   import { app } from '$lib/app.svelte';
 </script>
 
 <div class="notices">
   {#each app.notices as n (n.id)}
-    <div class="notice {n.tone}" transition:fly={{ y: 8, duration: 160 }}>{n.text}</div>
+    <div class="notice {n.tone}" in:rise={{ y: 12 }} out:leave>{n.text}</div>
   {/each}
 </div>
 

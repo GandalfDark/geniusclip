@@ -3,7 +3,11 @@
   import Select from '$lib/components/Select.svelte';
   import MediaCard from '$lib/components/MediaCard.svelte';
   import Viewer from '$lib/components/Viewer.svelte';
+  import { flip } from 'svelte/animate';
   import { api } from '$lib/api';
+  import { enter } from '$lib/enter';
+  import { flipParams, leave } from '$lib/motion';
+  import type { Origin } from '$lib/components/Viewer.svelte';
   import { app } from '$lib/app.svelte';
   import type { MediaEntry, MediaKind } from '$lib/types';
 
@@ -11,6 +15,11 @@
   let game = $state('');
   let query = $state('');
   let viewing = $state<MediaEntry | null>(null);
+  let origin = $state<Origin | null>(null);
+  function open(e: MediaEntry, rect: DOMRect, src: string | null) {
+    origin = { rect, src };
+    viewing = e;
+  }
 
   let games = $derived([...new Set(app.media.map((m) => m.game).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
   const count = (k: 'all' | MediaKind) => (k === 'all' ? app.media.length : app.media.filter((m) => m.kind === k).length);
@@ -57,8 +66,10 @@
 
   {#if list.length}
     <div class="grid">
-      {#each list as m (m.path)}
-        <MediaCard entry={m} onopen={(e) => (viewing = e)} />
+      {#each list as m, i (m.path)}
+        <div class="cell" animate:flip={flipParams()} in:enter|global={{ i, fresh: !!app.fresh[m.path] }} out:leave>
+          <MediaCard entry={m} onopen={open} />
+        </div>
       {/each}
     </div>
   {:else if app.mediaLoaded}
@@ -67,7 +78,7 @@
 </div>
 
 {#if viewing}
-  <Viewer entry={viewing} {list} onclose={() => (viewing = null)} onselect={(e) => (viewing = e)} />
+  <Viewer entry={viewing} {list} {origin} onclose={() => (viewing = null)} onselect={(e) => (viewing = e)} />
 {/if}
 
 <style>
@@ -104,7 +115,7 @@
   .tabs button.active {
     color: var(--text);
   }
-  .tabs button.active::after {
+  .tabs button::after {
     content: '';
     position: absolute;
     left: 0;
@@ -112,6 +123,11 @@
     bottom: -15px;
     height: 2px;
     background: var(--accent);
+    transform: scaleX(0);
+    transition: transform var(--dur) var(--ease);
+  }
+  .tabs button.active::after {
+    transform: none;
   }
   .n {
     margin-left: 6px;
@@ -149,6 +165,9 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
     gap: 20px 14px;
+  }
+  .cell {
+    min-width: 0;
   }
   .empty {
     padding: 40px 0;

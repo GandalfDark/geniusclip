@@ -4,7 +4,11 @@
   import Keys from '$lib/components/Keys.svelte';
   import MediaCard from '$lib/components/MediaCard.svelte';
   import Viewer from '$lib/components/Viewer.svelte';
+  import { flip } from 'svelte/animate';
   import { api } from '$lib/api';
+  import { enter } from '$lib/enter';
+  import { flipParams, leave, rise } from '$lib/motion';
+  import type { Origin } from '$lib/components/Viewer.svelte';
   import { app } from '$lib/app.svelte';
   import { duration } from '$lib/format';
   import { readyLine } from '$lib/i18n';
@@ -16,6 +20,21 @@
   let running = $derived(!!st?.running);
   let recent = $derived(app.media.filter((m) => m.kind !== 'screenshot').slice(0, 8));
   let viewing = $state<MediaEntry | null>(null);
+  let origin = $state<Origin | null>(null);
+  let justSaved = $state(false);
+
+  // The main button confirms each saved clip for a moment (hotkey saves too).
+  $effect(() => {
+    if (!app.clipSavedAt) return;
+    justSaved = true;
+    const t = setTimeout(() => (justSaved = false), 1500);
+    return () => clearTimeout(t);
+  });
+
+  function open(e: MediaEntry, rect: DOMRect, src: string | null) {
+    origin = { rect, src };
+    viewing = e;
+  }
   let updating = $state(false);
 
 
@@ -34,10 +53,12 @@
   <section class="deck panel" class:off={!on}>
     <div class="head">
       <span class="dot" class:live={on && running} class:wait={on && !running}></span>
-      <div class="txt">
-        <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
-        <p>{on ? (running ? readyLine(app.lang, s.replaySeconds) : app.t('home.starting')) : app.t('home.offHint')}</p>
-      </div>
+      {#key `${on}-${running}`}
+        <div class="txt" in:rise={{ y: 6 }}>
+          <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
+          <p>{on ? (running ? readyLine(app.lang, s.replaySeconds) : app.t('home.starting')) : app.t('home.offHint')}</p>
+        </div>
+      {/key}
       {#if on}
         <Switch checked={on} label={app.t('set.replayEnabled')} onchange={(v) => api.setReplay(v)} />
       {:else}
@@ -52,8 +73,16 @@
     {/if}
 
     <div class="actions">
-      <button class="btn primary big" disabled={!on} onclick={() => api.saveClip()}>
-        <Icon name="save" size={17} stroke={2} />{app.t('home.saveClip')}{#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
+      <button class="btn primary big save" class:saved={justSaved} disabled={!on} onclick={() => api.saveClip()}>
+        {#key justSaved}
+          <span class="save-in" in:rise={{ y: 6, duration: 260 }}>
+            {#if justSaved}
+              <Icon name="check" size={17} stroke={2.2} />{app.t('home.saved')}
+            {:else}
+              <Icon name="save" size={17} stroke={2} />{app.t('home.saveClip')}{#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
+            {/if}
+          </span>
+        {/key}
       </button>
       <button class="btn big" onclick={() => api.screenshot()}>
         <Icon name="shot" size={17} />{app.t('home.screenshot')}{#if s.hotkeys.screenshot}<Keys variant="chip" accel={s.hotkeys.screenshot} />{/if}
@@ -93,8 +122,10 @@
     </div>
     {#if recent.length}
       <div class="grid">
-        {#each recent as m (m.path)}
-          <MediaCard entry={m} onopen={(e) => (viewing = e)} />
+        {#each recent as m, i (m.path)}
+          <div class="cell" animate:flip={flipParams()} in:enter|global={{ i, fresh: !!app.fresh[m.path] }} out:leave>
+            <MediaCard entry={m} onopen={open} />
+          </div>
         {/each}
       </div>
     {:else if app.mediaLoaded}
@@ -104,7 +135,7 @@
 </div>
 
 {#if viewing}
-  <Viewer entry={viewing} list={recent} onclose={() => (viewing = null)} onselect={(e) => (viewing = e)} />
+  <Viewer entry={viewing} list={recent} {origin} onclose={() => (viewing = null)} onselect={(e) => (viewing = e)} />
 {/if}
 
 <style>
@@ -230,6 +261,17 @@
   .big.icon {
     width: 42px;
     padding: 0;
+  }
+  .save-in {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .save.saved {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  .cell {
+    min-width: 0;
   }
   .recording {
     border-color: color-mix(in srgb, var(--rec) 60%, transparent);

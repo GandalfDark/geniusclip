@@ -1,13 +1,80 @@
+<script lang="ts" module>
+  export type Origin = { rect: DOMRect; src: string | null };
+</script>
+
 <script lang="ts">
+  import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
+  import { DUR, EASE, reduced } from '$lib/motion';
   import Icon from './Icon.svelte';
   import { api, fileUrl } from '$lib/api';
   import { app } from '$lib/app.svelte';
   import { bytes, date, preciseTime } from '$lib/format';
   import type { MediaEntry } from '$lib/types';
 
-  let { entry, list, onclose, onselect }: { entry: MediaEntry; list: MediaEntry[]; onclose: () => void; onselect: (e: MediaEntry) => void } =
-    $props();
+  let {
+    entry,
+    list,
+    onclose,
+    onselect,
+    origin = null,
+  }: { entry: MediaEntry; list: MediaEntry[]; onclose: () => void; onselect: (e: MediaEntry) => void; origin?: Origin | null } = $props();
+
+  let panel: HTMLElement;
+  let stageEl: HTMLElement;
+  let ghostEl: HTMLImageElement | null = $state(null);
+  let ghostSrc = $state<string | null>(null);
+  let closing = false;
+
+  // --- Container transform: the thumbnail grows from its card into the player.
+  const aspect = () => (entry.width && entry.height ? entry.width / entry.height : 16 / 9);
+  function fit(stage: DOMRect, ar: number) {
+    let w = stage.width;
+    let h = w / ar;
+    if (h > stage.height) {
+      h = stage.height;
+      w = h * ar;
+    }
+    return new DOMRect(stage.left + (stage.width - w) / 2, stage.top + (stage.height - h) / 2, w, h);
+  }
+  async function fly(card: DOMRect, player: DOMRect, src: string, toCard: boolean) {
+    ghostSrc = src;
+    await tick();
+    const g = ghostEl;
+    if (!g) return;
+    Object.assign(g.style, { left: `${player.left}px`, top: `${player.top}px`, width: `${player.width}px`, height: `${player.height}px` });
+    const atCard = {
+      transform: `translate(${card.left - player.left}px, ${card.top - player.top}px) scale(${card.width / player.width}, ${card.height / player.height})`,
+      borderRadius: '6px',
+    };
+    const atPlayer = { transform: 'none', borderRadius: '0px' };
+    const frames = toCard ? [atPlayer, atCard] : [atCard, atPlayer];
+    await g.animate(frames, { duration: DUR + 80, easing: EASE, fill: 'forwards' }).finished;
+  }
+
+  onMount(async () => {
+    if (!origin || reduced()) return;
+    panel.animate([{ opacity: 0, transform: 'scale(0.985)' }, { opacity: 1, transform: 'none' }], { duration: DUR, easing: EASE });
+    if (origin.src) {
+      await fly(origin.rect, fit(stageEl.getBoundingClientRect(), aspect()), origin.src, false);
+      await ghostEl?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: 'forwards' }).finished;
+      ghostSrc = null;
+    }
+  });
+
+  async function close() {
+    if (closing) return;
+    closing = true;
+    const card = document.querySelector<HTMLElement>(`[data-path="${CSS.escape(entry.path)}"] .thumb`);
+    const img = card?.querySelector('img');
+    if (card && !reduced()) {
+      video?.pause();
+      const player = fit(stageEl.getBoundingClientRect(), aspect());
+      panel.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.985)' }], { duration: DUR, easing: EASE, fill: 'forwards' });
+      if (img?.src) await fly(card.getBoundingClientRect(), player, img.src, true);
+    }
+    onclose();
+  }
 
   let video = $state<HTMLVideoElement | null>(null);
   let current = $state(0);
@@ -44,7 +111,7 @@
 
   function onkey(e: KeyboardEvent) {
     if (renaming) return;
-    if (e.key === 'Escape') onclose();
+    if (e.key === 'Escape') close();
     else if (e.key === 'ArrowLeft' && (!isVideo || e.ctrlKey)) go(-1);
     else if (e.key === 'ArrowRight' && (!isVideo || e.ctrlKey)) go(1);
     else if (isVideo && e.code === 'Space') {
@@ -88,7 +155,7 @@
       const res = await api.trimMedia(entry.path, start, end, replace);
       app.notify(app.t('gallery.trimmed'), 'ok');
       await app.refreshMedia();
-      if (replace) onclose();
+      if (replace) close();
       else if (res) onselect(res);
     } catch (e) {
       app.notify(String(e), 'error');
@@ -123,7 +190,7 @@
     try {
       await api.deleteMedia(entry.path);
       await app.refreshMedia();
-      next ? onselect(next) : onclose();
+      next ? onselect(next) : close();
     } catch (e) {
       app.notify(String(e), 'error');
     }
@@ -132,8 +199,8 @@
 
 <svelte:window onkeydown={onkey} />
 
-<div class="backdrop" transition:fade={{ duration: 120 }} onclick={onclose} role="presentation"></div>
-<div class="viewer" transition:fade={{ duration: 120 }}>
+<div class="backdrop" in:fade={{ duration: DUR }} out:fade={{ duration: 160 }} onclick={close} role="presentation"></div>
+<div class="viewer" bind:this={panel}>
   <header>
     <div class="title">
       {#if renaming}
@@ -154,11 +221,11 @@
         <Icon name="trash" size={18} />{#if confirmDelete}{app.t('gallery.confirmDelete')}{/if}
       </button>
       <span class="sep"></span>
-      <button class="btn ghost icon" title={app.t('gallery.close')} onclick={onclose}><Icon name="close" size={18} /></button>
+      <button class="btn ghost icon" title={app.t('gallery.close')} onclick={close}><Icon name="close" size={18} /></button>
     </div>
   </header>
 
-  <div class="stage">
+  <div class="stage" bind:this={stageEl}>
     {#if index > 0}
       <button class="nav prev" onclick={() => go(-1)} aria-label="prev"><Icon name="left" size={20} /></button>
     {/if}
@@ -202,7 +269,19 @@
   {/if}
 </div>
 
+{#if ghostSrc}
+  <img class="ghost" bind:this={ghostEl} src={ghostSrc} alt="" />
+{/if}
+
 <style>
+  .ghost {
+    position: fixed;
+    z-index: 60;
+    object-fit: cover;
+    transform-origin: 0 0;
+    pointer-events: none;
+    will-change: transform;
+  }
   .backdrop {
     position: fixed;
     inset: 0;

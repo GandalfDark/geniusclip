@@ -10,6 +10,7 @@
   import HotkeyInput from '$lib/components/HotkeyInput.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import { api } from '$lib/api';
+  import { cascade, rise } from '$lib/motion';
   import { app } from '$lib/app.svelte';
   import { ACCENTS } from '$lib/accents';
   import type { Estimate, Hotkeys } from '$lib/types';
@@ -111,11 +112,11 @@
     {#each sections as sec}
       <button class:active={active === sec.id} onclick={() => jump(sec.id)}>{app.t(sec.key)}</button>
     {/each}
-    <div class="saved mono" class:show={showSaved}><Icon name="check" size={14} stroke={2} />{app.t('set.saved')}</div>
+    <div class="saved mono" class:show={showSaved}>{#key app.savedPulse}<Icon name="check" size={14} stroke={2} />{/key}{app.t('set.saved')}</div>
   </aside>
 
   <div class="scroll" bind:this={scroller} {onscroll}>
-    <section id="capture">
+    <section id="capture" in:rise|global={{ delay: cascade(0) }}>
       <h2>{app.t('set.capture')}</h2>
       <div class="panel body">
         <Row label={app.t('set.replayEnabled')} hint={app.t('set.replayEnabledHint')}>
@@ -176,7 +177,7 @@
       </div>
     </section>
 
-    <section id="audio">
+    <section id="audio" in:rise|global={{ delay: cascade(1) }}>
       <h2>{app.t('set.audio')}</h2>
       <div class="panel body">
         <Row label={app.t('set.system_audio')}>
@@ -219,7 +220,7 @@
       </div>
     </section>
 
-    <section id="hotkeys">
+    <section id="hotkeys" in:rise|global={{ delay: cascade(2) }}>
       <h2>{app.t('set.hotkeys')}</h2>
       <div class="panel body">
         {#each hkRows as r}
@@ -230,7 +231,7 @@
       </div>
     </section>
 
-    <section id="folders">
+    <section id="folders" in:rise|global={{ delay: cascade(3) }}>
       <h2>{app.t('set.folders')}</h2>
       <div class="panel body">
         {#each [['clipsDir', 'set.clipsDir'], ['screenshotsDir', 'set.shotsDir']] as const as [k, label]}
@@ -245,7 +246,7 @@
       </div>
     </section>
 
-    <section id="overlay">
+    <section id="overlay" in:rise|global={{ delay: cascade(4) }}>
       <h2>{app.t('set.overlay')}</h2>
       <div class="panel body">
         <Row label={app.t('set.overlayEnabled')} hint={app.t('set.overlayHint')}>
@@ -269,7 +270,7 @@
       </div>
     </section>
 
-    <section id="appearance">
+    <section id="appearance" in:rise|global={{ delay: cascade(5) }}>
       <h2>{app.t('set.appearance')}</h2>
       <div class="panel body">
         <Row label={app.t('set.accent')}>
@@ -299,7 +300,7 @@
       </div>
     </section>
 
-    <section id="system">
+    <section id="system" in:rise|global={{ delay: cascade(6) }}>
       <h2>{app.t('set.system')}</h2>
       <div class="panel body">
         <Row label={app.t('set.autostart')}>

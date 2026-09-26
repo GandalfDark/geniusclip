@@ -132,6 +132,26 @@ export function installMock() {
         case 'set_replay_enabled':
           settings.replayEnabled = args.on;
           return;
+        case 'save_clip': {
+          const i = media.length;
+          const entry: MediaEntry = {
+            path: `mock://${i}`,
+            name: `Brawlhalla new ${i}`,
+            game: 'Brawlhalla',
+            kind: 'clip',
+            size: 48_000_000,
+            modified: Date.now(),
+            duration: 10 + (i % 50),
+            width: 2560,
+            height: 1440,
+          };
+          setTimeout(() => {
+            media.unshift(entry);
+            emit('engine://event', { type: 'clipSaved', path: entry.path, seconds: entry.duration });
+            emit('library://changed', entry);
+          }, 350);
+          return;
+        }
         case 'toggle_recording':
           recording = !recording;
           recStart = Date.now();
@@ -142,7 +162,7 @@ export function installMock() {
           return media;
         case 'thumbnail': {
           const i = Number(String(args.path).split('//')[1]);
-          return thumb(i, media[i]?.game ?? '');
+          return thumb(i, media.find((m) => m.path === args.path)?.game ?? '');
         }
         case 'plugin:event|listen':
           return Math.floor(Math.random() * 1e6);

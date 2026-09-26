@@ -5,6 +5,8 @@
   import TitleBar from '$lib/components/TitleBar.svelte';
   import Notices from '$lib/components/Notices.svelte';
   import { app } from '$lib/app.svelte';
+  import { page } from '$app/state';
+  import { rise, leave } from '$lib/motion';
 
   let { children } = $props();
   let ready = $state(false);
@@ -29,7 +31,12 @@
     <TitleBar />
     <div class="content">
       {#if ready}
-        {@render children()}
+        <!-- Old and new page share one grid cell, so they cross-fade in place. -->
+        {#key page.url.pathname}
+          <div class="view" in:rise={{ y: 8, delay: 60 }} out:leave>
+            {@render children()}
+          </div>
+        {/key}
       {/if}
     </div>
   </main>
@@ -54,5 +61,12 @@
     min-height: 0;
     overflow-y: auto;
     padding: 0 32px 32px;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .view {
+    grid-area: 1 / 1;
+    min-width: 0;
+    min-height: 0;
   }
 </style>
