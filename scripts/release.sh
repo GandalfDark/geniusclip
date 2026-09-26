@@ -26,6 +26,11 @@ if [ "$MODE" != "--build-only" ] && gh release view "$TAG" --repo "$REPO" >/dev/
     exit 1
 fi
 
+# Keep local paths (and the Windows user name in them) out of the binaries'
+# panic/debug strings.
+HOME_WIN=$(cygpath -w "$HOME")
+export RUSTFLAGS="--remap-path-prefix=$HOME_WIN=~ --remap-path-prefix=$(cygpath -w "$PWD")=."
+
 echo "== App and NSIS setup ($VERSION)"
 npx tauri build --config scripts/tauri-release.json
 NSIS="target/release/bundle/nsis/GeniusClip_${VERSION}_x64-setup.exe"
@@ -39,6 +44,11 @@ npx tauri signer sign -f "$KEY" -p "" "$OUT/$UPDATE_NAME" >/dev/null
 echo "== Installer"
 GC_SETUP_PAYLOAD="$(cygpath -w "$PWD/$NSIS")" cargo build --release -p geniusclip-setup
 cp target/release/GeniusClip-Setup.exe "$OUT/GeniusClip-Setup.exe"
+
+if LC_ALL=C grep -a -q -F "$HOME_WIN" target/release/GeniusClip.exe "$OUT/GeniusClip-Setup.exe"; then
+    echo "local paths leaked into the binaries" >&2
+    exit 1
+fi
 
 echo "== latest.json"
 node -e '
