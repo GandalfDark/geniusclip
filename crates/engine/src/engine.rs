@@ -2,6 +2,7 @@
 //! live recording and screenshots, and reports events to the host app.
 
 use crate::audio::AudioPipeline;
+use crate::audio::LiveAudio;
 use crate::buffer::ReplayBuffer;
 use crate::denoise::DenoiseControl;
 use crate::disk::DiskStore;
@@ -72,6 +73,8 @@ pub struct EngineStatus {
     pub height: u32,
     pub fps: f32,
     pub dropped_frames: u64,
+    /// Frames dropped during the last 10 seconds (0 when capture keeps up).
+    pub dropped_recent: u64,
     pub last_error: Option<String>,
     /// Noise suppression is on but its model failed to load.
     pub noise_unavailable: bool,
@@ -104,12 +107,14 @@ struct Shot {
 struct Shared {
     buffer: Mutex<Option<ReplayBuffer>>,
     denoise: Arc<DenoiseControl>,
+    live_audio: Arc<LiveAudio>,
     recorder: Mutex<Option<(Recorder, Instant)>>,
     replay_on: AtomicBool,
     force_key: AtomicBool,
     shots: Mutex<Vec<Sender<Result<Shot>>>>,
     fps_x100: AtomicU64,
     dropped: AtomicU64,
+    dropped_recent: AtomicU64,
     failed: Mutex<Option<String>>,
 }
 
@@ -190,12 +195,14 @@ impl Engine {
         let shared = Arc::new(Shared {
             buffer: Mutex::new(None),
             denoise: Arc::default(),
+            live_audio: Arc::default(),
             recorder: Mutex::new(None),
             replay_on: AtomicBool::new(false),
             force_key: AtomicBool::new(false),
             shots: Mutex::new(Vec::new()),
             fps_x100: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
+            dropped_recent: AtomicU64::new(0),
             failed: Mutex::new(None),
         });
         let alive = Arc::new(AtomicBool::new(true));
@@ -250,6 +257,7 @@ impl Engine {
             b.set_max_seconds(replay_seconds);
         }
         self.shared.denoise.set(cfg.noise_suppression, cfg.noise_strength);
+        self.shared.live_audio.set(cfg.system_volume, cfg.mic_volume, cfg.mic_muted);
         if st.cfg.same_pipeline(&cfg) {
             st.cfg = cfg;
             return Ok(());
@@ -324,6 +332,7 @@ impl Engine {
             height: p.map(|p| p.info.height).unwrap_or(0),
             fps: shared.fps_x100.load(Ordering::Relaxed) as f32 / 100.0,
             dropped_frames: shared.dropped.load(Ordering::Relaxed),
+            dropped_recent: shared.dropped_recent.load(Ordering::Relaxed),
             last_error: st.last_error.clone(),
             noise_unavailable: st.cfg.noise_suppression && shared.denoise.failed(),
         }
@@ -525,7 +534,7 @@ fn start_pipeline(st: &mut State, shared: &Arc<Shared>) -> Result<()> {
     let audio = {
         let shared2 = shared.clone();
         let sink: crate::audio::AudioSink = Arc::new(move |i, p| shared2.on_packet(1 + i, p));
-        match AudioPipeline::start(&cfg, t0, sink, shared.denoise.clone()) {
+        match AudioPipeline::start(&cfg, t0, sink, shared.denoise.clone(), shared.live_audio.clone()) {
             Ok(Some((a, descs))) => {
                 streams.extend(descs);
                 Some(a)
@@ -708,6 +717,9 @@ fn video_thread(
     let mut prof_n = 0u64;
     let mut prof_t = Instant::now();
     let mut dropped_at_log = 0u64;
+    // Drops per second over the last 10 s, for a "dropping now" indicator.
+    let mut recent: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
+    let mut dropped_at_sec = 0u64;
     let mut lap;
     let mark = |i: usize, lap: &mut Instant, prof: &mut [(u64, u64); 4]| {
         let us = lap.elapsed().as_micros() as u64;
@@ -804,6 +816,13 @@ fn video_thread(
                 warmed_up = true;
                 shared.dropped.store(0, Ordering::Relaxed);
             }
+            let d = shared.dropped.load(Ordering::Relaxed);
+            recent.push_back(d.saturating_sub(dropped_at_sec));
+            dropped_at_sec = d;
+            if recent.len() > 10 {
+                recent.pop_front();
+            }
+            shared.dropped_recent.store(recent.iter().sum(), Ordering::Relaxed);
             stat_t = Instant::now();
             stat_frames = 0;
         }

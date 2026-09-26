@@ -80,6 +80,8 @@ pub struct EngineConfig {
     pub noise_suppression: bool,
     /// 0..=100, how much noise is removed (100 = all of it).
     pub noise_strength: u32,
+    /// Microphone left out of recordings (applies live).
+    pub mic_muted: bool,
 }
 
 impl EngineConfig {
@@ -88,6 +90,9 @@ impl EngineConfig {
         let mut a = self.clone();
         a.noise_suppression = other.noise_suppression;
         a.noise_strength = other.noise_strength;
+        a.system_volume = other.system_volume;
+        a.mic_volume = other.mic_volume;
+        a.mic_muted = other.mic_muted;
         a == *other
     }
 }
@@ -112,6 +117,7 @@ impl Default for EngineConfig {
             disk_buffer: false,
             noise_suppression: false,
             noise_strength: 80,
+            mic_muted: false,
         }
     }
 }

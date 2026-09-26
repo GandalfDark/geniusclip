@@ -18,7 +18,7 @@ use serde::Serialize;
 use std::collections::VecDeque;
 use std::ffi::c_int;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -572,10 +572,37 @@ pub struct AudioPipeline {
 
 pub type AudioSink = Arc<dyn Fn(usize, Packet) + Send + Sync>;
 
+/// Mix settings that apply live (no pipeline restart, the replay buffer is kept).
+pub struct LiveAudio {
+    system_volume: AtomicU32,
+    mic_volume: AtomicU32,
+    mic_muted: AtomicBool,
+}
+
+impl Default for LiveAudio {
+    fn default() -> Self {
+        LiveAudio { system_volume: AtomicU32::new(1f32.to_bits()), mic_volume: AtomicU32::new(1f32.to_bits()), mic_muted: AtomicBool::new(false) }
+    }
+}
+
+impl LiveAudio {
+    pub fn set(&self, system_volume: f32, mic_volume: f32, mic_muted: bool) {
+        self.system_volume.store(system_volume.clamp(0.0, 4.0).to_bits(), Ordering::Relaxed);
+        self.mic_volume.store(mic_volume.clamp(0.0, 4.0).to_bits(), Ordering::Relaxed);
+        self.mic_muted.store(mic_muted, Ordering::Relaxed);
+    }
+
+    /// (system volume, effective mic volume)
+    fn gains(&self) -> (f32, f32) {
+        let mic = if self.mic_muted.load(Ordering::Relaxed) { 0.0 } else { f32::from_bits(self.mic_volume.load(Ordering::Relaxed)) };
+        (f32::from_bits(self.system_volume.load(Ordering::Relaxed)), mic)
+    }
+}
+
 impl AudioPipeline {
     /// Builds the track layout for the config. Returns (pipeline, stream descriptions).
     /// Packets are delivered to `sink` with the index into the returned streams.
-    pub fn start(cfg: &EngineConfig, t0_us: i64, sink: AudioSink, denoise: Arc<DenoiseControl>) -> Result<Option<(AudioPipeline, Vec<StreamDesc>)>> {
+    pub fn start(cfg: &EngineConfig, t0_us: i64, sink: AudioSink, denoise: Arc<DenoiseControl>, live: Arc<LiveAudio>) -> Result<Option<(AudioPipeline, Vec<StreamDesc>)>> {
         let mut tracks: Vec<(TrackMix, &str, i64)> = Vec::new();
         match (cfg.system_audio, cfg.mic) {
             (true, true) => {
@@ -626,7 +653,6 @@ impl AudioPipeline {
             );
         }
 
-        let (sys_vol, mic_vol) = (cfg.system_volume.clamp(0.0, 4.0), cfg.mic_volume.clamp(0.0, 4.0));
         let (use_sys, use_mic) = (cfg.system_audio, cfg.mic);
         let stop2 = stop.clone();
         threads.push(std::thread::Builder::new().name("gc-audio-mix".into()).spawn(move || {
@@ -643,6 +669,7 @@ impl AudioPipeline {
                     pos = target - BLOCK as i64;
                 }
                 while pos + BLOCK as i64 <= target {
+                    let (sys_vol, mic_vol) = live.gains();
                     if use_sys {
                         sys_ring.read(pos, &mut sys);
                         sys.iter_mut().for_each(|s| *s *= sys_vol);
