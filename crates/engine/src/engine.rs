@@ -3,6 +3,7 @@
 
 use crate::audio::AudioPipeline;
 use crate::buffer::ReplayBuffer;
+use crate::disk::DiskStore;
 use crate::clock;
 use crate::config::EngineConfig;
 use crate::convert::Converter;
@@ -510,7 +511,8 @@ fn start_pipeline(st: &mut State, shared: &Arc<Shared>) -> Result<()> {
             }
         }
     };
-    *shared.buffer.lock() = Some(ReplayBuffer::new(streams.clone(), st.replay_seconds));
+    let disk = cfg.disk_buffer.then(|| DiskStore::new(DiskStore::default_dir()));
+    *shared.buffer.lock() = Some(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk));
     let _ = go_tx.send(true);
     st.pipeline = Some(Pipeline { stop, video: Some(video), audio, streams, info });
     Ok(())

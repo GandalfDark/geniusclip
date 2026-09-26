@@ -81,7 +81,7 @@ const ru = {
   'set.system': 'Система',
 
   'set.replayEnabled': 'Повтор',
-  'set.replayEnabledHint': 'Держать последние минуты в памяти',
+  'set.replayEnabledHint': 'Держать последние минуты наготове',
   'set.length': 'Длина',
   'set.skipSaved': 'Не повторять сохранённое',
   'set.skipSavedHint': 'Новый клип начнётся там, где закончился предыдущий',
@@ -100,6 +100,9 @@ const ru = {
   'set.primary': 'основной',
   'set.cursor': 'Курсор',
   'set.estimate': '{mbps} Мбит/с · буфер ≈ {mem}',
+  'set.estimateDisk': '{mbps} Мбит/с · на диске ≈ {mem}',
+  'set.diskBuffer': 'Буфер на диске',
+  'set.diskBufferHint': 'Экономит память, до 60 минут. Постоянно пишет на диск',
 
   'set.system_audio': 'Звук игры',
   'set.device': 'Устройство',
@@ -221,7 +224,7 @@ const en: Record<Key, string> = {
   'set.system': 'System',
 
   'set.replayEnabled': 'Replay',
-  'set.replayEnabledHint': 'Keep the last minutes in memory',
+  'set.replayEnabledHint': 'Keep the last minutes ready to save',
   'set.length': 'Length',
   'set.skipSaved': 'Skip what’s already saved',
   'set.skipSavedHint': 'A new clip starts where the previous one ended',
@@ -240,6 +243,9 @@ const en: Record<Key, string> = {
   'set.primary': 'primary',
   'set.cursor': 'Cursor',
   'set.estimate': '{mbps} Mbit/s · buffer ≈ {mem}',
+  'set.estimateDisk': '{mbps} Mbit/s · on disk ≈ {mem}',
+  'set.diskBuffer': 'Buffer on disk',
+  'set.diskBufferHint': 'Saves memory, up to 60 minutes. Writes to disk constantly',
 
   'set.system_audio': 'Game sound',
   'set.device': 'Device',

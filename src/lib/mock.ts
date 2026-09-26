@@ -68,6 +68,7 @@ let settings: Settings = {
     micDevice: null,
     micVolume: 1,
     separateTracks: true,
+    diskBuffer: false,
   },
   replayEnabled: true,
   replaySeconds: 300,

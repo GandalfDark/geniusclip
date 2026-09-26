@@ -13,6 +13,7 @@ mod dup;
 mod engine;
 mod ffutil;
 pub mod game;
+mod disk;
 pub mod media;
 pub mod remix;
 mod mux;

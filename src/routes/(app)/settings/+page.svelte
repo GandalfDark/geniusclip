@@ -35,7 +35,7 @@
 
   $effect(() => {
     const e = s.engine;
-    void [e.monitor, e.resolution, e.codec, e.quality, e.fps, e.bitrateKbps, e.mic, e.systemAudio, e.separateTracks, s.replaySeconds];
+    void [e.monitor, e.resolution, e.codec, e.quality, e.fps, e.bitrateKbps, e.mic, e.systemAudio, e.separateTracks, e.diskBuffer, s.replaySeconds];
     api.estimate($state.snapshot(s)).then((r) => (estimate = r));
   });
 
@@ -96,6 +96,8 @@
       .filter(([v]) => v === 'native' || !current || Number(v.slice(1)) < current.height)
       .map(([value, label]) => ({ value, label })),
   );
+  const MAX_RAM = 1200;
+  const MAX_DISK = 3600;
   const minutes = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const memLabel = (mb: number) =>
     mb >= 1024 ? `${(mb / 1024).toFixed(1).replace('.', app.lang === 'ru' ? ',' : '.')} ${app.lang === 'ru' ? 'ГБ' : 'GB'}` : `${mb} ${app.lang === 'ru' ? 'МБ' : 'MB'}`;
@@ -125,10 +127,29 @@
           <Switch checked={s.replayEnabled} onchange={(v) => api.setReplay(v)} />
         </Row>
         <Row label={app.t('set.length')}>
-          <Slider value={s.replaySeconds} min={60} max={1200} step={30} format={minutes} width="280px" onchange={(v) => app.change((x) => (x.replaySeconds = v), 600)} />
+          <Slider
+            value={s.replaySeconds}
+            min={60}
+            max={s.engine.diskBuffer ? MAX_DISK : MAX_RAM}
+            step={30}
+            format={minutes}
+            width="280px"
+            onchange={(v) => app.change((x) => (x.replaySeconds = v), 600)}
+          />
         </Row>
         <Row label={app.t('set.skipSaved')} hint={app.t('set.skipSavedHint')}>
           <Switch checked={s.skipSaved} onchange={(v) => app.change((x) => (x.skipSaved = v))} />
+        </Row>
+        <Row label={app.t('set.diskBuffer')} hint={app.t('set.diskBufferHint')}>
+          <Switch
+            checked={s.engine.diskBuffer}
+            onchange={(v) =>
+              app.change((x) => {
+                x.engine.diskBuffer = v;
+                // Long buffers only fit on disk.
+                if (!v) x.replaySeconds = Math.min(x.replaySeconds, MAX_RAM);
+              })}
+          />
         </Row>
         <Row label={app.t('set.quality')}>
           <Segmented
@@ -170,7 +191,7 @@
         </Row>
         {#if estimate}
           <div class="estimate mono">
-            {estimate.width}×{estimate.height} · {s.engine.fps} {app.t('home.fps')} · {app.t('set.estimate', {
+            {estimate.width}×{estimate.height} · {s.engine.fps} {app.t('home.fps')} · {app.t(s.engine.diskBuffer ? 'set.estimateDisk' : 'set.estimate', {
               mbps: (estimate.bitrateKbps / 1000).toFixed(0),
               mem: memLabel(estimate.bufferMb),
             })}

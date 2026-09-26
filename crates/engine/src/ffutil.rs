@@ -91,8 +91,34 @@ impl Drop for CodecParams {
 }
 
 /// An encoded packet kept in the replay buffer.
+/// Encoded bytes of a packet: in memory, or in a disk-buffer segment.
+pub enum Payload {
+    Mem(Box<[u8]>),
+    Disk { seg: Arc<crate::disk::Segment>, offset: u64, len: u32 },
+}
+
+impl Payload {
+    pub fn len(&self) -> usize {
+        match self {
+            Payload::Mem(b) => b.len(),
+            Payload::Disk { len, .. } => *len as usize,
+        }
+    }
+
+    /// Copies the bytes into `dst` (exactly `len()` long).
+    pub fn read_into(&self, dst: &mut [u8]) -> std::io::Result<()> {
+        match self {
+            Payload::Mem(b) => {
+                dst.copy_from_slice(b);
+                Ok(())
+            }
+            Payload::Disk { seg, offset, .. } => seg.read_at(*offset, dst),
+        }
+    }
+}
+
 pub struct Packet {
-    pub data: Box<[u8]>,
+    pub data: Payload,
     pub pts: i64,
     pub dts: i64,
     pub duration: i64,
@@ -111,7 +137,7 @@ impl Packet {
         };
         let pts = if p.pts == ff::AV_NOPTS_VALUE { p.dts } else { p.pts };
         Packet {
-            data,
+            data: Payload::Mem(data),
             pts,
             dts: if p.dts == ff::AV_NOPTS_VALUE { pts } else { p.dts },
             duration: p.duration,

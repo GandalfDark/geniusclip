@@ -74,6 +74,8 @@ pub struct EngineConfig {
     pub mic_volume: f32,
     /// Also store game and microphone as separate audio tracks (for editing).
     pub separate_tracks: bool,
+    /// Keep the replay buffer in temporary files instead of RAM.
+    pub disk_buffer: bool,
 }
 
 impl Default for EngineConfig {
@@ -93,6 +95,7 @@ impl Default for EngineConfig {
             mic_device: None,
             mic_volume: 1.0,
             separate_tracks: true,
+            disk_buffer: false,
         }
     }
 }

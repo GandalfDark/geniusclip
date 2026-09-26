@@ -1,8 +1,10 @@
-//! In-memory replay buffer of encoded packets.
+//! Replay buffer of encoded packets.
 //!
 //! Stores already-compressed packets (≈ bitrate × duration bytes), trimmed on
-//! whole-GOP boundaries so a clip can always start on a keyframe.
+//! whole-GOP boundaries so a clip can always start on a keyframe. The bytes
+//! live in RAM, or in temporary files (see `disk`) with only the index here.
 
+use crate::disk::DiskStore;
 use crate::ffutil::{PacketRef, StreamDesc, StreamKind};
 use std::collections::VecDeque;
 
@@ -11,6 +13,7 @@ pub struct ReplayBuffer {
     queues: Vec<VecDeque<PacketRef>>,
     bytes: usize,
     max_us: i64,
+    disk: Option<DiskStore>,
     /// End of the last saved clip; the next clip can continue from here
     /// instead of repeating footage that is already saved.
     pub last_saved_end_us: Option<i64>,
@@ -27,13 +30,14 @@ pub struct ClipData {
 }
 
 impl ReplayBuffer {
-    pub fn new(streams: Vec<StreamDesc>, max_seconds: u32) -> Self {
+    pub fn new(streams: Vec<StreamDesc>, max_seconds: u32, disk: Option<DiskStore>) -> Self {
         let n = streams.len();
         ReplayBuffer {
             streams,
             queues: (0..n).map(|_| VecDeque::new()).collect(),
             bytes: 0,
             max_us: max_seconds as i64 * 1_000_000,
+            disk,
             last_saved_end_us: None,
         }
     }
@@ -46,6 +50,9 @@ impl ReplayBuffer {
     pub fn clear(&mut self) {
         self.queues.iter_mut().for_each(|q| q.clear());
         self.bytes = 0;
+        if let Some(d) = &mut self.disk {
+            d.reset();
+        }
         self.last_saved_end_us = None;
     }
 
@@ -80,6 +87,10 @@ impl ReplayBuffer {
         if Some(stream) == self.video_index() && self.queues[stream].is_empty() && !pkt.key {
             return;
         }
+        let pkt = match &mut self.disk {
+            Some(d) => d.store(pkt),
+            None => pkt,
+        };
         self.bytes += pkt.data.len();
         self.queues[stream].push_back(pkt);
         self.prune();

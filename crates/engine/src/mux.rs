@@ -76,7 +76,10 @@ impl Muxer {
             let off = rescale(origin_us, US, tb);
             let pkt = self.pkt.0;
             check(ff::av_new_packet(pkt, p.data.len() as c_int), "av_new_packet")?;
-            ptr::copy_nonoverlapping(p.data.as_ptr(), (*pkt).data, p.data.len());
+            if let Err(e) = p.data.read_into(std::slice::from_raw_parts_mut((*pkt).data, p.data.len())) {
+                ff::av_packet_unref(pkt);
+                return Err(anyhow::Error::new(e).context("read buffered packet"));
+            }
             (*pkt).pts = p.pts - off;
             (*pkt).dts = p.dts - off;
             (*pkt).duration = p.duration;

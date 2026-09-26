@@ -17,6 +17,7 @@ export interface EngineConfig {
   micDevice: string | null;
   micVolume: number;
   separateTracks: boolean;
+  diskBuffer: boolean;
 }
 
 export interface Hotkeys {
