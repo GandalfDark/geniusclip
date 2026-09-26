@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': '閉じる — Esc',
     'menu.shot': 'スクショ',
     'menu.settings': '設定',
+    'set.memWarn': 'バッファがメモリ {total} のうち {mem} を使います。多めです',
+    'set.memWarnFix': 'ディスクに保存',
+    'set.pauseOnBattery': 'バッテリー駆動時は一時停止',
+    'set.pauseOnBatteryHint': 'ノート PC がバッテリーで動いている間はリプレイを録画しません',
+    'set.btMic': 'Bluetooth マイクです。録音中はヘッドホンがヘッドセットモードに切り替わり、音質が下がります。別のマイクを選ぶか、マイクの録音をオフにしてください。',
+    'home.paused': 'リプレイ一時停止中',
+    'home.pausedBattery': 'ノート PC がバッテリーで動作中です。充電器をつないでください',
   },
   readyMin: {
     exact1: '直近 1 分をいつでも保存できます',

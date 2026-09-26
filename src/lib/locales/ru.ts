@@ -179,6 +179,13 @@ export const strings = {
   'menu.close': 'Закрыть — Esc',
   'menu.shot': 'Скриншот',
   'menu.settings': 'Настройки',
+  'set.memWarn': 'Буфер займёт {mem} из {total} памяти — это много',
+  'set.memWarnFix': 'Хранить на диске',
+  'set.pauseOnBattery': 'Пауза на батарее',
+  'set.pauseOnBatteryHint': 'Не вести повтор, пока ноутбук работает от батареи',
+  'set.btMic': 'Это Bluetooth-микрофон: пока он записывается, наушники работают в режиме гарнитуры и звучат хуже. Выберите другой микрофон или выключите запись микрофона.',
+  'home.paused': 'Повтор на паузе',
+  'home.pausedBattery': 'Ноутбук работает от батареи — подключите зарядку',
 };
 
 const locale: Locale = {

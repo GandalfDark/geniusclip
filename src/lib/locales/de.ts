@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': 'Schließen – Esc',
     'menu.shot': 'Foto',
     'menu.settings': 'Optionen',
+    'set.memWarn': 'Der Puffer belegt {mem} von {total} RAM — das ist viel',
+    'set.memWarnFix': 'Auf Festplatte auslagern',
+    'set.pauseOnBattery': 'Pause im Akkubetrieb',
+    'set.pauseOnBatteryHint': 'Kein Replay, solange der Laptop im Akkubetrieb läuft',
+    'set.btMic': 'Das ist ein Bluetooth-Mikrofon: Während es aufnimmt, wechselt der Kopfhörer in den Headset-Modus und klingt schlechter. Wähle ein anderes Mikrofon oder schalte die Mikrofonaufnahme aus.',
+    'home.paused': 'Replay pausiert',
+    'home.pausedBattery': 'Der Laptop läuft im Akkubetrieb — schließe das Ladegerät an',
   },
   readyMin: {
     exact1: 'Die letzte Minute ist immer griffbereit',

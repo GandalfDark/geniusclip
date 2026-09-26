@@ -179,6 +179,13 @@ const locale: Locale = {
   'menu.close': 'Zamknij — Esc',
   'menu.shot': 'Zrzut',
   'menu.settings': 'Opcje',
+  'set.memWarn': 'Bufor zajmie {mem} z {total} pamięci — to dużo',
+  'set.memWarnFix': 'Trzymaj na dysku',
+  'set.pauseOnBattery': 'Pauza na baterii',
+  'set.pauseOnBatteryHint': 'Bez powtórki, gdy laptop działa na baterii',
+  'set.btMic': 'To mikrofon Bluetooth: gdy nagrywa, słuchawki przechodzą w tryb zestawu słuchawkowego i brzmią gorzej. Wybierz inny mikrofon lub wyłącz nagrywanie mikrofonu.',
+  'home.paused': 'Powtórka wstrzymana',
+  'home.pausedBattery': 'Laptop działa na baterii — podłącz ładowarkę',
   },
   readyMin: {
     exact1: 'Ostatnia minuta zawsze pod ręką',

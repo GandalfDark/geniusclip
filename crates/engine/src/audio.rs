@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use windows::core::{HSTRING, PWSTR};
-use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+use windows::Win32::Devices::FunctionDiscovery::{PKEY_Device_EnumeratorName, PKEY_Device_FriendlyName};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::*;
 use windows::Win32::Media::KernelStreaming::{KSDATAFORMAT_SUBTYPE_PCM, WAVE_FORMAT_EXTENSIBLE};
@@ -44,6 +44,9 @@ pub struct AudioDevice {
     pub id: String,
     pub name: String,
     pub is_default: bool,
+    /// Connected over Bluetooth. An open Bluetooth microphone switches the
+    /// headphones to the low-quality hands-free (headset) profile.
+    pub bluetooth: bool,
 }
 
 pub(crate) struct ComInit;
@@ -83,12 +86,12 @@ pub fn list_devices(capture: bool) -> Result<Vec<AudioDevice>> {
         for i in 0..coll.GetCount()? {
             let dev = coll.Item(i)?;
             let id = pwstr_take(dev.GetId()?);
-            let name = dev
-                .OpenPropertyStore(STGM_READ)
-                .and_then(|ps| ps.GetValue(&PKEY_Device_FriendlyName))
-                .map(|v| v.to_string())
-                .unwrap_or_else(|_| id.clone());
-            out.push(AudioDevice { is_default: default_id.as_deref() == Some(id.as_str()), id, name });
+            let props = dev.OpenPropertyStore(STGM_READ).ok();
+            let prop = |key| props.as_ref().and_then(|ps| ps.GetValue(key).ok()).map(|v| v.to_string()).unwrap_or_default();
+            let name = Some(prop(&PKEY_Device_FriendlyName)).filter(|n| !n.is_empty()).unwrap_or_else(|| id.clone());
+            // "BTHENUM" (A2DP/LE) or "BTHHFENUM" (hands-free).
+            let bluetooth = prop(&PKEY_Device_EnumeratorName).to_ascii_uppercase().starts_with("BTH");
+            out.push(AudioDevice { is_default: default_id.as_deref() == Some(id.as_str()), id, name, bluetooth });
         }
     }
     Ok(out)

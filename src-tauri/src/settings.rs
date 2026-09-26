@@ -69,6 +69,8 @@ pub struct Settings {
     pub accent: String,
     pub overlay: OverlaySettings,
     pub auto_update: bool,
+    /// Laptops: no replay while running on battery.
+    pub pause_on_battery: bool,
 }
 
 impl Default for Settings {
@@ -88,6 +90,7 @@ impl Default for Settings {
             accent: "violet".into(),
             overlay: OverlaySettings::default(),
             auto_update: true,
+            pause_on_battery: false,
         }
     }
 }

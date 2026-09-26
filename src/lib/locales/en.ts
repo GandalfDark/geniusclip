@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': 'Close — Esc',
     'menu.shot': 'Screenshot',
     'menu.settings': 'Settings',
+    'set.memWarn': 'The buffer will take {mem} of {total} memory — that’s a lot',
+    'set.memWarnFix': 'Keep it on disk',
+    'set.pauseOnBattery': 'Pause on battery',
+    'set.pauseOnBatteryHint': 'No replay while the laptop runs on battery',
+    'set.btMic': 'This is a Bluetooth mic: while it records, the headphones switch to headset mode and sound worse. Pick another mic or turn off mic recording.',
+    'home.paused': 'Replay is paused',
+    'home.pausedBattery': 'The laptop is on battery — plug it in',
   },
   readyMin: {
     exact1: 'The last minute is always ready',

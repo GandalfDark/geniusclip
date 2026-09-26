@@ -179,6 +179,13 @@ const locale: Locale = {
   'menu.close': 'Kapat — Esc',
   'menu.shot': 'Görüntü',
   'menu.settings': 'Ayarlar',
+  'set.memWarn': 'Arabellek {total} belleğin {mem} kadarını kaplayacak — bu çok fazla',
+  'set.memWarnFix': 'Diskte tut',
+  'set.pauseOnBattery': 'Pilde duraklat',
+  'set.pauseOnBatteryHint': 'Dizüstü pille çalışırken anlık tekrar kaydedilmez',
+  'set.btMic': 'Bu bir Bluetooth mikrofon: kayıt sırasında kulaklık mikrofonlu kulaklık moduna geçer ve ses kalitesi düşer. Başka bir mikrofon seç ya da mikrofon kaydını kapat.',
+  'home.paused': 'Anlık tekrar duraklatıldı',
+  'home.pausedBattery': 'Dizüstü pille çalışıyor — şarj cihazını tak',
   },
   readyMin: {
     exact1: 'Son bir dakika her zaman hazır',

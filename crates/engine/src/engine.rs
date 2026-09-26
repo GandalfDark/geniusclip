@@ -75,6 +75,8 @@ pub struct EngineStatus {
     pub dropped_frames: u64,
     /// Frames dropped during the last 10 seconds (0 when capture keeps up).
     pub dropped_recent: u64,
+    /// Capture is paused (display off, locked, or on battery by choice).
+    pub paused: bool,
     pub last_error: Option<String>,
     /// Noise suppression is on but its model failed to load.
     pub noise_unavailable: bool,
@@ -367,6 +369,7 @@ impl Engine {
             fps: shared.fps_x100.load(Ordering::Relaxed) as f32 / 100.0,
             dropped_frames: shared.dropped.load(Ordering::Relaxed),
             dropped_recent: shared.dropped_recent.load(Ordering::Relaxed),
+            paused: st.paused,
             last_error: st.last_error.clone(),
             noise_unavailable: st.cfg.noise_suppression && shared.denoise.failed(),
         }

@@ -179,6 +179,13 @@ const locale: Locale = {
   'menu.close': 'Cerrar — Esc',
   'menu.shot': 'Captura',
   'menu.settings': 'Ajustes',
+  'set.memWarn': 'El búfer ocupará {mem} de {total} de memoria: es mucho',
+  'set.memWarnFix': 'Guardarlo en disco',
+  'set.pauseOnBattery': 'Pausa con batería',
+  'set.pauseOnBatteryHint': 'Sin repetición mientras el portátil funciona con batería',
+  'set.btMic': 'Es un micrófono Bluetooth: mientras graba, los auriculares pasan al modo manos libres y suenan peor. Elige otro micrófono o desactiva la grabación del micrófono.',
+  'home.paused': 'Repetición en pausa',
+  'home.pausedBattery': 'El portátil funciona con batería: conecta el cargador',
   },
   readyMin: {
     exact1: 'El último minuto siempre está listo',

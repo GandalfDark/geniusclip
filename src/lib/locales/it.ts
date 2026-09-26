@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': 'Chiudi — Esc',
     'menu.shot': 'Cattura',
     'menu.settings': 'Opzioni',
+    'set.memWarn': 'Il buffer occuperà {mem} su {total} di memoria — è tanto',
+    'set.memWarnFix': 'Tienilo su disco',
+    'set.pauseOnBattery': 'Pausa a batteria',
+    'set.pauseOnBatteryHint': 'Niente replay quando il portatile va a batteria',
+    'set.btMic': 'Questo è un microfono Bluetooth: mentre registra, le cuffie passano in modalità auricolare e suonano peggio. Scegli un altro microfono o disattiva la registrazione del microfono.',
+    'home.paused': 'Replay in pausa',
+    'home.pausedBattery': 'Il portatile va a batteria — collega il caricatore',
   },
   readyMin: {
     exact1: 'L’ultimo minuto è sempre pronto',

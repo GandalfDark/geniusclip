@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': '닫기 — Esc',
     'menu.shot': '스크린샷',
     'menu.settings': '설정',
+    'set.memWarn': '버퍼가 메모리 {total} 중 {mem} 사용 — 많은 편이에요',
+    'set.memWarnFix': '디스크에 보관',
+    'set.pauseOnBattery': '배터리 사용 시 일시 정지',
+    'set.pauseOnBatteryHint': '노트북이 배터리로 작동하는 동안 리플레이를 기록하지 않아요',
+    'set.btMic': '블루투스 마이크예요. 녹음하는 동안 헤드폰이 헤드셋 모드로 바뀌어 음질이 나빠져요. 다른 마이크를 고르거나 마이크 녹음을 꺼 주세요.',
+    'home.paused': '리플레이 일시 정지됨',
+    'home.pausedBattery': '노트북이 배터리로 작동 중이에요 — 충전기를 연결해 주세요',
   },
   readyMin: {
     exact1: '최근 1분은 언제든 저장할 수 있어요',

@@ -3,7 +3,8 @@
 //!   to sleep on its own, and the GPU keeps encoding a dark screen;
 //! - session locked: capture fails on the secure desktop anyway, and the
 //!   pipeline would keep restarting.
-//! Capture resumes when the display is back on and the session unlocked.
+//! - on battery, if the user chose so (laptops).
+//! Capture resumes when all of that is over.
 
 use crate::state::AppState;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,21 +12,40 @@ use tauri::{AppHandle, Manager};
 use windows::core::w;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Power::{RegisterPowerSettingNotification, POWERBROADCAST_SETTING};
+use windows::Win32::System::Power::{GetSystemPowerStatus, RegisterPowerSettingNotification, POWERBROADCAST_SETTING, SYSTEM_POWER_STATUS};
 use windows::Win32::System::RemoteDesktop::{WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION};
-use windows::Win32::System::SystemServices::GUID_CONSOLE_DISPLAY_STATE;
+use windows::Win32::System::SystemServices::{GUID_ACDC_POWER_SOURCE, GUID_CONSOLE_DISPLAY_STATE};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 static DISPLAY_OFF: AtomicBool = AtomicBool::new(false);
 static LOCKED: AtomicBool = AtomicBool::new(false);
+static ON_BATTERY: AtomicBool = AtomicBool::new(false);
 static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
 const WTS_SESSION_LOCK: usize = 0x7;
 const WTS_SESSION_UNLOCK: usize = 0x8;
 
+/// Whether the PC has a battery (the setting is only shown on laptops).
+pub fn has_battery() -> bool {
+    let mut s = SYSTEM_POWER_STATUS::default();
+    // BatteryFlag 128 = no system battery, 255 = unknown.
+    unsafe { GetSystemPowerStatus(&mut s) }.is_ok() && s.BatteryFlag != 128 && s.BatteryFlag != 255
+}
+
+fn on_battery_now() -> bool {
+    let mut s = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut s) }.is_ok() && s.ACLineStatus == 0
+}
+
+/// Re-evaluates after the "pause on battery" setting changed.
+pub fn refresh() {
+    apply();
+}
+
 fn apply() {
     let Some(app) = APP.get() else { return };
-    let paused = DISPLAY_OFF.load(Ordering::Relaxed) || LOCKED.load(Ordering::Relaxed);
+    let battery = ON_BATTERY.load(Ordering::Relaxed) && app.state::<AppState>().settings.read().pause_on_battery;
+    let paused = DISPLAY_OFF.load(Ordering::Relaxed) || LOCKED.load(Ordering::Relaxed) || battery;
     let app = app.clone();
     // Stopping/starting capture takes a moment; keep the message loop free.
     std::thread::spawn(move || {
@@ -40,7 +60,13 @@ extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         match m {
             WM_POWERBROADCAST if wp.0 == PBT_POWERSETTINGCHANGE as usize => {
                 let s = &*(lp.0 as *const POWERBROADCAST_SETTING);
-                if s.PowerSetting == GUID_CONSOLE_DISPLAY_STATE {
+                if s.PowerSetting == GUID_ACDC_POWER_SOURCE {
+                    // 0 = AC, 1 = battery, 2 = short-term (UPS).
+                    let battery = s.Data[0] == 1;
+                    if ON_BATTERY.swap(battery, Ordering::Relaxed) != battery {
+                        apply();
+                    }
+                } else if s.PowerSetting == GUID_CONSOLE_DISPLAY_STATE {
                     // 0 = off, 1 = on, 2 = dimmed.
                     let off = s.Data[0] == 0;
                     if DISPLAY_OFF.swap(off, Ordering::Relaxed) != off {
@@ -83,6 +109,9 @@ pub fn start(app: &AppHandle) {
         if RegisterPowerSettingNotification(HANDLE(hwnd.0), &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE).is_err() {
             log::warn!("display state notifications unavailable");
         }
+        ON_BATTERY.store(on_battery_now(), Ordering::Relaxed);
+        let _ = RegisterPowerSettingNotification(HANDLE(hwnd.0), &GUID_ACDC_POWER_SOURCE, DEVICE_NOTIFY_WINDOW_HANDLE);
+        apply();
         if WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION).is_err() {
             log::warn!("session notifications unavailable");
         }

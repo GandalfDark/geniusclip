@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': '关闭 — Esc',
     'menu.shot': '截图',
     'menu.settings': '设置',
+    'set.memWarn': '缓冲将占用 {mem}（共 {total} 内存），占用较多',
+    'set.memWarnFix': '改存到磁盘',
+    'set.pauseOnBattery': '使用电池时暂停',
+    'set.pauseOnBatteryHint': '笔记本使用电池供电时不录制回放',
+    'set.btMic': '这是蓝牙麦克风：录音时耳机会切换到通话模式，音质变差。请换用其他麦克风，或关闭麦克风录制。',
+    'home.paused': '回放已暂停',
+    'home.pausedBattery': '笔记本正在使用电池，请接上电源',
   },
   readyMin: {
     exact1: '最近 1 分钟随时可以保存',

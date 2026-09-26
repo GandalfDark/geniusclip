@@ -18,6 +18,9 @@
   let st = $derived(app.status);
   let on = $derived(s.replayEnabled);
   let running = $derived(!!st?.running);
+  // Display-off and lock pauses are invisible (the screen is off); only a
+  // battery pause can be seen here.
+  let paused = $derived(!!st?.paused);
   let recent = $derived(app.media.filter((m) => m.kind !== 'screenshot').slice(0, 8));
   let viewing = $state<MediaEntry | null>(null);
   let origin = $state<Origin | null>(null);
@@ -52,12 +55,17 @@
 <div class="page">
   <section class="deck panel" class:off={!on}>
     <div class="head">
-      <span class="dot" class:live={on && running} class:wait={on && !running}></span>
-      <!-- Animate only the on/off change; capture start-up is shown by the dot. -->
-      {#key on}
+      <span class="dot" class:live={on && running && !paused} class:wait={on && (!running || paused)}></span>
+      <!-- Animate only the on/off/paused change; capture start-up is shown by the dot. -->
+      {#key `${on}-${paused}`}
         <div class="txt" in:rise={{ y: 6 }}>
-          <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
-          <p>{on ? readyLine(app.lang, s.replaySeconds) : app.t('home.offHint')}</p>
+          {#if on && paused}
+            <h1>{app.t('home.paused')}</h1>
+            <p>{app.t('home.pausedBattery')}</p>
+          {:else}
+            <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
+            <p>{on ? readyLine(app.lang, s.replaySeconds) : app.t('home.offHint')}</p>
+          {/if}
         </div>
       {/key}
       {#if on}

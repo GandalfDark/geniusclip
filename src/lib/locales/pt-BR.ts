@@ -179,6 +179,13 @@ const locale: Locale = {
   'menu.close': 'Fechar — Esc',
   'menu.shot': 'Captura',
   'menu.settings': 'Ajustes',
+  'set.memWarn': 'O buffer vai ocupar {mem} de {total} de memória — é muito',
+  'set.memWarnFix': 'Manter no disco',
+  'set.pauseOnBattery': 'Pausar na bateria',
+  'set.pauseOnBatteryHint': 'Sem replay enquanto o notebook estiver na bateria',
+  'set.btMic': 'Este é um microfone Bluetooth: enquanto ele grava, os fones mudam para o modo headset e soam pior. Escolha outro microfone ou desative a gravação do microfone.',
+  'home.paused': 'Replay pausado',
+  'home.pausedBattery': 'O notebook está na bateria — conecte o carregador',
   },
   readyMin: {
     exact1: 'O último minuto está sempre pronto',

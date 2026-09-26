@@ -100,6 +100,11 @@
       .filter(([v]) => v === 'native' || !current || Number(v.slice(1)) < current.height)
       .map(([value, label]) => ({ value, label })),
   );
+  // More than a quarter of the PC's memory for the RAM buffer is a lot.
+  let memHeavy = $derived(!!estimate && !s.engine.diskBuffer && snap.ramTotalMb > 0 && estimate.bufferMb > snap.ramTotalMb / 4);
+  let micIsBluetooth = $derived(
+    !!(s.engine.micDevice ? snap.audioInputs.find((d) => d.id === s.engine.micDevice) : snap.audioInputs.find((d) => d.isDefault))?.bluetooth,
+  );
   const MAX_RAM = 1200;
   const MAX_DISK = 3600;
   const minutes = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
@@ -155,6 +160,11 @@
               })}
           />
         </Row>
+        {#if snap.hasBattery}
+          <Row label={app.t('set.pauseOnBattery')} hint={app.t('set.pauseOnBatteryHint')}>
+            <Switch checked={s.pauseOnBattery} onchange={(v) => app.change((x) => (x.pauseOnBattery = v), 0)} />
+          </Row>
+        {/if}
         <Row label={app.t('set.quality')}>
           <Segmented
             value={s.engine.quality}
@@ -200,6 +210,13 @@
               mem: memLabel(estimate.bufferMb),
             })}
           </div>
+          {#if memHeavy}
+            <div class="memwarn">
+              <Icon name="alert" size={16} />
+              <span>{app.t('set.memWarn', { mem: memLabel(estimate.bufferMb), total: memLabel(snap.ramTotalMb) })}</span>
+              <button class="btn sm" onclick={() => app.change((x) => (x.engine.diskBuffer = true), 0)}>{app.t('set.memWarnFix')}</button>
+            </div>
+          {/if}
         {/if}
       </div>
     </section>
@@ -235,6 +252,9 @@
               onchange={(v) => app.change((x) => (x.engine.micDevice = v || null))}
             />
           </Row>
+          {#if micIsBluetooth}
+            <div class="memwarn"><Icon name="alert" size={16} /><span>{app.t('set.btMic')}</span></div>
+          {/if}
           <Row label={app.t('set.volume')}>
             <Slider value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 600)} />
           </Row>
@@ -431,6 +451,23 @@
   }
   .body {
     padding: 2px 18px;
+  }
+  .memwarn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 -18px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 6%, transparent);
+  }
+  .memwarn span {
+    flex: 1;
+  }
+  .memwarn :global(.btn) {
+    flex-shrink: 0;
   }
   .estimate {
     margin: 0 -18px;

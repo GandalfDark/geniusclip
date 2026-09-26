@@ -105,6 +105,7 @@ let settings: Settings = {
   accent: "violet",
   overlay: { enabled: true, corner: "top-right", sound: true },
   autoUpdate: true,
+  pauseOnBattery: false,
 };
 
 let buffer = 247;
@@ -126,6 +127,7 @@ function status() {
     fps: 60,
     droppedFrames: 0,
     droppedRecent: 0,
+    paused: false,
     lastError: null,
     noiseUnavailable: false,
   };
@@ -181,8 +183,11 @@ export function installMock() {
               },
             ],
             audioInputs: [
-              { id: "i1", name: "Микрофон (HyperX Cloud II)", isDefault: true },
+              { id: "i1", name: "Микрофон (HyperX Cloud II)", isDefault: true, bluetooth: false },
+              { id: "i2", name: "Гарнитура (AirPods Pro)", isDefault: false, bluetooth: true },
             ],
+            ramTotalMb: 16384,
+            hasBattery: true,
             version: "0.1.0",
             hotkeyErrors: [],
             update: null,

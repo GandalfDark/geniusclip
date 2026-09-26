@@ -57,6 +57,7 @@ export interface Settings {
   accent: string;
   overlay: { enabled: boolean; corner: string; sound: boolean };
   autoUpdate: boolean;
+  pauseOnBattery: boolean;
 }
 
 export interface EngineStatus {
@@ -73,6 +74,7 @@ export interface EngineStatus {
   fps: number;
   droppedFrames: number;
   droppedRecent: number;
+  paused: boolean;
   lastError: string | null;
   noiseUnavailable: boolean;
 }
@@ -94,6 +96,7 @@ export interface AudioDevice {
   id: string;
   name: string;
   isDefault: boolean;
+  bluetooth: boolean;
 }
 
 export interface UpdateInfo {
@@ -114,6 +117,8 @@ export interface Snapshot {
   update: UpdateInfo | null;
   /** The system UI language mapped to a supported one. */
   lang: string;
+  ramTotalMb: number;
+  hasBattery: boolean;
 }
 
 export type MediaKind = 'clip' | 'recording' | 'screenshot';

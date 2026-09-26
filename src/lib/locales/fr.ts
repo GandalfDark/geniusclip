@@ -179,6 +179,13 @@ const locale: Locale = {
     'menu.close': 'Fermer — Esc',
     'menu.shot': 'Capture',
     'menu.settings': 'Réglages',
+    'set.memWarn': 'Le tampon occupera {mem} sur {total} de mémoire — c’est beaucoup',
+    'set.memWarnFix': 'Le garder sur le disque',
+    'set.pauseOnBattery': 'Pause sur batterie',
+    'set.pauseOnBatteryHint': 'Pas de replay quand le portable est sur batterie',
+    'set.btMic': 'C’est un micro Bluetooth : pendant l’enregistrement, le casque passe en mode kit mains libres et le son se dégrade. Choisissez un autre micro ou désactivez l’enregistrement du micro.',
+    'home.paused': 'Replay en pause',
+    'home.pausedBattery': 'Le portable est sur batterie — branchez le chargeur',
   },
   readyMin: {
     exact1: 'La dernière minute est toujours prête',

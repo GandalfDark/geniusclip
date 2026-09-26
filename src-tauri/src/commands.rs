@@ -27,6 +27,15 @@ pub struct Snapshot {
     hotkey_errors: Vec<String>,
     update: Option<UpdateInfo>,
     lang: String,
+    /// Installed memory, for the buffer-size warning.
+    ram_total_mb: u64,
+    has_battery: bool,
+}
+
+fn ram_total_mb() -> u64 {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut m = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    unsafe { GlobalMemoryStatusEx(&mut m) }.map(|_| m.ullTotalPhys / 1_048_576).unwrap_or(0)
 }
 
 #[tauri::command]
@@ -34,6 +43,8 @@ pub fn get_snapshot(app: AppHandle, st: State<'_, AppState>) -> Snapshot {
     let settings = st.settings.read().clone();
     Snapshot {
         lang: settings.lang().into(),
+        ram_total_mb: ram_total_mb(),
+        has_battery: crate::power::has_battery(),
         settings,
         status: st.engine.status(),
         monitors: geniusclip_engine::list_monitors().unwrap_or_default(),
@@ -106,6 +117,9 @@ pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settin
     }
     if old.hotkeys != new.hotkeys {
         crate::hotkeys::register_all(&app);
+    }
+    if old.pause_on_battery != new.pause_on_battery {
+        crate::power::refresh();
     }
     if old.autostart != new.autostart {
         crate::sync_autostart(&app, new.autostart);
