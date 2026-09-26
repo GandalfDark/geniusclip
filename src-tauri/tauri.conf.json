@@ -25,6 +25,7 @@
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
     "publisher": "GeniusClip",
+    "copyright": "© 2026 GeniusClip",
     "shortDescription": "Instant replay clip recorder",
     "icon": [
       "icons/32x32.png",

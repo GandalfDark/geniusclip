@@ -26,7 +26,10 @@ fn main() {
     println!("cargo:rustc-env=GC_SETUP_PAYLOAD_PATH={}", payload.display());
 
     let conf: serde_json::Value = serde_json::from_str(&std::fs::read_to_string("../../src-tauri/tauri.conf.json").unwrap()).unwrap();
-    println!("cargo:rustc-env=GC_VERSION={}", conf["version"].as_str().unwrap());
+    let version = conf["version"].as_str().unwrap();
+    println!("cargo:rustc-env=GC_VERSION={version}");
 
-    embed_resource::compile("setup.rc", embed_resource::NONE).manifest_required().unwrap();
+    let mut parts = version.split(['.', '-']).map(|p| p.parse::<u16>().unwrap_or(0));
+    let macros = ["GC_VER_MAJOR", "GC_VER_MINOR", "GC_VER_PATCH"].map(|name| format!("{name}={}", parts.next().unwrap_or(0)));
+    embed_resource::compile("setup.rc", macros).manifest_required().unwrap();
 }
