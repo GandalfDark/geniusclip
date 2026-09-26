@@ -39,6 +39,19 @@ const media: MediaEntry[] = Array.from({ length: 14 }, (_, i) => {
   };
 });
 
+// A real local video (static/dev-clip.mp4, not in git) to test the player layout.
+media.unshift({
+  path: '/dev-clip.mp4',
+  name: 'Dev clip',
+  game: 'Brawlhalla',
+  kind: 'clip',
+  size: 1_196_567,
+  modified: now,
+  duration: 3,
+  width: 2560,
+  height: 1440,
+});
+
 let settings: Settings = {
   engine: {
     monitor: null,

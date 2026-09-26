@@ -16,3 +16,6 @@ vite.config.ts.timestamp-*
 # Updater signing keys must never be committed
 *.key
 *.key.pub
+
+# Local test video for the browser preview
+/static/dev-clip.mp4

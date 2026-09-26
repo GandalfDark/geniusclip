@@ -270,11 +270,12 @@
 </div>
 
 {#if ghostSrc}
-  <img class="ghost" bind:this={ghostEl} src={ghostSrc} alt="" />
+  <img class="fly-thumb" bind:this={ghostEl} src={ghostSrc} alt="" />
 {/if}
 
 <style>
-  .ghost {
+  /* Not ".ghost": that's the ghost-button class used in the header. */
+  .fly-thumb {
     position: fixed;
     z-index: 60;
     object-fit: cover;
@@ -349,12 +350,13 @@
     position: relative;
     flex: 1;
     min-height: 0;
-    display: grid;
-    place-items: center;
     background: #0b0b0d;
   }
-  video,
-  img {
+  /* Absolutely filled, so a 2560×1440 video can never size the layout. */
+  .stage video,
+  .stage img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
