@@ -25,6 +25,11 @@
     search: '<g class="m1"><circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l4.5 4.5"/></g>',
     check: '<path class="draw" pathLength="1" d="M5.5 12.5l4 4 9-9"/>',
     alert: '<path d="M12 4.5l8.5 14.5h-17z"/><path d="M12 10v4"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/>',
+    game: '<path d="M8 7.5h8a4.5 4.5 0 0 1 4.4 3.5l.9 3.9a2.5 2.5 0 0 1-4.3 2.2L15.2 15H8.8L7 17.1a2.5 2.5 0 0 1-4.3-2.2l.9-3.9A4.5 4.5 0 0 1 8 7.5z"/><path d="M8.5 10v3M7 11.5h3"/><g class="m1"><circle cx="15.3" cy="10.6" r=".9" fill="currentColor" stroke="none"/><circle cx="17" cy="12.4" r=".9" fill="currentColor" stroke="none"/></g>',
+    mic: '<g class="m1"><rect x="9" y="3.5" width="6" height="10.5" rx="3"/></g><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3"/>',
+    micOff: '<rect x="9" y="3.5" width="6" height="10.5" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3"/><path d="M4.5 4.5l15 15" stroke="var(--danger)"/>',
+    speaker: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><g class="m1"><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4"/></g>',
+    speakerOff: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="var(--danger)"/>',
     update: '<g class="m1"><path d="M12 4.5v10M8 10.5l4 4 4-4"/></g><path d="M5 15.5v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/>',
   } as const;
   export type IconName = keyof typeof ICONS;
@@ -70,6 +75,15 @@
   }
   :global(:is(a, button, label):hover) .ic-film :global(.m1) {
     animation: ic-roll 0.6s var(--ease);
+  }
+  :global(:is(a, button, label):hover) .ic-game :global(.m1) {
+    animation: ic-tap 0.45s var(--ease);
+  }
+  :global(:is(a, button, label):hover) .ic-mic :global(.m1) {
+    transform: translateY(-1.5px);
+  }
+  :global(:is(a, button, label):hover) .ic-speaker :global(.m1) {
+    animation: ic-pulse 0.6s var(--ease);
   }
   :global(:is(a, button, label):hover) .ic-sliders :global(.m1) {
     transform: translateX(-5px);
@@ -208,6 +222,26 @@
     }
     40% {
       transform: scale(1.3);
+    }
+  }
+  @keyframes -global-ic-tap {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(0.6);
+    }
+  }
+  @keyframes -global-ic-pulse {
+    0%,
+    100% {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    45% {
+      transform: translateX(1.5px);
+      opacity: 0.35;
     }
   }
   @keyframes -global-ic-draw {

@@ -30,7 +30,7 @@ use windows::Win32::System::Com::*;
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 pub const RATE: i64 = 48_000;
-const BLOCK: usize = 1024;
+pub(crate) const BLOCK: usize = 1024;
 /// How far behind real time the mixer runs (gives capture threads slack).
 const MIX_LATENCY: i64 = RATE / 8;
 /// Timestamp error tolerated before inserting silence / dropping samples.
@@ -454,7 +454,7 @@ fn sleep_unless(stop: &AtomicBool, d: Duration) {
 // ---------------------------------------------------------------------------
 // AAC encoder
 
-pub struct AudioEncoder {
+pub(crate) struct AudioEncoder {
     ctx: CodecCtx,
     frame: AvFrame,
     pkt: AvPacket,
@@ -500,7 +500,18 @@ impl AudioEncoder {
     }
 
     /// Encodes one block of interleaved stereo samples (BLOCK frames) at `pts`.
-    fn encode(&mut self, interleaved: &[f32], pts: i64, out: &mut dyn FnMut(Packet)) -> Result<()> {
+    /// Drains the encoder's delayed frames at the end of a stream.
+    pub(crate) fn flush(&mut self, out: &mut dyn FnMut(Packet)) {
+        unsafe {
+            ff::avcodec_send_frame(self.ctx.0, ptr::null());
+            while ff::avcodec_receive_packet(self.ctx.0, self.pkt.0) >= 0 {
+                out(Packet::from_av(self.pkt.0, self.time_base));
+                ff::av_packet_unref(self.pkt.0);
+            }
+        }
+    }
+
+    pub(crate) fn encode(&mut self, interleaved: &[f32], pts: i64, out: &mut dyn FnMut(Packet)) -> Result<()> {
         unsafe {
             check(ff::av_frame_make_writable(self.frame.0), "av_frame_make_writable")?;
             let f = &mut *self.frame.0;

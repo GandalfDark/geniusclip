@@ -4,10 +4,12 @@
 
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import type { Attachment } from 'svelte/attachments';
   import { fade } from 'svelte/transition';
   import { DUR, EASE, reduced, rise } from '$lib/motion';
-  import Icon from './Icon.svelte';
-  import { api, fileUrl } from '$lib/api';
+  import Icon, { type IconName } from './Icon.svelte';
+  import Waveform from './Waveform.svelte';
+  import { api, fileUrl, type ClipAudio } from '$lib/api';
   import { app } from '$lib/app.svelte';
   import { bytes, date, preciseTime } from '$lib/format';
   import type { MediaEntry } from '$lib/types';
@@ -108,7 +110,202 @@
     trimming = false;
     renaming = false;
     confirmDelete = false;
+    audio = null;
+    lanes = [];
+    audioFor = '';
   });
+
+  // --- Audio lanes: per-track volume, heard live before saving.
+  type Lane = { track: number; label: string; icon: IconName; offIcon: IconName; peaks: number[]; file: string; gain: number; muted: boolean };
+  let audio = $state.raw<ClipAudio | null>(null);
+  let lanes = $state<Lane[]>([]);
+  let audioFor = '';
+
+  async function loadAudio(path: string) {
+    audioFor = path;
+    try {
+      const a = await api.clipAudio(path);
+      if (entry.path !== path) return;
+      // GeniusClip clips: show game and mic; the mix is rebuilt from them.
+      const tracks = a.mix ? [1, 2] : a.titles.map((_, k) => k);
+      audio = a;
+      lanes = tracks
+        .filter((k) => a.files[k])
+        .map((k, n) => {
+          const game = a.mix && k === 1;
+          const mic = a.mix && k === 2;
+          const title = a.titles[k] && a.titles[k] !== 'SoundHandler' ? a.titles[k] : app.t('trim.track', { n: n + 1 });
+          return {
+            track: k,
+            label: game ? app.t('trim.game') : mic ? app.t('trim.mic') : title,
+            icon: game ? 'game' : mic ? 'mic' : 'speaker',
+            offIcon: mic ? 'micOff' : 'speakerOff',
+            peaks: a.peaks[k] ?? [],
+            file: a.files[k],
+            gain: 1,
+            muted: false,
+          };
+        });
+    } catch (e) {
+      console.warn('clip audio', e);
+    }
+  }
+
+  $effect(() => {
+    if (trimming && isVideo && audioFor !== entry.path) loadAudio(entry.path);
+  });
+
+  // While the lanes are shown, the video's own (mixed) sound is silenced in
+  // the audio graph and the separate tracks play in sync through gain nodes,
+  // so volume changes are heard immediately and can go above 100%.
+  // The video stays connected (at zero gain): Chromium drives the video clock
+  // from its audio, and an unconnected source would freeze playback.
+  let actx: AudioContext | null = null;
+  let videoGain: GainNode | null = null;
+  let videoGainFor: HTMLVideoElement | null = null;
+  let players = $state.raw<{ el: HTMLAudioElement; gain: GainNode; src: MediaElementAudioSourceNode }[]>([]);
+  let previewing = $derived(trimming && lanes.length > 0 && !!video);
+
+  $effect(() => {
+    if (!previewing || !video) return;
+    const v = video;
+    const files = lanes.map((l) => l.file);
+    const ctx = (actx ??= new AudioContext());
+    if (videoGainFor !== v) {
+      videoGain = ctx.createGain();
+      ctx.createMediaElementSource(v).connect(videoGain).connect(ctx.destination);
+      videoGainFor = v;
+    }
+    const vGain = videoGain!;
+    vGain.gain.value = 0;
+    const master = ctx.createGain();
+    master.connect(ctx.destination);
+    const ps = files.map((f) => {
+      const el = new Audio();
+      el.crossOrigin = 'anonymous';
+      el.preload = 'auto';
+      el.src = fileUrl(f);
+      const src = ctx.createMediaElementSource(el);
+      const gain = ctx.createGain();
+      src.connect(gain).connect(master);
+      return { el, gain, src };
+    });
+    players = ps;
+
+    const volume = () => master.gain.setTargetAtTime(v.muted ? 0 : v.volume, ctx.currentTime, 0.01);
+    const sync = (force: boolean) => {
+      for (const p of ps) {
+        if (force || Math.abs(p.el.currentTime - v.currentTime) > 0.08) p.el.currentTime = v.currentTime;
+        p.el.playbackRate = v.playbackRate;
+      }
+    };
+    const play = () => {
+      ctx.resume();
+      sync(true);
+      for (const p of ps) p.el.play().catch(() => {});
+    };
+    const pause = () => {
+      for (const p of ps) p.el.pause();
+      sync(true);
+    };
+    const stall = () => ps.forEach((p) => p.el.pause());
+    const seeked = () => sync(true);
+    const drift = () => !v.paused && sync(false);
+    const events: [string, () => void][] = [
+      ['playing', play],
+      ['pause', pause],
+      ['waiting', stall],
+      ['seeked', seeked],
+      ['ratechange', drift],
+      ['timeupdate', drift],
+      ['volumechange', volume],
+    ];
+    for (const [n, f] of events) v.addEventListener(n, f);
+    volume();
+    if (!v.paused) play();
+    else sync(true);
+
+    return () => {
+      for (const [n, f] of events) v.removeEventListener(n, f);
+      for (const p of ps) {
+        p.el.pause();
+        p.src.disconnect();
+        p.gain.disconnect();
+        p.el.removeAttribute('src');
+        p.el.load();
+      }
+      master.disconnect();
+      players = [];
+      vGain.gain.value = 1;
+    };
+  });
+
+  $effect(() => {
+    const ps = players;
+    const ctx = actx;
+    if (!ctx) return;
+    lanes.forEach((l, i) => ps[i]?.gain.gain.setTargetAtTime(l.muted ? 0 : l.gain, ctx.currentTime, 0.015));
+  });
+
+  $effect(() => () => {
+    actx?.close();
+  });
+
+  const clampGain = (g: number) => Math.round(Math.max(0, Math.min(2, g)) * 100) / 100;
+
+  function setGain(l: Lane, g: number) {
+    l.gain = clampGain(g);
+    if (l.gain > 0) l.muted = false;
+  }
+
+  // Vertical drag on a lane sets its volume; a click without moving seeks.
+  function laneDrag(l: Lane, e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    const y0 = e.clientY;
+    const g0 = l.gain;
+    let moved = false;
+    el.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientY - y0) < 4) return;
+      moved = true;
+      const g = g0 + (y0 - ev.clientY) / 70;
+      setGain(l, Math.abs(g - 1) < 0.04 ? 1 : g);
+    };
+    const up = (ev: PointerEvent) => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      if (!moved && video) video.currentTime = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)) * total;
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  }
+
+  function laneKey(l: Lane, e: KeyboardEvent) {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    setGain(l, l.gain + (e.key === 'ArrowUp' ? 0.05 : -0.05));
+  }
+
+  // Wheel needs a non-passive listener to keep the page from scrolling.
+  const wheel =
+    (l: Lane): Attachment<HTMLElement> =>
+    (node) => {
+      const on = (e: WheelEvent) => {
+        e.preventDefault();
+        setGain(l, Math.round((l.gain + (e.deltaY < 0 ? 0.05 : -0.05)) * 20) / 20);
+      };
+      node.addEventListener('wheel', on, { passive: false });
+      return () => node.removeEventListener('wheel', on);
+    };
+
+  function trackGains(): number[] | null {
+    if (!audio || !lanes.some((l) => l.muted || l.gain !== 1)) return null;
+    return audio.titles.map((_, k) => {
+      const l = lanes.find((x) => x.track === k);
+      return l ? (l.muted ? 0 : l.gain) : 1;
+    });
+  }
 
   function loaded() {
     total = video?.duration ?? 0;
@@ -164,7 +361,7 @@
     busy = true;
     try {
       video?.pause();
-      const res = await api.trimMedia(entry.path, start, end, replace);
+      const res = await api.trimMedia(entry.path, start, end, replace, trackGains());
       app.notify(app.t('gallery.trimmed'), 'ok');
       await app.refreshMedia();
       if (replace) close();
@@ -252,7 +449,7 @@
     {#key entry.path}
       {#if isVideo}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={video} src={fileUrl(entry.path)} controls autoplay bind:currentTime={current} onloadedmetadata={loaded}></video>
+        <video bind:this={video} src={fileUrl(entry.path)} crossorigin="anonymous" controls autoplay bind:currentTime={current} onloadedmetadata={loaded}></video>
       {:else}
         <img src={fileUrl(entry.path)} alt={entry.name} />
       {/if}
@@ -276,13 +473,48 @@
         {/if}
       </div>
       {#if trimming}
-        <div class="track" bind:this={track} onpointerdown={(e) => drag('seek', e)} role="presentation">
-          <div class="dim" style:left="0" style:width="{(start / total) * 100}%"></div>
-          <div class="dim" style:left="{(end / total) * 100}%" style:right="0"></div>
-          <div class="sel" style:left="{(start / total) * 100}%" style:width="{((end - start) / total) * 100}%"></div>
+        <div class="timeline" in:rise={{ y: 6, duration: 240 }}>
+          <div class="heads">
+            <div class="lane-head video-head"><Icon name="film" size={16} />{app.t('trim.video')}</div>
+            {#each lanes as l (l.track)}
+              <div class="lane-head" in:fade={{ duration: 200 }}>
+                <button class="mute" class:off={l.muted} title={app.t(l.muted ? 'trim.unmute' : 'trim.mute')} onclick={() => (l.muted = !l.muted)}>
+                  <Icon name={l.muted ? l.offIcon : l.icon} size={17} />
+                </button>
+                <span class="name">{l.label}</span>
+                <span class="val mono" class:changed={!l.muted && l.gain !== 1}>{l.muted ? '—' : `${Math.round(l.gain * 100)}%`}</span>
+              </div>
+            {/each}
+          </div>
+          <div class="bodies">
+          <div class="track" bind:this={track} onpointerdown={(e) => drag('seek', e)} role="presentation">
+            <div class="dim" style:left="0" style:width="{(start / total) * 100}%"></div>
+            <div class="dim" style:left="{(end / total) * 100}%" style:right="0"></div>
+            <div class="sel" style:left="{(start / total) * 100}%" style:width="{((end - start) / total) * 100}%"></div>
+            <button class="handle in" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label="start"></button>
+            <button class="handle out" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label="end"></button>
+          </div>
+          {#each lanes as l (l.track)}
+            <div
+              class="lane"
+              in:fade={{ duration: 200 }}
+              title={app.t('trim.volumeHint')}
+              role="slider"
+              tabindex="0"
+              aria-label={l.label}
+              aria-valuemin={0}
+              aria-valuemax={200}
+              aria-valuenow={Math.round(l.gain * 100)}
+              onpointerdown={(e) => laneDrag(l, e)}
+              ondblclick={() => setGain(l, 1)}
+              onkeydown={(e) => laneKey(l, e)}
+              {@attach wheel(l)}
+            >
+              <Waveform peaks={l.peaks} gain={l.gain} muted={l.muted} from={start / total} to={end / total} />
+            </div>
+          {/each}
           <div class="head" style:left="{(current / total) * 100}%"></div>
-          <button class="handle in" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label="start"></button>
-          <button class="handle out" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label="end"></button>
+          </div>
         </div>
       {/if}
     </div>
@@ -448,10 +680,98 @@
   .grow {
     flex: 1;
   }
+  /* Two stacked columns (names | strips) with matching row heights, so
+     the playhead can run through the video strip and every lane. */
+  .timeline {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .heads {
+    width: 150px;
+    flex-shrink: 0;
+  }
+  .bodies {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+  .heads,
+  .bodies {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .lane-head {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  .video-head {
+    height: 36px;
+    padding-left: 6px;
+    gap: 10px;
+    color: var(--text-3);
+  }
+  .mute {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line-2);
+    background: var(--panel-2);
+    color: var(--text-2);
+    transition:
+      color var(--dur-fast),
+      background var(--dur-fast),
+      border-color var(--dur-fast);
+  }
+  .mute:hover {
+    color: var(--text);
+    border-color: var(--text-3);
+  }
+  .mute.off {
+    background: transparent;
+    color: var(--text-3);
+  }
+  .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .val {
+    font-size: 11.5px;
+    color: var(--text-3);
+    padding-right: 2px;
+  }
+  .val.changed {
+    color: var(--accent);
+  }
+  .lane {
+    position: relative;
+    height: 40px;
+    border-radius: var(--r-sm);
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    overflow: hidden;
+    cursor: ns-resize;
+    outline: none;
+    touch-action: none;
+  }
+  .lane:focus-visible {
+    border-color: var(--accent);
+  }
   .track {
     position: relative;
     height: 36px;
-    margin-top: 10px;
     border-radius: var(--r-sm);
     background: repeating-linear-gradient(90deg, transparent 0 7px, #26262c 7px 8px), var(--bg);
     border: 1px solid var(--line-2);
@@ -480,6 +800,7 @@
     margin-left: -1px;
     background: #fff;
     pointer-events: none;
+    z-index: 3;
   }
   .handle {
     position: absolute;

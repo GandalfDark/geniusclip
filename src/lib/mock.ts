@@ -109,7 +109,7 @@ export function installMock() {
   (window as any).__GC_MOCK__ = true;
   mockWindows('main');
   mockIPC(
-    (cmd, args: any) => {
+    async (cmd, args: any) => {
       switch (cmd) {
         case 'get_snapshot':
           return {
@@ -177,6 +177,16 @@ export function installMock() {
           const i = Number(String(args.path).split('//')[1]);
           return thumb(i, media.find((m) => m.path === args.path)?.game ?? '');
         }
+        case 'clip_audio': {
+          if (args.path !== '/dev-clip.mp4') return { titles: [], mix: false, files: [], peaks: [] };
+          const peaks = await fetch('/dev-clip.peaks.json').then((r) => r.json());
+          const titles = ['Game + Mic', 'Game', 'Mic'];
+          return { titles, mix: true, files: titles.map((_, k) => `/dev-clip_${k}.m4a`), peaks };
+        }
+        case 'trim_media':
+          await new Promise((r) => setTimeout(r, 600));
+          console.log('[mock] trim_media', args);
+          return null;
         case 'plugin:event|listen':
           return Math.floor(Math.random() * 1e6);
         default:

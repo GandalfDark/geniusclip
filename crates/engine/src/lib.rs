@@ -14,6 +14,7 @@ mod engine;
 mod ffutil;
 pub mod game;
 pub mod media;
+pub mod remix;
 mod mux;
 mod venc;
 

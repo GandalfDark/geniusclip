@@ -181,10 +181,40 @@ impl Library {
         Ok(out)
     }
 
+    /// Extracts the clip's audio tracks into separate files for the trim
+    /// preview and computes their waveforms (empty for skipped tracks).
+    /// Only the most recently opened clip is kept in the cache.
+    pub fn clip_audio(&self, path: &Path, count: usize, skip: &[usize]) -> anyhow::Result<(Vec<PathBuf>, Vec<Vec<f32>>)> {
+        let (size, modified) = file_stamp(path).ok_or_else(|| anyhow::anyhow!("file not found"))?;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (path, size, modified).hash(&mut h);
+        let stem = format!("{:016x}", h.finish());
+        let dir = self.thumbs_dir.join("tracks");
+        let files: Vec<PathBuf> = (0..count).map(|k| dir.join(format!("{stem}_{k}.m4a"))).collect();
+        let peaks_path = dir.join(format!("{stem}.peaks.json"));
+        if files.iter().all(|p| p.exists()) {
+            if let Some(peaks) = std::fs::read(&peaks_path).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+                return Ok((files, peaks));
+            }
+        }
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            for e in rd.flatten() {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+        let files = geniusclip_engine::remix::extract_tracks(path, &dir, &stem)?;
+        let peaks = geniusclip_engine::remix::peaks(path, PEAK_BUCKETS, skip)?;
+        let _ = std::fs::write(&peaks_path, serde_json::to_vec(&peaks)?);
+        Ok((files, peaks))
+    }
+
     pub fn thumbs_dir(&self) -> &Path {
         &self.thumbs_dir
     }
 }
+
+/// Waveform resolution: enough for a full-width timeline on a 4K screen.
+const PEAK_BUCKETS: usize = 1200;
 
 fn guess_kind(p: &Path) -> Kind {
     if is_image(p) {

@@ -9,9 +9,9 @@ use std::ffi::{c_int, CStr};
 use std::path::Path;
 use std::ptr;
 
-struct Input(*mut ff::AVFormatContext);
+pub(crate) struct Input(pub(crate) *mut ff::AVFormatContext);
 impl Input {
-    fn open(path: &Path) -> Result<Self> {
+    pub(crate) fn open(path: &Path) -> Result<Self> {
         unsafe {
             let mut ic = ptr::null_mut();
             check(ff::avformat_open_input(&mut ic, path_cstr(path).as_ptr(), ptr::null(), ptr::null_mut()), "open")
@@ -21,7 +21,7 @@ impl Input {
             Ok(me)
         }
     }
-    fn streams(&self) -> &[*mut ff::AVStream] {
+    pub(crate) fn streams(&self) -> &[*mut ff::AVStream] {
         unsafe { std::slice::from_raw_parts((*self.0).streams, (*self.0).nb_streams as usize) }
     }
 }
@@ -278,7 +278,7 @@ pub fn trim(input_path: &Path, output: &Path, start: f64, end: f64) -> Result<()
     Ok(())
 }
 
-unsafe fn dict_get(d: *const ff::AVDictionary, key: &str) -> Option<String> {
+pub(crate) unsafe fn dict_get(d: *const ff::AVDictionary, key: &str) -> Option<String> {
     let e = ff::av_dict_get(d, cstr(key).as_ptr(), ptr::null(), 0);
     if e.is_null() {
         None

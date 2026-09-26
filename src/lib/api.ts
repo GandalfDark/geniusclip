@@ -15,8 +15,9 @@ export const api = {
   thumbnail: (path: string) => invoke<string>('thumbnail', { path }),
   deleteMedia: (path: string) => invoke<void>('delete_media', { path }),
   renameMedia: (path: string, name: string) => invoke<string>('rename_media', { path, name }),
-  trimMedia: (path: string, start: number, end: number, replace: boolean) =>
-    invoke<MediaEntry | null>('trim_media', { path, start, end, replace }),
+  trimMedia: (path: string, start: number, end: number, replace: boolean, gains: number[] | null = null) =>
+    invoke<MediaEntry | null>('trim_media', { path, start, end, replace, gains }),
+  clipAudio: (path: string) => invoke<ClipAudio>('clip_audio', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   openMediaDir: (screenshots: boolean) => invoke<void>('open_media_dir', { screenshots }),
@@ -26,6 +27,16 @@ export const api = {
   closeMain: () => invoke<void>('close_main'),
   quit: () => invoke<void>('quit_app'),
 };
+
+/** Audio tracks of a clip, extracted for the trim preview. */
+export interface ClipAudio {
+  titles: string[];
+  /** GeniusClip layout: track 0 mixes game (1) and mic (2). */
+  mix: boolean;
+  files: string[];
+  /** Peak level 0..1 per slice of the clip; empty for the mix track. */
+  peaks: number[][];
+}
 
 export const fileUrl = (path: string) =>
   path.startsWith('data:') || (window as { __GC_MOCK__?: boolean }).__GC_MOCK__ ? path : convertFileSrc(path);

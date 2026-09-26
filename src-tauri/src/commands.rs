@@ -201,8 +201,37 @@ pub fn rename_media(st: State<'_, AppState>, path: PathBuf, name: String) -> Cmd
     Ok(to)
 }
 
+#[derive(Serialize)]
+pub struct ClipAudio {
+    /// Track titles in file order.
+    titles: Vec<String>,
+    /// GeniusClip layout: track 0 is the game+mic mix of tracks 1 and 2.
+    mix: bool,
+    /// One playable file per track, for the preview.
+    files: Vec<PathBuf>,
+    /// Waveform per track (peak 0..1 per slice); empty for the mix track.
+    peaks: Vec<Vec<f32>>,
+}
+
 #[tauri::command]
-pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, replace: bool) -> CmdResult<Option<Entry>> {
+pub async fn clip_audio(app: AppHandle, path: PathBuf) -> CmdResult<ClipAudio> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let titles = geniusclip_engine::remix::audio_tracks(&path).map_err(err)?;
+        let mix = geniusclip_engine::remix::is_mix_layout(&titles);
+        if titles.is_empty() {
+            return Ok(ClipAudio { titles, mix, files: Vec::new(), peaks: Vec::new() });
+        }
+        // The mix track is rebuilt from the game and mic tracks, so it is never shown.
+        let skip: &[usize] = if mix { &[0] } else { &[] };
+        let (files, peaks) = app.state::<AppState>().library.clip_audio(&path, titles.len(), skip).map_err(err)?;
+        Ok(ClipAudio { titles, mix, files, peaks })
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, replace: bool, gains: Option<Vec<f32>>) -> CmdResult<Option<Entry>> {
     tauri::async_runtime::spawn_blocking(move || {
         let st = app.state::<AppState>();
         check_media_path(&st, &path)?;
@@ -217,7 +246,14 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
         }
         let meta = st.library.scan(&st.settings.read().clone()).into_iter().find(|e| e.path == path);
         let (kind, game) = meta.map(|e| (e.kind, e.game)).unwrap_or((Kind::Clip, String::new()));
-        media::trim(&path, &out, start, end).map_err(err)?;
+        match gains.filter(|g| g.iter().any(|&x| (x - 1.0).abs() > 0.005)) {
+            Some(g) => geniusclip_engine::remix::trim_with_gains(&path, &out, start, end, &g),
+            None => media::trim(&path, &out, start, end),
+        }
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&out);
+            err(e)
+        })?;
         let final_path = if replace {
             trash::delete(&path).map_err(err)?;
             std::fs::rename(&out, &path).map_err(err)?;

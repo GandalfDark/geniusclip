@@ -15,4 +15,5 @@ ffmpeg-sys-next.workspace = true
 windows.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 env_logger = "0.11"

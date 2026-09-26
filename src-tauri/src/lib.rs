@@ -200,6 +200,7 @@ pub fn run() {
             commands::delete_media,
             commands::rename_media,
             commands::trim_media,
+            commands::clip_audio,
             commands::media_info,
             commands::open_path,
             commands::reveal_path,
