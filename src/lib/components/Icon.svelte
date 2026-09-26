@@ -6,7 +6,7 @@
     replay: '<g class="m1"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v3.2h3.2"/></g><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
     film: '<rect x="4" y="5" width="16" height="14" rx="2"/><g class="m1"><path d="M8.5 5v14M15.5 5v14M4 9.5h4.5M4 14.5h4.5M15.5 9.5H20M15.5 14.5H20"/></g>',
     sliders: '<path d="M4 7.5h16M4 16.5h16" stroke-opacity=".55"/><g class="m1"><circle cx="15.5" cy="7.5" r="2.4" fill="currentColor"/></g><g class="m2"><circle cx="8.5" cy="16.5" r="2.4" fill="currentColor"/></g>',
-    save: '<g class="m1"><path d="M12 4v10M8 10l4 4 4-4"/></g><path d="M5 19.5h14"/>',
+    clapper: '<path d="M4.5 10.5h15v8a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5z"/><g class="m1"><path d="M4.4 10.3l-.8-2.6a1 1 0 0 1 .7-1.25l12.4-3.5a1 1 0 0 1 1.23.7l.77 2.6z"/><path d="M8.3 5.6l2.4 3.1M12.6 4.4l2.4 3.1"/></g>',
     shot: '<g class="m1"><path d="M4 8.5V5h3.5M16.5 5H20v3.5M20 15.5V19h-3.5M7.5 19H4v-3.5"/></g><circle cx="12" cy="12" r="3"/>',
     record: '<circle cx="12" cy="12" r="7.5"/><g class="m1"><circle cx="12" cy="12" r="3.6" fill="var(--rec)" stroke="none"/></g>',
     stop: '<circle cx="12" cy="12" r="7.5"/><rect x="9.4" y="9.4" width="5.2" height="5.2" rx="1" fill="var(--rec)" stroke="none"/>',
@@ -76,7 +76,14 @@
   :global(:is(a, button, label):hover) .ic-sliders :global(.m2) {
     transform: translateX(5px);
   }
-  :global(:is(a, button, label):hover) .ic-save :global(.m1),
+  /* The clapper arm lifts and snaps shut, pivoting on its left hinge. */
+  .ic-clapper :global(.m1) {
+    transform-box: view-box;
+    transform-origin: 4.5px 10.3px;
+  }
+  :global(:is(a, button, label):hover) .ic-clapper :global(.m1) {
+    animation: ic-clap 0.55s var(--ease);
+  }
   :global(:is(a, button, label):hover) .ic-update :global(.m1) {
     animation: ic-drop 0.6s var(--ease);
   }
@@ -152,6 +159,18 @@
     }
     45% {
       transform: translateY(3px);
+    }
+  }
+  @keyframes -global-ic-clap {
+    0%,
+    100% {
+      transform: rotate(0deg);
+    }
+    35% {
+      transform: rotate(-16deg);
+    }
+    60% {
+      transform: rotate(1.5deg);
     }
   }
   @keyframes -global-ic-focus {

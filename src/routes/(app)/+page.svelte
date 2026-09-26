@@ -53,10 +53,11 @@
   <section class="deck panel" class:off={!on}>
     <div class="head">
       <span class="dot" class:live={on && running} class:wait={on && !running}></span>
-      {#key `${on}-${running}`}
+      <!-- Animate only the on/off change; capture start-up is shown by the dot. -->
+      {#key on}
         <div class="txt" in:rise={{ y: 6 }}>
           <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
-          <p>{on ? (running ? readyLine(app.lang, s.replaySeconds) : app.t('home.starting')) : app.t('home.offHint')}</p>
+          <p>{on ? readyLine(app.lang, s.replaySeconds) : app.t('home.offHint')}</p>
         </div>
       {/key}
       {#if on}
@@ -79,7 +80,7 @@
             {#if justSaved}
               <Icon name="check" size={17} stroke={2.2} />{app.t('home.saved')}
             {:else}
-              <Icon name="save" size={17} stroke={2} />{app.t('home.saveClip')}{#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
+              <Icon name="clapper" size={17} stroke={1.9} />{app.t('home.saveClip')}{#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
             {/if}
           </span>
         {/key}
@@ -197,6 +198,9 @@
   }
   .dot.wait {
     background: var(--warn);
+  }
+  .dot {
+    transition: background var(--dur) var(--ease);
   }
   @keyframes pulse {
     0% {
