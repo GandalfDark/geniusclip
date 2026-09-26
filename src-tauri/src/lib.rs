@@ -1,4 +1,5 @@
 mod actions;
+mod brand;
 mod commands;
 mod hotkeys;
 mod i18n;
@@ -40,10 +41,11 @@ pub fn show_main(app: &AppHandle) {
         .decorations(false)
         .center()
         .visible(false)
-        .background_color(Color(16, 12, 28, 255))
+        .background_color(Color(20, 20, 22, 255))
         .build();
-    if let Err(e) = res {
-        log::error!("cannot create main window: {e}");
+    match res {
+        Ok(_) => brand::apply(app),
+        Err(e) => log::error!("cannot create main window: {e}"),
     }
 }
 

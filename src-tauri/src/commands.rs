@@ -113,6 +113,9 @@ pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settin
     if old.clips_dir != new.clips_dir || old.screenshots_dir != new.screenshots_dir {
         crate::allow_media_dirs(&app);
     }
+    if old.accent != new.accent {
+        crate::brand::apply(&app);
+    }
     crate::tray::refresh(&app);
     crate::emit_settings(&app);
     Ok(new)

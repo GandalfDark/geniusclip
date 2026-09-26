@@ -4,7 +4,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
-const ID: &str = "main";
+pub const ID: &str = "main";
 
 fn label(text: &str, hotkey: &str) -> String {
     if hotkey.is_empty() {
@@ -45,7 +45,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
     TrayIconBuilder::with_id(ID)
-        .icon(app.default_window_icon().cloned().expect("app icon"))
+        .icon(crate::brand::icon(app).or_else(|| app.default_window_icon().cloned()).expect("app icon"))
         .tooltip("GeniusClip")
         .menu(&menu)
         .show_menu_on_left_click(false)
