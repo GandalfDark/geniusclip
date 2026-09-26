@@ -32,7 +32,7 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::System::Threading::{
     CreateWaitableTimerExW, GetCurrentThread, SetThreadPriority, SetWaitableTimer, WaitForSingleObject,
-    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, INFINITE, THREAD_PRIORITY_HIGHEST, TIMER_ALL_ACCESS,
+    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, INFINITE, THREAD_PRIORITY_ABOVE_NORMAL, THREAD_PRIORITY_HIGHEST, TIMER_ALL_ACCESS,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -169,6 +169,8 @@ struct State {
     pipeline: Option<Pipeline>,
     last_error: Option<String>,
     shutdown: bool,
+    /// Capture paused while nobody can see the screen (display off, locked).
+    paused: bool,
 }
 
 pub struct Engine {
@@ -191,6 +193,7 @@ impl Engine {
             pipeline: None,
             last_error: None,
             shutdown: false,
+            paused: false,
         }));
         let shared = Arc::new(Shared {
             buffer: Mutex::new(None),
@@ -234,7 +237,7 @@ impl Engine {
                             p.shutdown();
                         }
                         last_restart = Instant::now();
-                        let want = st.replay_enabled || shared.recorder.lock().is_some();
+                        let want = (st.replay_enabled && !st.paused) || shared.recorder.lock().is_some();
                         if want {
                             if let Err(e) = start_pipeline(&mut st, &shared) {
                                 st.last_error = Some(format!("{e:#}"));
@@ -282,12 +285,43 @@ impl Engine {
         res
     }
 
+    /// Stops capture while the display is off or the session is locked, and
+    /// resumes it afterwards. Settings stay as they are; the replay buffer
+    /// starts over (it would only hold a dark or lock screen). A recording in
+    /// progress keeps running.
+    pub fn set_paused(&self, paused: bool) -> Result<()> {
+        let mut st = self.state.lock();
+        if st.paused == paused || st.shutdown {
+            return Ok(());
+        }
+        st.paused = paused;
+        let recording = self.shared.recorder.lock().is_some();
+        let res = if paused {
+            if !recording {
+                if let Some(p) = st.pipeline.take() {
+                    p.shutdown();
+                }
+                log::info!("capture paused");
+            }
+            Ok(())
+        } else if st.replay_enabled && st.pipeline.is_none() {
+            log::info!("capture resumed");
+            start_pipeline(&mut st, &self.shared)
+        } else {
+            Ok(())
+        };
+        let r = self.after_change(&mut st, res);
+        drop(st);
+        self.emit_status();
+        r
+    }
+
     pub fn set_replay_enabled(&self, on: bool) -> Result<()> {
         let mut st = self.state.lock();
         st.replay_enabled = on;
         self.shared.replay_on.store(on, Ordering::Relaxed);
         let res = if on {
-            if st.pipeline.is_none() {
+            if st.pipeline.is_none() && !st.paused {
                 start_pipeline(&mut st, &self.shared)
             } else {
                 Ok(())
@@ -678,8 +712,10 @@ fn video_thread(
     let enc_thread = {
         let shared = shared.clone();
         std::thread::Builder::new().name("gc-encode".into()).spawn(move || -> Result<()> {
+            // Above normal, not highest: with a software fallback encoder the
+            // game's threads must not starve; the queue has 8 frames of slack.
             unsafe {
-                let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+                let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
             }
             let mut enc = enc;
             let mut sink = |p: Packet| shared.on_packet(0, p);

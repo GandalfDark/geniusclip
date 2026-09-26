@@ -8,7 +8,7 @@
 
 use crate::overlay::{self, Toast};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
@@ -18,6 +18,10 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForeground
 pub const LABEL: &str = "menu";
 
 static OPEN: AtomicBool = AtomicBool::new(false);
+/// Bumped on every open/hide, so a delayed unload can tell if it's stale.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// The hidden menu's WebView (~100 MB) is freed after this long unused.
+const UNLOAD_AFTER: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// The window that was in front (the game), to give focus back on close.
 static PREV: Mutex<isize> = Mutex::new(0);
 
@@ -59,6 +63,7 @@ fn open(app: &AppHandle) {
     let _ = win.show();
     let _ = win.set_focus();
     OPEN.store(true, Ordering::Relaxed);
+    GENERATION.fetch_add(1, Ordering::Relaxed);
     let _ = app.emit_to(LABEL, "menu://open", ());
 }
 
@@ -97,6 +102,16 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.hide();
     }
+    let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(UNLOAD_AFTER);
+        if GENERATION.load(Ordering::Relaxed) == generation && !OPEN.load(Ordering::Relaxed) {
+            if let Some(w) = handle.get_webview_window(LABEL) {
+                let _ = w.destroy();
+            }
+        }
+    });
     let prev = *PREV.lock();
     if restore_focus && prev != 0 {
         unsafe {

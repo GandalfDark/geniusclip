@@ -6,6 +6,7 @@ mod i18n;
 mod library;
 mod menu;
 mod overlay;
+mod power;
 mod settings;
 mod share;
 mod sound;
@@ -169,6 +170,7 @@ pub fn run() {
             overlay::create(&handle)?;
             tray::create(&handle)?;
             hotkeys::register_all(&handle);
+            power::start(&handle);
             sync_autostart(&handle, settings.autostart);
 
             // Start capture off the UI thread.
