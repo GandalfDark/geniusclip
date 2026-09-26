@@ -1,0 +1,68 @@
+name: Build release
+
+# Builds the Windows release from this repository and uploads it as a workflow
+# artifact. Publishing stays local: `scripts/release.sh "notes" --from-ci <run id>`
+# adds the in-app updater signature (the key never leaves the owner's PC) and
+# creates the GitHub release.
+#
+# Code signing (SignPath Foundation) goes into the three "Sign" places, inside
+# out: the app, then the NSIS setup that contains it, then the branded
+# installer that contains that.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: FFmpeg
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/fetch-ffmpeg.ps1
+
+      - run: npm ci
+
+      - name: App
+        run: npx tauri build --no-bundle --config scripts/tauri-release.json
+
+      # Sign: target/release/GeniusClip.exe
+
+      - name: NSIS setup
+        run: npx tauri bundle --bundles nsis --config scripts/tauri-release.json
+
+      # Sign: target/release/bundle/nsis/GeniusClip_<version>_x64-setup.exe
+
+      - name: Installer
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          NSIS="target/release/bundle/nsis/GeniusClip_${VERSION}_x64-setup.exe"
+          GC_SETUP_PAYLOAD="$(cygpath -w "$PWD/$NSIS")" cargo build --release -p geniusclip-setup
+          mkdir -p out
+          cp "$NSIS" "out/GeniusClip-$VERSION-update.exe"
+          cp target/release/GeniusClip-Setup.exe out/
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # Sign: out/GeniusClip-Setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geniusclip-${{ env.VERSION }}
+          path: out/
+          if-no-files-found: error

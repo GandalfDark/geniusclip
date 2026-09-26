@@ -6,6 +6,8 @@ members = ["src-tauri", "crates/engine", "crates/setup"]
 version = "0.1.0"
 edition = "2021"
 authors = ["GandalfDark"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/GandalfDark/geniusclip"
 
 [workspace.dependencies]
 anyhow = "1"

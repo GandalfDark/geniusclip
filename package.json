@@ -12,7 +12,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "dependencies": {
     "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",

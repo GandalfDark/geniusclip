@@ -2,6 +2,8 @@
 name = "geniusclip"
 description = "GeniusClip — instant replay clip recorder"
 version.workspace = true
+license.workspace = true
+repository.workspace = true
 edition.workspace = true
 authors.workspace = true
 
