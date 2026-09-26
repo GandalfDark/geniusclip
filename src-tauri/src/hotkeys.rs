@@ -27,11 +27,12 @@ struct Worker {
 
 static WORKER: OnceLock<Worker> = OnceLock::new();
 
-const ACTIONS: [(&str, Action); 4] = [
+const ACTIONS: [(&str, Action); 5] = [
     ("saveClip", crate::actions::save_clip),
     ("toggleReplay", crate::actions::toggle_replay),
     ("screenshot", crate::actions::screenshot),
     ("toggleRecording", crate::actions::toggle_recording),
+    ("saveShort", crate::actions::save_short_clip),
 ];
 
 fn worker(app: &AppHandle) -> &'static Worker {
@@ -90,7 +91,7 @@ unsafe fn register(accels: &[String]) -> Vec<usize> {
 /// by another app, e.g. a GPU vendor overlay) are stored for the UI.
 pub fn register_all(app: &AppHandle) {
     let hk = app.state::<AppState>().settings.read().hotkeys.clone();
-    let accels = vec![hk.save_clip, hk.toggle_replay, hk.screenshot, hk.toggle_recording];
+    let accels = vec![hk.save_clip, hk.toggle_replay, hk.screenshot, hk.toggle_recording, hk.save_short];
     let w = worker(app);
     let (tx, rx) = channel();
     *w.request.lock() = Some((accels, tx));

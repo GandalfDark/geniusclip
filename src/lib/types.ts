@@ -24,6 +24,7 @@ export interface Hotkeys {
   toggleReplay: string;
   screenshot: string;
   toggleRecording: string;
+  saveShort: string;
 }
 
 export interface Settings {
@@ -31,6 +32,7 @@ export interface Settings {
   replayEnabled: boolean;
   replaySeconds: number;
   skipSaved: boolean;
+  shortSeconds: number;
   clipsDir: string;
   screenshotsDir: string;
   sortByGame: boolean;

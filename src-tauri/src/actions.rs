@@ -66,6 +66,16 @@ fn fail(app: &AppHandle, e: impl std::fmt::Display) {
 }
 
 pub fn save_clip(app: &AppHandle) {
+    save(app, None);
+}
+
+/// The short-clip hotkey: only the last few seconds (setting), e.g. a quick joke.
+pub fn save_short_clip(app: &AppHandle) {
+    let secs = app.state::<AppState>().settings.read().short_seconds;
+    save(app, Some(secs));
+}
+
+fn save(app: &AppHandle, seconds: Option<u32>) {
     let st = app.state::<AppState>();
     let s = st.settings.read().clone();
     if !s.replay_enabled {
@@ -76,7 +86,7 @@ pub fn save_clip(app: &AppHandle) {
     let path = target_path(&s, &s.clips_dir, &g, "", "mp4");
     let res = ensure_dir(&path).and_then(|_| {
         st.library.expect(&path, Kind::Clip, &g.name);
-        st.engine.save_replay(path.clone(), None, "GeniusClip".into(), s.skip_saved)
+        st.engine.save_replay(path.clone(), seconds, "GeniusClip".into(), s.skip_saved)
     });
     match res {
         Ok(geniusclip_engine::SaveOutcome::Started) => {}

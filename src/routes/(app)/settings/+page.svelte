@@ -99,12 +99,14 @@
   const minutes = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const memLabel = (mb: number) =>
     mb >= 1024 ? `${(mb / 1024).toFixed(1).replace('.', app.lang === 'ru' ? ',' : '.')} ${app.lang === 'ru' ? 'ГБ' : 'GB'}` : `${mb} ${app.lang === 'ru' ? 'МБ' : 'MB'}`;
-  const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' }[] = [
+  const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' | 'hk.saveShort' }[] = [
     { key: 'saveClip', label: 'hk.saveClip' },
+    { key: 'saveShort', label: 'hk.saveShort' },
     { key: 'toggleReplay', label: 'hk.toggleReplay' },
     { key: 'screenshot', label: 'hk.screenshot' },
     { key: 'toggleRecording', label: 'hk.toggleRecording' },
   ];
+  const shortOptions = [10, 15, 30, 60];
 </script>
 
 <div class="layout">
@@ -224,9 +226,22 @@
       <h2>{app.t('set.hotkeys')}</h2>
       <div class="panel body">
         {#each hkRows as r}
-          <Row label={app.t(r.label)} hint={app.hotkeyErrors.includes(r.key) ? app.t('home.hotkeyConflict') : ''}>
+          <Row
+            label={app.t(r.label)}
+            hint={app.hotkeyErrors.includes(r.key) ? app.t('home.hotkeyConflict') : r.key === 'saveShort' && !s.hotkeys.saveShort ? app.t('hk.saveShortHint') : ''}
+          >
             <HotkeyInput value={s.hotkeys[r.key]} conflict={app.hotkeyErrors.includes(r.key)} onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)} />
           </Row>
+          {#if r.key === 'saveShort' && s.hotkeys.saveShort}
+            <Row label={app.t('set.shortLength')}>
+              <Segmented
+                mono
+                value={s.shortSeconds}
+                onchange={(v) => app.change((x) => (x.shortSeconds = v))}
+                options={shortOptions.map((n) => ({ value: n, label: `${n} ${app.t('set.sec')}` }))}
+              />
+            </Row>
+          {/if}
         {/each}
       </div>
     </section>

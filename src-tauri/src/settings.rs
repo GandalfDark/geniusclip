@@ -12,6 +12,8 @@ pub struct Hotkeys {
     pub toggle_replay: String,
     pub screenshot: String,
     pub toggle_recording: String,
+    /// Saves only the last `short_seconds`; unset by default.
+    pub save_short: String,
 }
 
 impl Default for Hotkeys {
@@ -23,6 +25,7 @@ impl Default for Hotkeys {
             toggle_replay: "Alt+Shift+F8".into(),
             screenshot: "Alt+F6".into(),
             toggle_recording: "Alt+F7".into(),
+            save_short: String::new(),
         }
     }
 }
@@ -50,6 +53,8 @@ pub struct Settings {
     pub replay_seconds: u32,
     /// Start a new clip where the previous one ended (no repeated footage).
     pub skip_saved: bool,
+    /// Length of clips saved with the short-clip hotkey.
+    pub short_seconds: u32,
     pub clips_dir: PathBuf,
     pub screenshots_dir: PathBuf,
     pub sort_by_game: bool,
@@ -70,6 +75,7 @@ impl Default for Settings {
             replay_enabled: true,
             replay_seconds: 300,
             skip_saved: true,
+            short_seconds: 30,
             clips_dir: PathBuf::new(),
             screenshots_dir: PathBuf::new(),
             sort_by_game: true,
@@ -106,6 +112,7 @@ impl Settings {
             self.screenshots_dir = p.picture_dir().unwrap_or_else(|_| PathBuf::from(".")).join("GeniusClip");
         }
         self.replay_seconds = self.replay_seconds.clamp(10, 3600);
+        self.short_seconds = self.short_seconds.clamp(5, 600);
         // Presets from before the "Studio" redesign map to the default.
         if !["violet", "red", "lime", "cyan", "amber", "mono"].contains(&self.accent.as_str()) {
             self.accent = "violet".into();
