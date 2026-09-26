@@ -17,9 +17,6 @@ vite.config.ts.timestamp-*
 *.key
 *.key.pub
 
-# Local test video for the browser preview
-/static/dev-clip.mp4
-/static/dev-clip_*.m4a
-/static/dev-clip.peaks.json
+# Local test media for the browser preview (served in dev only)
+/dev-assets/
 /third_party/ffmpeg-*
-/static/dev-clip-thumb.jpg
