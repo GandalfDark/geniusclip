@@ -18,6 +18,8 @@ export interface EngineConfig {
   micVolume: number;
   separateTracks: boolean;
   diskBuffer: boolean;
+  noiseSuppression: boolean;
+  noiseStrength: number;
 }
 
 export interface Hotkeys {

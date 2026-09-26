@@ -24,6 +24,7 @@ export const api = {
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
   copyMedia: (paths: string[]) => invoke<void>('copy_media', { paths }),
+  micTest: (on: boolean) => invoke<void>('mic_test', { on }),
   closeMain: () => invoke<void>('close_main'),
   quit: () => invoke<void>('quit_app'),
 };

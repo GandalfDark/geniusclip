@@ -4,10 +4,10 @@ use crate::library::{Entry, Kind};
 use crate::settings::Settings;
 use crate::state::AppState;
 use crate::updates::UpdateInfo;
-use geniusclip_engine::{media, AudioDevice, EngineStatus, MonitorInfo};
+use geniusclip_engine::{media, AudioDevice, EngineStatus, MonitorEvent, MonitorInfo};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -322,6 +322,26 @@ pub fn copy_media(st: State<'_, AppState>, paths: Vec<PathBuf>) -> CmdResult<()>
 }
 
 /// Shows a sample toast so the user can check the overlay position.
+/// Microphone check: plays the mic back with the current noise suppression.
+/// Emits `mic://level` [before, after] and `mic://stopped` (error or null).
+#[tauri::command]
+pub fn mic_test(app: AppHandle, st: State<'_, AppState>, on: bool) -> CmdResult<()> {
+    if !on {
+        st.engine.stop_mic_monitor();
+        return Ok(());
+    }
+    st.engine
+        .start_mic_monitor(move |e| match e {
+            MonitorEvent::Level { before, after } => {
+                let _ = app.emit("mic://level", (before, after));
+            }
+            MonitorEvent::Stopped { error } => {
+                let _ = app.emit("mic://stopped", error);
+            }
+        })
+        .map_err(err)
+}
+
 #[tauri::command]
 pub fn preview_toast(app: AppHandle) {
     let game = crate::actions::current_game(&app).name;

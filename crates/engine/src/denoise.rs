@@ -32,6 +32,25 @@ impl DenoiseControl {
     }
 }
 
+/// Peak levels since the last `take`, for meters.
+#[derive(Default)]
+pub struct Levels {
+    before: AtomicU32,
+    after: AtomicU32,
+}
+
+impl Levels {
+    fn raise(slot: &AtomicU32, samples: &[f32]) {
+        let peak = samples.iter().fold(0f32, |m, x| m.max(x.abs()));
+        let _ = slot.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| (peak > f32::from_bits(b)).then_some(peak.to_bits()));
+    }
+
+    /// (before, after) peaks since the previous call.
+    pub fn take(&self) -> (f32, f32) {
+        (f32::from_bits(self.before.swap(0, Ordering::Relaxed)), f32::from_bits(self.after.swap(0, Ordering::Relaxed)))
+    }
+}
+
 /// Strength 0..=100 → attenuation limit in dB. Low values keep a little
 /// background (more natural voice); 100 removes all noise.
 pub fn atten_db(strength: u32) -> f32 {
@@ -139,7 +158,7 @@ pub type Chunk = (i64, Vec<f32>);
 /// Runs a denoise thread. Every chunk sent to the returned channel comes
 /// back through `write` — denoised while enabled, untouched otherwise. The
 /// thread ends when the sender is dropped.
-pub fn spawn(control: Arc<DenoiseControl>, write: impl Fn(i64, &[f32]) + Send + 'static) -> std::io::Result<Sender<Chunk>> {
+pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: impl Fn(i64, &[f32]) + Send + 'static) -> std::io::Result<Sender<Chunk>> {
     let (tx, rx): (Sender<Chunk>, Receiver<Chunk>) = crossbeam_channel::unbounded();
     std::thread::Builder::new().name("gc-denoise".into()).spawn(move || {
         let mut model: Option<Denoiser> = None;
@@ -156,14 +175,23 @@ pub fn spawn(control: Arc<DenoiseControl>, write: impl Fn(i64, &[f32]) + Send + 
                     }
                 }
             }
-            match model.as_mut().filter(|_| on) {
+            let processed = match model.as_mut().filter(|_| on) {
                 Some(d) => {
                     d.set_strength(strength);
-                    if let Some(at) = d.process(idx, &samples, &mut out) {
+                    let at = d.process(idx, &samples, &mut out);
+                    if let Some(at) = at {
                         write(at, &out);
                     }
+                    &out[..]
                 }
-                None => write(idx, &samples),
+                None => {
+                    write(idx, &samples);
+                    &samples[..]
+                }
+            };
+            if let Some(l) = &levels {
+                Levels::raise(&l.before, &samples);
+                Levels::raise(&l.after, processed);
             }
         }
     })?;

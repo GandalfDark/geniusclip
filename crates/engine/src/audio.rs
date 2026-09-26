@@ -46,9 +46,9 @@ pub struct AudioDevice {
     pub is_default: bool,
 }
 
-struct ComInit;
+pub(crate) struct ComInit;
 impl ComInit {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
@@ -67,7 +67,7 @@ unsafe fn pwstr_take(p: PWSTR) -> String {
     s
 }
 
-fn enumerator() -> Result<IMMDeviceEnumerator> {
+pub(crate) fn enumerator() -> Result<IMMDeviceEnumerator> {
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).context("MMDeviceEnumerator") }
 }
 
@@ -107,13 +107,13 @@ struct RingInner {
 }
 
 #[derive(Default)]
-pub struct SourceRing {
+pub(crate) struct SourceRing {
     inner: Mutex<RingInner>,
 }
 
 impl SourceRing {
     /// Writes interleaved stereo samples whose first sample belongs at `idx`.
-    fn write(&self, idx: i64, mut samples: &[f32]) {
+    pub(crate) fn write(&self, idx: i64, mut samples: &[f32]) {
         let mut r = self.inner.lock();
         if !r.primed {
             r.primed = true;
@@ -143,9 +143,14 @@ impl SourceRing {
         }
     }
 
+    /// True once anything has been written.
+    pub(crate) fn primed(&self) -> bool {
+        self.inner.lock().primed
+    }
+
     /// Reads `out.len()/2` stereo samples starting at `idx` (silence where missing)
     /// and discards everything before the end of the read window.
-    fn read(&self, idx: i64, out: &mut [f32]) {
+    pub(crate) fn read(&self, idx: i64, out: &mut [f32]) {
         out.fill(0.0);
         let n = (out.len() / 2) as i64;
         let mut r = self.inner.lock();
@@ -238,12 +243,12 @@ unsafe impl Send for Resampler {}
 // WASAPI capture thread
 
 #[derive(Clone, Copy, PartialEq)]
-enum SourceKind {
+pub(crate) enum SourceKind {
     Loopback,
     Mic,
 }
 
-fn sample_format(wf: &WAVEFORMATEX) -> Option<(ff::AVSampleFormat, bool)> {
+pub(crate) fn sample_format(wf: &WAVEFORMATEX) -> Option<(ff::AVSampleFormat, bool)> {
     let tag = wf.wFormatTag as u32;
     let bits = wf.wBitsPerSample;
     let (is_float, is_pcm) = if tag == WAVE_FORMAT_EXTENSIBLE {
@@ -343,7 +348,7 @@ unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<Capt
 
 /// `denoise`: when set, chunks go through the denoise thread, which writes
 /// them to the ring itself.
-fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceRing>, denoise: Option<Sender<Chunk>>, t0_us: i64, stop: Arc<AtomicBool>) {
+pub(crate) fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceRing>, denoise: Option<Sender<Chunk>>, t0_us: i64, stop: Arc<AtomicBool>) {
     let _com = ComInit::new();
     let label = if kind == SourceKind::Loopback { "system audio" } else { "microphone" };
     let mut scratch: Vec<u8> = Vec::new();
@@ -613,7 +618,7 @@ impl AudioPipeline {
         if cfg.mic {
             let (ring, stop, dev) = (mic_ring.clone(), stop.clone(), cfg.mic_device.clone());
             let r = mic_ring.clone();
-            let tx = denoise::spawn(denoise, move |idx, s| r.write(idx, s))?;
+            let tx = denoise::spawn(denoise, None, move |idx, s| r.write(idx, s))?;
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-mic".into())

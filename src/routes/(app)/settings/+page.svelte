@@ -8,6 +8,7 @@
   import Select from '$lib/components/Select.svelte';
   import Slider from '$lib/components/Slider.svelte';
   import HotkeyInput from '$lib/components/HotkeyInput.svelte';
+  import MicTest from '$lib/components/MicTest.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import { api } from '$lib/api';
   import { cascade, rise } from '$lib/motion';
@@ -234,6 +235,15 @@
           <Row label={app.t('set.volume')}>
             <Slider value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 600)} />
           </Row>
+          <Row label={app.t('set.noise')} hint={app.t('set.noiseHint')}>
+            <Switch checked={s.engine.noiseSuppression} onchange={(v) => app.change((x) => (x.engine.noiseSuppression = v), 0)} />
+          </Row>
+          {#if s.engine.noiseSuppression}
+            <Row label={app.t('set.noiseStrength')}>
+              <Slider value={s.engine.noiseStrength} min={0} max={100} step={5} format={(v) => `${v}%`} onchange={(v) => app.change((x) => (x.engine.noiseStrength = v), 120)} />
+            </Row>
+          {/if}
+          <MicTest device={s.engine.micDevice} volume={s.engine.micVolume} />
         {/if}
         {#if s.engine.mic && s.engine.systemAudio}
           <Row label={app.t('set.separate')} hint={app.t('set.separateHint')}>

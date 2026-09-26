@@ -48,7 +48,16 @@ pub fn show_main(app: &AppHandle) {
         .background_color(Color(20, 20, 22, 255))
         .build();
     match res {
-        Ok(_) => brand::apply(app),
+        Ok(w) => {
+            brand::apply(app);
+            // Never keep playing the microphone back once the window is gone.
+            let h = app.clone();
+            w.on_window_event(move |e| {
+                if matches!(e, tauri::WindowEvent::Destroyed) {
+                    h.state::<AppState>().engine.stop_mic_monitor();
+                }
+            });
+        }
         Err(e) => log::error!("cannot create main window: {e}"),
     }
 }
@@ -210,6 +219,7 @@ pub fn run() {
             commands::close_main,
             commands::preview_toast,
             commands::copy_media,
+            commands::mic_test,
             commands::quit_app,
         ])
         .build(tauri::generate_context!())

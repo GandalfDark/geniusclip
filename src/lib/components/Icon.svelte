@@ -28,6 +28,7 @@
     game: '<path d="M8 7.5h8a4.5 4.5 0 0 1 4.4 3.5l.9 3.9a2.5 2.5 0 0 1-4.3 2.2L15.2 15H8.8L7 17.1a2.5 2.5 0 0 1-4.3-2.2l.9-3.9A4.5 4.5 0 0 1 8 7.5z"/><path d="M8.5 10v3M7 11.5h3"/><g class="m1"><circle cx="15.3" cy="10.6" r=".9" fill="currentColor" stroke="none"/><circle cx="17" cy="12.4" r=".9" fill="currentColor" stroke="none"/></g>',
     mic: '<g class="m1"><rect x="9" y="3.5" width="6" height="10.5" rx="3"/></g><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3"/>',
     micOff: '<rect x="9" y="3.5" width="6" height="10.5" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3"/><path d="M4.5 4.5l15 15" stroke="var(--danger)"/>',
+    headphones: '<path d="M4.5 14.5V12a7.5 7.5 0 0 1 15 0v2.5"/><g class="m1"><rect x="3.5" y="13.5" width="4" height="6.5" rx="1.5"/><rect x="16.5" y="13.5" width="4" height="6.5" rx="1.5"/></g>',
     speaker: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><g class="m1"><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4"/></g>',
     speakerOff: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="var(--danger)"/>',
     update: '<g class="m1"><path d="M12 4.5v10M8 10.5l4 4 4-4"/></g><path d="M5 15.5v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/>',

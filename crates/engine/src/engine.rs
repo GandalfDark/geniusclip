@@ -5,6 +5,8 @@ use crate::audio::AudioPipeline;
 use crate::buffer::ReplayBuffer;
 use crate::denoise::DenoiseControl;
 use crate::disk::DiskStore;
+use crate::monitor::MicMonitor;
+pub use crate::monitor::MonitorEvent;
 use crate::clock;
 use crate::config::EngineConfig;
 use crate::convert::Converter;
@@ -168,6 +170,7 @@ pub struct Engine {
     events: EventSink,
     supervisor: Option<JoinHandle<()>>,
     alive: Arc<AtomicBool>,
+    monitor: Mutex<Option<MicMonitor>>,
 }
 
 impl Engine {
@@ -194,7 +197,7 @@ impl Engine {
             failed: Mutex::new(None),
         });
         let alive = Arc::new(AtomicBool::new(true));
-        let mut me = Engine { state, shared, events, supervisor: None, alive };
+        let mut me = Engine { state, shared, events, supervisor: None, alive, monitor: Mutex::new(None) };
         me.supervisor = Some(me.spawn_supervisor());
         me
     }
@@ -446,7 +449,22 @@ impl Engine {
         Ok(())
     }
 
+    /// Plays the microphone back (with noise suppression as configured) so
+    /// it can be checked; `on_level(before, after)` gets peak levels.
+    pub fn start_mic_monitor(&self, on_event: impl Fn(MonitorEvent) + Send + 'static) -> Result<()> {
+        let cfg = self.state.lock().cfg.clone();
+        let mut slot = self.monitor.lock();
+        slot.take();
+        *slot = Some(MicMonitor::start(cfg.mic_device, cfg.mic_volume, self.shared.denoise.clone(), Box::new(on_event))?);
+        Ok(())
+    }
+
+    pub fn stop_mic_monitor(&self) {
+        self.monitor.lock().take();
+    }
+
     pub fn shutdown(&self) {
+        self.stop_mic_monitor();
         let rec = self.shared.recorder.lock().take();
         if let Some((rec, _)) = rec {
             let _ = rec.stop();
