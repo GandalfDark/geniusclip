@@ -1,5 +1,5 @@
 //! App icon in the current accent color (tray + main window). The icons are
-//! rendered from the procedural logo by scripts/make-icon.mjs.
+//! prepared from assets/logo/*.png by scripts/make-icon.mjs.
 
 use crate::state::AppState;
 use tauri::image::Image;

@@ -1,10 +1,24 @@
 <script lang="ts">
-  import { logoMarkup } from '$lib/logo.js';
+  import violet from '$lib/assets/logo/violet.png';
+  import red from '$lib/assets/logo/red.png';
+  import lime from '$lib/assets/logo/lime.png';
+  import cyan from '$lib/assets/logo/cyan.png';
+  import amber from '$lib/assets/logo/amber.png';
+  import mono from '$lib/assets/logo/mono.png';
+  import { app } from '$lib/app.svelte';
 
-  let { size = 30 }: { size?: number } = $props();
-  const id = `lg${Math.random().toString(36).slice(2, 8)}`;
-  // Colors come from the accent, so the logo recolors with the theme.
-  const markup = logoMarkup({ light: 'var(--logo-light)', mid: 'var(--accent)', deep: 'var(--logo-deep)' }, id);
+  // One logo image per accent preset, so the logo follows the theme color.
+  const LOGOS: Record<string, string> = { violet, red, lime, cyan, amber, mono };
+
+  let { size = 34 }: { size?: number } = $props();
+  let src = $derived(LOGOS[app.settings?.accent ?? 'violet'] ?? violet);
 </script>
 
-<svg width={size} height={size} viewBox="0 0 100 100" aria-label="GeniusClip">{@html markup}</svg>
+<img {src} width={size} height={size} alt="GeniusClip" draggable="false" />
+
+<style>
+  img {
+    display: block;
+    object-fit: contain;
+  }
+</style>

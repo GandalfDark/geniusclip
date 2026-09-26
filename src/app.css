@@ -23,9 +23,6 @@
   --accent-grad: linear-gradient(135deg, var(--accent), var(--accent-2));
   --accent-ink: #150c26;
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-  /* Logo shades; same formulas as logoColors() in src/lib/logo.js. */
-  --logo-light: color-mix(in srgb, var(--accent) 55%, #ffffff);
-  --logo-deep: color-mix(in srgb, var(--accent) 58%, #140a33);
 
   --r-sm: 5px;
   --r: 8px;

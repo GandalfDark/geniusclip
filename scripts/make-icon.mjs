@@ -1,21 +1,28 @@
-// Renders the procedural logo (src/lib/logo.js) to PNGs:
-//  * src-tauri/app-icon.png            1024 px, default accent → `npx tauri icon`
-//  * src-tauri/icons/accent/<id>.png   256 px per accent → tray/window icon at runtime
+// Prepares the logo assets from the source PNGs in assets/logo/<accent>.png
+// (512 px, transparent):
+//  * src/lib/assets/logo/<id>.png     128 px, shown in the UI
+//  * src-tauri/icons/accent/<id>.png  256 px, tray/window icon at runtime
+//  * src-tauri/app-icon.png           512 px violet → `npx tauri icon`
 // Usage: node scripts/make-icon.mjs && npx tauri icon src-tauri/app-icon.png
 import { Resvg } from '@resvg/resvg-js';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { logoMarkup, logoColors } from '../src/lib/logo.js';
-import { ACCENTS } from '../src/lib/accents.ts';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-const render = (accent, size) => {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}">${logoMarkup(logoColors(accent))}</svg>`;
-  return new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
+const ids = ['violet', 'red', 'lime', 'cyan', 'amber', 'mono'];
+const root = new URL('../', import.meta.url);
+
+// resvg does high-quality raster scaling when an image is drawn into a smaller SVG.
+const scale = (png, size) => {
+  const data = `data:image/png;base64,${png.toString('base64')}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><image href="${data}" width="${size}" height="${size}"/></svg>`;
+  return new Resvg(svg, { imageRendering: 0 }).render().asPng();
 };
 
-const root = new URL('../src-tauri/', import.meta.url);
-writeFileSync(new URL('app-icon.png', root), render(ACCENTS.violet.color, 1024));
-mkdirSync(new URL('icons/accent/', root), { recursive: true });
-for (const [id, acc] of Object.entries(ACCENTS)) {
-  writeFileSync(new URL(`icons/accent/${id}.png`, root), render(acc.color, 256));
+mkdirSync(new URL('src/lib/assets/logo/', root), { recursive: true });
+mkdirSync(new URL('src-tauri/icons/accent/', root), { recursive: true });
+for (const id of ids) {
+  const src = readFileSync(new URL(`assets/logo/${id}.png`, root));
+  writeFileSync(new URL(`src/lib/assets/logo/${id}.png`, root), scale(src, 128));
+  writeFileSync(new URL(`src-tauri/icons/accent/${id}.png`, root), scale(src, 256));
 }
-console.log('icons rendered:', Object.keys(ACCENTS).join(', '));
+copyFileSync(new URL('assets/logo/violet.png', root), new URL('src-tauri/app-icon.png', root));
+console.log('logo assets prepared:', ids.join(', '));
