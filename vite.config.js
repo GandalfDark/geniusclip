@@ -7,6 +7,7 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 // Test media for the browser preview (dev-assets/, not in git): served by the
 // dev server only, so it never ends up in the app bundle like static/ would.
+/** @type {import("vite").Plugin} */
 const devAssets = {
   name: "geniusclip-dev-assets",
   configureServer(server) {
