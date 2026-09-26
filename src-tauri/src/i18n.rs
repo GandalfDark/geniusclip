@@ -1,43 +1,77 @@
-//! The few strings the backend shows itself (tray menu, overlay texts).
-//! Everything else is translated in the UI.
+//! The few strings the backend shows itself (tray menu, overlay texts, file
+//! names). Translations live in src-tauri/locales/<code>.json; everything
+//! else is translated in the UI (src/lib/locales).
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
 
+/// Supported languages; must match LANGS in src/lib/i18n.ts.
+pub const LANGS: [&str; 14] = ["ru", "en", "kk", "uk", "de", "fr", "es", "pt-BR", "pl", "tr", "it", "zh-CN", "ja", "ko"];
+
+const FILES: [&str; 14] = [
+    include_str!("../locales/ru.json"),
+    include_str!("../locales/en.json"),
+    include_str!("../locales/kk.json"),
+    include_str!("../locales/uk.json"),
+    include_str!("../locales/de.json"),
+    include_str!("../locales/fr.json"),
+    include_str!("../locales/es.json"),
+    include_str!("../locales/pt-BR.json"),
+    include_str!("../locales/pl.json"),
+    include_str!("../locales/tr.json"),
+    include_str!("../locales/it.json"),
+    include_str!("../locales/zh-CN.json"),
+    include_str!("../locales/ja.json"),
+    include_str!("../locales/ko.json"),
+];
+
+fn tables() -> &'static [HashMap<String, String>] {
+    static TABLES: OnceLock<Vec<HashMap<String, String>>> = OnceLock::new();
+    TABLES.get_or_init(|| FILES.iter().map(|f| serde_json::from_str(f).expect("valid locale JSON")).collect())
+}
+
+/// The Windows UI language mapped to a supported one.
 pub fn system_lang() -> &'static str {
-    // Primary language id 0x19 = Russian; also use Russian for other CIS UI languages.
     let primary = unsafe { GetUserDefaultUILanguage() } & 0x3ff;
     match primary {
-        0x19 | 0x22 | 0x23 | 0x3f | 0x40 | 0x43 | 0x28 | 0x42 => "ru", // ru, uk, be, kk, ky, uz, tg, tk
+        0x19 => "ru",
+        0x3f => "kk",
+        0x22 => "uk",
+        0x07 => "de",
+        0x0c => "fr",
+        0x0a => "es",
+        0x16 => "pt-BR",
+        0x15 => "pl",
+        0x1f => "tr",
+        0x10 => "it",
+        0x04 => "zh-CN",
+        0x11 => "ja",
+        0x12 => "ko",
+        // Other CIS languages: be, uz, ky, tg, tk, az, hy, ka.
+        0x23 | 0x43 | 0x40 | 0x28 | 0x42 | 0x2c | 0x2b | 0x37 => "ru",
         _ => "en",
     }
 }
 
+/// Translation of `key`, falling back to English.
 pub fn t(lang: &str, key: &str) -> &'static str {
-    let ru = lang == "ru";
-    match key {
-        "open" => if ru { "Открыть GeniusClip" } else { "Open GeniusClip" },
-        "save_clip" => if ru { "Сохранить клип" } else { "Save clip" },
-        "replay_on" => if ru { "Повтор: включён" } else { "Replay: on" },
-        "replay_off" => if ru { "Повтор: выключен" } else { "Replay: off" },
-        "record_start" => if ru { "Начать запись" } else { "Start recording" },
-        "record_stop" => if ru { "Остановить запись" } else { "Stop recording" },
-        "screenshot" => if ru { "Скриншот" } else { "Screenshot" },
-        "open_folder" => if ru { "Открыть папку клипов" } else { "Open clips folder" },
-        "copy_last" => if ru { "Скопировать последний клип" } else { "Copy last clip" },
-        "ov.copied" => if ru { "Клип скопирован" } else { "Clip copied" },
-        "ov.copied.sub" => if ru { "Вставьте в чат: Ctrl+V" } else { "Paste into a chat: Ctrl+V" },
-        "quit" => if ru { "Выход" } else { "Quit" },
-        "desktop" => if ru { "Рабочий стол" } else { "Desktop" },
-        "ov.clip" => if ru { "Клип сохранён" } else { "Clip saved" },
-        "ov.recording" => if ru { "Запись сохранена" } else { "Recording saved" },
-        "ov.recording-start" => if ru { "Запись началась" } else { "Recording started" },
-        "ov.screenshot" => if ru { "Скриншот сохранён" } else { "Screenshot saved" },
-        "ov.replay-on" => if ru { "Повтор включён" } else { "Replay on" },
-        "ov.replay-off" | "ov.replay-off-hint" => if ru { "Повтор выключен" } else { "Replay off" },
-        "ov.replay-off-hint.sub" => if ru { "Включите его, чтобы сохранять клипы" } else { "Turn it on to save clips" },
-        "ov.error" => if ru { "Не получилось" } else { "Something went wrong" },
-        "ov.already-saved" => if ru { "Уже сохранено" } else { "Already saved" },
-        "ov.already-saved.sub" => if ru { "Новых моментов пока нет" } else { "Nothing new since the last clip" },
-        _ => "",
+    let tables = tables();
+    let idx = LANGS.iter().position(|l| *l == lang).unwrap_or(1);
+    tables[idx].get(key).or_else(|| tables[1].get(key)).map(String::as_str).unwrap_or("")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_locale_has_every_key() {
+        let tables = tables();
+        for (i, table) in tables.iter().enumerate() {
+            for key in tables[0].keys() {
+                assert!(table.get(key).is_some_and(|s| !s.is_empty()), "{} is missing {key}", LANGS[i]);
+            }
+        }
     }
 }

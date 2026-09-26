@@ -8,6 +8,12 @@
   import { page } from '$app/state';
   import { rise, leave } from '$lib/motion';
 
+  // Language-specific glyph shapes (Han characters in ja vs zh) and fonts
+  // (see app.css) follow the <html lang>.
+  $effect(() => {
+    if (app.snapshot) document.documentElement.lang = app.lang;
+  });
+
   let { children } = $props();
   let ready = $state(false);
 

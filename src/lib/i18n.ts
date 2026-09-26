@@ -1,329 +1,70 @@
-const ru = {
-  'nav.home': 'Повтор',
-  'nav.gallery': 'Галерея',
-  'nav.settings': 'Настройки',
+// UI translations. Each language lives in src/lib/locales/<code>.ts; Russian
+// is the source and defines the key set. The backend's own strings (tray,
+// overlay) are in src-tauri/locales/<code>.json.
+import ru, { strings as ruStrings } from './locales/ru';
+import en from './locales/en';
+import kk from './locales/kk';
+import uk from './locales/uk';
+import de from './locales/de';
+import fr from './locales/fr';
+import es from './locales/es';
+import ptBR from './locales/pt-BR';
+import pl from './locales/pl';
+import tr from './locales/tr';
+import it from './locales/it';
+import zhCN from './locales/zh-CN';
+import ja from './locales/ja';
+import ko from './locales/ko';
 
-  'home.on': 'Повтор включён',
-  'home.off': 'Повтор выключен',
-  'home.offHint': 'Включите — и лучший момент можно будет сохранить одной клавишей',
-  'home.turnOn': 'Включить',
-  'home.starting': 'Запуск захвата…',
-  'home.now': 'сейчас',
-  'home.ram': 'ОЗУ',
-  'home.fps': 'к/с',
-  'home.saveClip': 'Сохранить клип',
-  'home.saved': 'Сохранено',
-  'home.screenshot': 'Скриншот',
-  'home.record': 'Запись',
-  'home.stopRecord': 'Стоп',
-  'home.openFolder': 'Открыть папку',
-  'home.recent': 'Последние',
-  'home.gallery': 'Галерея',
-  'home.empty': 'Клипов пока нет. Нажмите {key} в игре — сохранятся последние {min} мин.',
-  'home.hotkeyConflict': 'Сочетание занято другой программой. Поменяйте его в настройках.',
-  'home.dropped': 'пропущено кадров: {n}',
-  'home.update': 'Вышла версия {v}',
-  'home.updateBtn': 'Обновить',
-  'home.error': 'Ошибка захвата',
+export type TKey = keyof typeof ruStrings;
 
-  'hk.saveClip': 'Сохранить клип',
-  'hk.toggleReplay': 'Вкл/выкл повтор',
-  'hk.screenshot': 'Скриншот',
-  'hk.toggleRecording': 'Запись',
-  'hk.saveShort': 'Короткий клип',
-  'hk.saveShortHint': 'Только последние секунды — не задано',
-  'set.shortLength': 'Длина короткого клипа',
-  'set.sec': 'с',
-  'hk.press': 'Нажмите сочетание…',
-  'hk.none': 'Нет',
-  'hk.clear': 'Убрать',
+/** Plural forms keyed by Intl.PluralRules category; `{n}` is the number.
+ *  `exact1` (optional) is used for exactly 1 ("the last minute"). */
+export type Plural = { exact1?: string; zero?: string; one?: string; two?: string; few?: string; many?: string; other: string };
 
-  'gallery.title': 'Галерея',
-  'gallery.all': 'Всё',
-  'gallery.clips': 'Клипы',
-  'gallery.recordings': 'Записи',
-  'gallery.screenshots': 'Скриншоты',
-  'gallery.allGames': 'Все игры',
-  'gallery.search': 'Поиск',
-  'gallery.empty': 'Здесь пусто.',
-  'gallery.send': 'Отправить',
-  'gallery.sendHint': 'Скопировать файл — потом Ctrl+V в чате Telegram',
-  'gallery.copied': 'Скопировано',
-  'gallery.pasteHint': 'Клип скопирован. Вставьте в чат: Ctrl+V',
-  'gallery.reveal': 'Показать в папке',
-  'gallery.open': 'Открыть в плеере',
-  'gallery.rename': 'Переименовать',
-  'gallery.delete': 'Удалить',
-  'gallery.confirmDelete': 'Точно?',
-  'gallery.trim': 'Обрезать',
-  'gallery.saveCopy': 'Сохранить копию',
-  'gallery.replace': 'Заменить',
-  'gallery.trimmed': 'Готово',
-  'gallery.setIn': 'Начало [I]',
-  'gallery.setOut': 'Конец [O]',
-  'trim.video': 'Видео',
-  'trim.game': 'Игра',
-  'trim.mic': 'Микрофон',
-  'trim.track': 'Дорожка {n}',
-  'trim.mute': 'Выключить дорожку',
-  'trim.unmute': 'Включить дорожку',
-  'trim.volumeHint': 'Тяни вверх или вниз — громкость, двойной клик — 100%',
-  'gallery.close': 'Закрыть',
-
-  'set.title': 'Настройки',
-  'set.saved': 'Сохранено',
-  'set.capture': 'Запись',
-  'set.audio': 'Звук',
-  'set.hotkeys': 'Клавиши',
-  'set.folders': 'Папки',
-  'set.overlay': 'Уведомления',
-  'set.appearance': 'Вид',
-  'set.system': 'Система',
-
-  'set.replayEnabled': 'Повтор',
-  'set.replayEnabledHint': 'Держать последние минуты наготове',
-  'set.length': 'Длина',
-  'set.skipSaved': 'Не повторять сохранённое',
-  'set.skipSavedHint': 'Новый клип начнётся там, где закончился предыдущий',
-  'set.quality': 'Качество',
-  'set.q.low': 'Низкое',
-  'set.q.medium': 'Среднее',
-  'set.q.high': 'Высокое',
-  'set.q.ultra': 'Ультра',
-  'set.resolution': 'Разрешение',
-  'set.native': 'Как у монитора',
-  'set.fps': 'Кадров в секунду',
-  'set.codec': 'Кодек',
-  'set.codecHint': 'H.264 открывается везде, HEVC и AV1 — меньше файлы',
-  'set.av1Warn': 'AV1 — только RTX 40 и новее',
-  'set.monitor': 'Монитор',
-  'set.primary': 'основной',
-  'set.cursor': 'Курсор',
-  'set.estimate': '{mbps} Мбит/с · буфер ≈ {mem}',
-  'set.estimateDisk': '{mbps} Мбит/с · на диске ≈ {mem}',
-  'set.diskBuffer': 'Буфер на диске',
-  'set.noise': 'Шумоподавление',
-  'set.noiseHint': 'Убирает клавиатуру, вентилятор и фон из микрофона',
-  'set.noiseFailed': 'Не удалось запустить шумоподавление, микрофон пишется как есть',
-  'set.noiseStrength': 'Сила',
-  'set.micTest': 'Проверка',
-  'set.micTestHint': 'Надень наушники, иначе будет эхо. Задержка ~0,1 с',
-  'set.micTestStart': 'Слушать себя',
-  'set.micTestStop': 'Остановить',
-  'set.micTestFailed': 'Проверка остановлена',
-  'set.meterBefore': 'без фильтра',
-  'set.meterAfter': 'с фильтром',
-  'set.diskBufferHint': 'Экономит память, до 60 минут. Постоянно пишет на диск',
-
-  'set.system_audio': 'Звук игры',
-  'set.device': 'Устройство',
-  'set.default': 'Как в Windows',
-  'set.volume': 'Громкость',
-  'set.mic': 'Микрофон',
-  'set.separate': 'Отдельные дорожки',
-  'set.separateHint': 'Игра и микрофон ещё и по отдельности — для монтажа',
-
-  'set.clipsDir': 'Клипы и записи',
-  'set.shotsDir': 'Скриншоты',
-  'set.change': 'Изменить',
-  'set.open': 'Открыть',
-  'set.sortByGame': 'Папка для каждой игры',
-
-  'set.overlayEnabled': 'Показывать уведомления',
-  'set.overlayHint': 'Не видны в эксклюзивном полноэкранном режиме',
-  'set.corner': 'Угол',
-  'set.preview': 'Показать',
-  'set.sound': 'Звук',
-
-  'set.accent': 'Цвет',
-  'set.language': 'Язык',
-  'set.lang.auto': 'Как в системе',
-
-  'set.autostart': 'Запускать с Windows',
-  'set.autoUpdate': 'Обновляться автоматически',
-  'set.checkUpdate': 'Проверить обновления',
-  'set.upToDate': 'Установлена последняя версия',
-  'set.version': 'Версия',
-
-  'win.minimize': 'Свернуть',
-  'win.maximize': 'Развернуть',
-  'win.close': 'Свернуть в трей',
-};
-
-type Key = keyof typeof ru;
-
-const en: Record<Key, string> = {
-  'nav.home': 'Replay',
-  'nav.gallery': 'Gallery',
-  'nav.settings': 'Settings',
-
-  'home.on': 'Replay is on',
-  'home.off': 'Replay is off',
-  'home.offHint': 'Turn it on to save your best moments with one key',
-  'home.turnOn': 'Turn on',
-  'home.starting': 'Starting capture…',
-  'home.now': 'now',
-  'home.ram': 'RAM',
-  'home.fps': 'fps',
-  'home.saveClip': 'Save clip',
-  'home.saved': 'Saved',
-  'home.screenshot': 'Screenshot',
-  'home.record': 'Record',
-  'home.stopRecord': 'Stop',
-  'home.openFolder': 'Open folder',
-  'home.recent': 'Recent',
-  'home.gallery': 'Gallery',
-  'home.empty': 'No clips yet. Press {key} in game to save the last {min} min.',
-  'home.hotkeyConflict': 'Another app uses this combo. Change it in settings.',
-  'home.dropped': 'dropped frames: {n}',
-  'home.update': 'Version {v} is out',
-  'home.updateBtn': 'Update',
-  'home.error': 'Capture error',
-
-  'hk.saveClip': 'Save clip',
-  'hk.toggleReplay': 'Replay on/off',
-  'hk.screenshot': 'Screenshot',
-  'hk.toggleRecording': 'Recording',
-  'hk.saveShort': 'Short clip',
-  'hk.saveShortHint': 'Only the last few seconds — not set',
-  'set.shortLength': 'Short clip length',
-  'set.sec': 's',
-  'hk.press': 'Press a combo…',
-  'hk.none': 'None',
-  'hk.clear': 'Clear',
-
-  'gallery.title': 'Gallery',
-  'gallery.all': 'All',
-  'gallery.clips': 'Clips',
-  'gallery.recordings': 'Recordings',
-  'gallery.screenshots': 'Screenshots',
-  'gallery.allGames': 'All games',
-  'gallery.search': 'Search',
-  'gallery.empty': 'Nothing here.',
-  'gallery.send': 'Send',
-  'gallery.sendHint': 'Copy the file, then Ctrl+V in a Telegram chat',
-  'gallery.copied': 'Copied',
-  'gallery.pasteHint': 'Clip copied. Paste into a chat: Ctrl+V',
-  'gallery.reveal': 'Show in folder',
-  'gallery.open': 'Open in player',
-  'gallery.rename': 'Rename',
-  'gallery.delete': 'Delete',
-  'gallery.confirmDelete': 'Sure?',
-  'gallery.trim': 'Trim',
-  'gallery.saveCopy': 'Save copy',
-  'gallery.replace': 'Replace',
-  'gallery.trimmed': 'Done',
-  'gallery.setIn': 'Start [I]',
-  'gallery.setOut': 'End [O]',
-  'trim.video': 'Video',
-  'trim.game': 'Game',
-  'trim.mic': 'Mic',
-  'trim.track': 'Track {n}',
-  'trim.mute': 'Mute track',
-  'trim.unmute': 'Unmute track',
-  'trim.volumeHint': 'Drag up or down for volume, double-click for 100%',
-  'gallery.close': 'Close',
-
-  'set.title': 'Settings',
-  'set.saved': 'Saved',
-  'set.capture': 'Capture',
-  'set.audio': 'Audio',
-  'set.hotkeys': 'Hotkeys',
-  'set.folders': 'Folders',
-  'set.overlay': 'Notifications',
-  'set.appearance': 'Look',
-  'set.system': 'System',
-
-  'set.replayEnabled': 'Replay',
-  'set.replayEnabledHint': 'Keep the last minutes ready to save',
-  'set.length': 'Length',
-  'set.skipSaved': 'Skip what’s already saved',
-  'set.skipSavedHint': 'A new clip starts where the previous one ended',
-  'set.quality': 'Quality',
-  'set.q.low': 'Low',
-  'set.q.medium': 'Medium',
-  'set.q.high': 'High',
-  'set.q.ultra': 'Ultra',
-  'set.resolution': 'Resolution',
-  'set.native': 'Same as monitor',
-  'set.fps': 'Frame rate',
-  'set.codec': 'Codec',
-  'set.codecHint': 'H.264 plays everywhere, HEVC and AV1 make smaller files',
-  'set.av1Warn': 'AV1 needs RTX 40 or newer',
-  'set.monitor': 'Monitor',
-  'set.primary': 'primary',
-  'set.cursor': 'Cursor',
-  'set.estimate': '{mbps} Mbit/s · buffer ≈ {mem}',
-  'set.estimateDisk': '{mbps} Mbit/s · on disk ≈ {mem}',
-  'set.diskBuffer': 'Buffer on disk',
-  'set.noise': 'Noise suppression',
-  'set.noiseHint': 'Removes keyboard, fans and background from the mic',
-  'set.noiseFailed': 'Noise suppression failed to start; the mic is recorded as is',
-  'set.noiseStrength': 'Strength',
-  'set.micTest': 'Check',
-  'set.micTestHint': 'Use headphones to avoid echo. About 0.1 s delay',
-  'set.micTestStart': 'Listen to myself',
-  'set.micTestStop': 'Stop',
-  'set.micTestFailed': 'Check stopped',
-  'set.meterBefore': 'raw',
-  'set.meterAfter': 'filtered',
-  'set.diskBufferHint': 'Saves memory, up to 60 minutes. Writes to disk constantly',
-
-  'set.system_audio': 'Game sound',
-  'set.device': 'Device',
-  'set.default': 'Windows default',
-  'set.volume': 'Volume',
-  'set.mic': 'Microphone',
-  'set.separate': 'Separate tracks',
-  'set.separateHint': 'Also keep game and mic apart, for editing',
-
-  'set.clipsDir': 'Clips and recordings',
-  'set.shotsDir': 'Screenshots',
-  'set.change': 'Change',
-  'set.open': 'Open',
-  'set.sortByGame': 'A folder per game',
-
-  'set.overlayEnabled': 'Show notifications',
-  'set.overlayHint': 'Not visible in exclusive fullscreen',
-  'set.corner': 'Corner',
-  'set.preview': 'Preview',
-  'set.sound': 'Sound',
-
-  'set.accent': 'Color',
-  'set.language': 'Language',
-  'set.lang.auto': 'System',
-
-  'set.autostart': 'Start with Windows',
-  'set.autoUpdate': 'Update automatically',
-  'set.checkUpdate': 'Check for updates',
-  'set.upToDate': 'You have the latest version',
-  'set.version': 'Version',
-
-  'win.minimize': 'Minimize',
-  'win.maximize': 'Maximize',
-  'win.close': 'Hide to tray',
-};
-
-export type Lang = 'ru' | 'en';
-export type TKey = Key;
-
-/** "Последние 2 минуты всегда наготове" with proper Russian plurals. */
-export function readyLine(lang: Lang, seconds: number): string {
-  const m = seconds / 60;
-  if (lang === 'en') {
-    if (seconds < 60) return `The last ${seconds} seconds are always ready`;
-    return m === 1 ? 'The last minute is always ready' : `The last ${Number.isInteger(m) ? m : m.toFixed(1)} minutes are always ready`;
-  }
-  if (!Number.isInteger(m)) return `Последние ${m.toFixed(1).replace('.', ',')} минуты всегда наготове`;
-  if (m === 1) return 'Последняя минута всегда наготове';
-  const n10 = m % 10;
-  const n100 = m % 100;
-  const word = n10 === 1 && n100 !== 11 ? 'минута' : n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14) ? 'минуты' : 'минут';
-  return `Последние ${m} ${word} всегда наготове`;
+export interface Locale {
+  /** Name of the language in itself ("Deutsch"). */
+  name: string;
+  strings: Record<TKey, string>;
+  /** Home status line: "The last N minutes are always ready". */
+  readyMin: Plural;
+  /** Same for buffers shorter than a minute. */
+  readySec: Plural;
 }
 
-export function translate(lang: Lang, key: Key, vars?: Record<string, string | number>): string {
-  let s = (lang === 'ru' ? ru : en)[key] ?? key;
-  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+export const LOCALES = { ru, en, kk, uk, de, fr, es, 'pt-BR': ptBR, pl, tr, it, 'zh-CN': zhCN, ja, ko } satisfies Record<string, Locale>;
+export type Lang = keyof typeof LOCALES;
+export const LANGS = Object.keys(LOCALES) as Lang[];
+
+export function isLang(l: string | null | undefined): l is Lang {
+  return !!l && l in LOCALES;
+}
+
+/** Best match for a BCP 47 tag ("de-AT" → de, "zh-TW" → zh-CN, "be" → ru). */
+export function matchLang(tag: string): Lang {
+  const t = tag.toLowerCase();
+  if (t.startsWith('pt')) return 'pt-BR';
+  if (t.startsWith('zh')) return 'zh-CN';
+  const base = t.split('-')[0];
+  if (isLang(base)) return base;
+  // Other CIS languages: Russian is the most familiar second language.
+  if (['be', 'uz', 'ky', 'tg', 'tk', 'az', 'hy', 'ka'].includes(base)) return 'ru';
+  return 'en';
+}
+
+export function translate(lang: Lang, key: TKey, vars?: Record<string, string | number>): string {
+  let s = LOCALES[lang].strings[key] ?? LOCALES.en.strings[key] ?? key;
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
   return s;
+}
+
+function plural(lang: Lang, forms: Plural, n: number): string {
+  const tpl = (n === 1 && forms.exact1) || forms[new Intl.PluralRules(lang).select(n)] || forms.other;
+  return tpl.replace('{n}', new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(n));
+}
+
+/** "The last 2 minutes are always ready", with the language's plural rules. */
+export function readyLine(lang: Lang, seconds: number): string {
+  const l = LOCALES[lang];
+  return seconds < 60 ? plural(lang, l.readySec, seconds) : plural(lang, l.readyMin, seconds / 60);
 }

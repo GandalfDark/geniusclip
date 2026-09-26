@@ -237,7 +237,7 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
         check_media_path(&st, &path)?;
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let lang = st.settings.read().lang();
-        let suffix = if lang == "ru" { "обрезка" } else { "trim" };
+        let suffix = crate::i18n::t(lang, "trim_suffix");
         let mut out = path.with_file_name(format!("{stem} ({suffix}).mp4"));
         let mut n = 2;
         while out.exists() {

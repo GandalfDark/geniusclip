@@ -38,6 +38,18 @@
   color-scheme: dark;
 }
 
+/* Onest covers Latin and Cyrillic; CJK text falls back to the Windows UI font
+   for that script, chosen by <html lang> so Han characters get the right shapes. */
+:root:lang(zh-CN) {
+  --font: 'Onest Variable', 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+}
+:root:lang(ja) {
+  --font: 'Onest Variable', 'Yu Gothic UI', 'Meiryo UI', 'Segoe UI', sans-serif;
+}
+:root:lang(ko) {
+  --font: 'Onest Variable', 'Malgun Gothic', 'Segoe UI', sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }

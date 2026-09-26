@@ -14,7 +14,10 @@
   import { cascade, rise } from '$lib/motion';
   import { app } from '$lib/app.svelte';
   import { ACCENTS } from '$lib/accents';
+  import { LANGS, LOCALES } from '$lib/i18n';
+  import { bytes } from '$lib/format';
   import type { Estimate, Hotkeys } from '$lib/types';
+  import type { TKey } from '$lib/i18n';
 
   let s = $derived(app.settings!);
   let snap = $derived(app.snapshot!);
@@ -100,8 +103,7 @@
   const MAX_RAM = 1200;
   const MAX_DISK = 3600;
   const minutes = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-  const memLabel = (mb: number) =>
-    mb >= 1024 ? `${(mb / 1024).toFixed(1).replace('.', app.lang === 'ru' ? ',' : '.')} ${app.lang === 'ru' ? 'ГБ' : 'GB'}` : `${mb} ${app.lang === 'ru' ? 'МБ' : 'MB'}`;
+  const memLabel = (mb: number) => bytes(mb * 1048576, app.lang);
   const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' | 'hk.saveShort' }[] = [
     { key: 'saveClip', label: 'hk.saveClip' },
     { key: 'saveShort', label: 'hk.saveShort' },
@@ -325,7 +327,7 @@
               <button
                 class="sw"
                 class:active={s.accent === id}
-                title={app.lang === 'ru' ? acc.ru : acc.en}
+                title={app.t(`accent.${id}` as TKey)}
                 style:--c={acc.color}
                 onclick={() => app.change((x) => (x.accent = id), 0)}
               ></button>
@@ -333,14 +335,11 @@
           </div>
         </Row>
         <Row label={app.t('set.language')}>
-          <Segmented
+          <Select
+            width="220px"
             value={s.language}
             onchange={(v) => app.change((x) => (x.language = v), 0)}
-            options={[
-              { value: 'auto', label: app.t('set.lang.auto') },
-              { value: 'ru', label: 'Русский' },
-              { value: 'en', label: 'English' },
-            ]}
+            options={[{ value: 'auto', label: app.t('set.lang.auto') }, ...LANGS.map((l) => ({ value: l, label: LOCALES[l].name }))]}
           />
         </Row>
       </div>

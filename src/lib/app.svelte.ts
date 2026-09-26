@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { api } from './api';
 import { applyAccent } from './accents';
-import { translate, type Lang, type TKey } from './i18n';
+import { isLang, matchLang, translate, type Lang, type TKey } from './i18n';
 import type { EngineEvent, EngineStatus, MediaEntry, Settings, Snapshot, UpdateInfo } from './types';
 
 export interface Notice {
@@ -34,14 +34,14 @@ class AppStore {
 
   get lang(): Lang {
     const l = this.snapshot?.settings.language;
-    return l === 'ru' || l === 'en' ? l : this.#systemLang;
+    return isLang(l) ? l : this.#systemLang;
   }
 
   t = (key: TKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars);
 
   async init() {
     const snap = await api.snapshot();
-    this.#systemLang = snap.settings.language === 'auto' ? snap.lang : navigator.language.startsWith('ru') ? 'ru' : 'en';
+    this.#systemLang = isLang(snap.lang) ? snap.lang : matchLang(navigator.language);
     this.snapshot = snap;
     this.status = snap.status;
     this.update = snap.update;

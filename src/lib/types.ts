@@ -41,7 +41,8 @@ export interface Settings {
   sortByGame: boolean;
   hotkeys: Hotkeys;
   autostart: boolean;
-  language: 'auto' | 'ru' | 'en';
+  /** 'auto' or a code from LANGS in i18n.ts. */
+  language: string;
   accent: string;
   overlay: { enabled: boolean; corner: string; sound: boolean };
   autoUpdate: boolean;
@@ -99,7 +100,8 @@ export interface Snapshot {
   version: string;
   hotkeyErrors: string[];
   update: UpdateInfo | null;
-  lang: 'ru' | 'en';
+  /** The system UI language mapped to a supported one. */
+  lang: string;
 }
 
 export type MediaKind = 'clip' | 'recording' | 'screenshot';

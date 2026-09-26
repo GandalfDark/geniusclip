@@ -132,10 +132,6 @@ impl Settings {
 
     /// Effective UI language ("ru" or "en").
     pub fn lang(&self) -> &'static str {
-        match self.language.as_str() {
-            "ru" => "ru",
-            "en" => "en",
-            _ => crate::i18n::system_lang(),
-        }
+        crate::i18n::LANGS.iter().find(|l| **l == self.language).copied().unwrap_or_else(crate::i18n::system_lang)
     }
 }
