@@ -74,6 +74,18 @@
     if (typeof dir === 'string') app.change((x) => (x[which] = dir), 0);
   }
 
+  // A found update shows up right here (and on Home).
+  let updating = $state(false);
+  async function installUpdate() {
+    updating = true;
+    try {
+      await api.installUpdate();
+    } catch (e) {
+      app.notify(String(e), 'error');
+      updating = false;
+    }
+  }
+
   async function checkUpdate() {
     checking = true;
     try {
@@ -380,7 +392,12 @@
           <span class="brand">GeniusClip</span>
           <span class="mono faint">{snap.version}</span>
           <span class="grow"></span>
-          <button class="btn sm" disabled={checking} onclick={checkUpdate}>{app.t('set.checkUpdate')}</button>
+          {#if app.update}
+            <span class="upd">{app.t('home.update', { v: app.update.version })}</span>
+            <button class="btn primary sm" disabled={updating} onclick={installUpdate}>{app.t('home.updateBtn')}</button>
+          {:else}
+            <button class="btn sm" disabled={checking} onclick={checkUpdate}>{app.t('set.checkUpdate')}</button>
+          {/if}
         </div>
       </div>
     </section>
@@ -468,6 +485,10 @@
   }
   .memwarn :global(.btn) {
     flex-shrink: 0;
+  }
+  .upd {
+    font-size: 13px;
+    color: var(--accent);
   }
   .estimate {
     margin: 0 -18px;

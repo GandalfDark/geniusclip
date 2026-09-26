@@ -188,7 +188,7 @@ export function installMock() {
             ],
             ramTotalMb: 16384,
             hasBattery: true,
-            version: "0.1.0",
+            version: "0.1.1",
             hotkeyErrors: [],
             update: null,
             lang: navigator.language.startsWith("ru") ? "ru" : "en",
@@ -253,6 +253,11 @@ export function installMock() {
           recording = !recording;
           recStart = Date.now();
           return;
+        case "check_update": {
+          const info = { version: "0.1.2", currentVersion: "0.1.1", notes: null, date: null };
+          emit("update://available", info);
+          return info;
+        }
         case "hotkey_errors":
           return [];
         case "list_media":
