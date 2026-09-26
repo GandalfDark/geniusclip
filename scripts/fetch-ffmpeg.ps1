@@ -9,7 +9,9 @@ $dest = Join-Path $root "third_party\ffmpeg"
 $tmp = Join-Path $env:TEMP "geniusclip-ffmpeg"
 
 if (-not $Tag) {
-    $Tag = gh release list --repo GandalfDark/geniusclip --limit 50 --json tagName --jq '[.[] | select(.tagName | startswith("ffmpeg-"))][0].tagName'
+    # Filtered in PowerShell: Windows PowerShell mangles quotes in --jq args.
+    $Tag = (gh release list --repo GandalfDark/geniusclip --limit 50 --json tagName | ConvertFrom-Json |
+        Where-Object { $_.tagName -like 'ffmpeg-*' } | Select-Object -First 1).tagName
 }
 if (-not $Tag) { throw "No ffmpeg-* release found. Run the 'Build FFmpeg' workflow first." }
 
