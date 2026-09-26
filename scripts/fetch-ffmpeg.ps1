@@ -9,13 +9,13 @@ $dest = Join-Path $root "third_party\ffmpeg"
 $tmp = Join-Path $env:TEMP "geniusclip-ffmpeg"
 
 if (-not $Tag) {
-    $Tag = gh release list --repo GandalfArt/GeniusClip --limit 50 --json tagName --jq '[.[] | select(.tagName | startswith("ffmpeg-"))][0].tagName'
+    $Tag = gh release list --repo GandalfDark/geniusclip --limit 50 --json tagName --jq '[.[] | select(.tagName | startswith("ffmpeg-"))][0].tagName'
 }
 if (-not $Tag) { throw "No ffmpeg-* release found. Run the 'Build FFmpeg' workflow first." }
 
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $tmp | Out-Null
-gh release download $Tag --repo GandalfArt/GeniusClip --pattern "ffmpeg-geniusclip-win64.zip" --dir $tmp
+gh release download $Tag --repo GandalfDark/geniusclip --pattern "ffmpeg-geniusclip-win64.zip" --dir $tmp
 Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue
 Expand-Archive (Join-Path $tmp "ffmpeg-geniusclip-win64.zip") -DestinationPath $dest
 Get-Content (Join-Path $dest "BUILDINFO.txt")

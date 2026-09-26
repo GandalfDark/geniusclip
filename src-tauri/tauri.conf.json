@@ -53,7 +53,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdGMTRCNUE1MDM5RjRGMzYKUldRMlQ1OERwYlVVZithaWRHQ1VtSjNYL243ODBiMnljNWZXVGxLanlJV0N2b3Q5S1Izb1pKVDMK",
-      "endpoints": ["https://github.com/OWNER/GeniusClip-releases/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
   }
