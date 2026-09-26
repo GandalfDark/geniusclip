@@ -73,7 +73,7 @@ execFileSync(
     `
 import glob, os
 from PIL import Image
-for p in glob.glob('${TMP}/*.png'):
+for p in glob.glob('${TMP}/ru-*.png') + glob.glob('${TMP}/en-*.png'):
     name = os.path.splitext(os.path.basename(p))[0]
     Image.open(p).convert('RGB').save(f'site/img/screens/{name}.webp', 'WEBP', quality=84, method=6)
     print(name, os.path.getsize(f'site/img/screens/{name}.webp') // 1024, 'KB')
