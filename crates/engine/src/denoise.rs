@@ -1,0 +1,171 @@
+//! Microphone noise suppression with DeepFilterNet 3 (48 kHz, 10 ms hops).
+//!
+//! The model is not `Send`, so it lives on its own thread: the capture
+//! thread hands over resampled chunks and the denoise thread writes the
+//! result into the microphone ring. Loading the model (~0.3 s) therefore
+//! never stalls capture. On/off and strength are read live per chunk, so
+//! changing them does not restart the pipeline or clear the replay buffer.
+
+use crate::audio::RATE;
+use anyhow::Result;
+use crossbeam_channel::{Receiver, Sender};
+use df::tract::{DfParams, DfTract, RuntimeParams};
+use ndarray::Array2;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
+
+/// Live settings, shared with whoever feeds microphone audio.
+#[derive(Default)]
+pub struct DenoiseControl {
+    enabled: AtomicBool,
+    strength: AtomicU32,
+}
+
+impl DenoiseControl {
+    pub fn set(&self, enabled: bool, strength: u32) {
+        self.strength.store(strength.min(100), Ordering::Relaxed);
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> (bool, u32) {
+        (self.enabled.load(Ordering::Relaxed), self.strength.load(Ordering::Relaxed))
+    }
+}
+
+/// Strength 0..=100 → attenuation limit in dB. Low values keep a little
+/// background (more natural voice); 100 removes all noise.
+pub fn atten_db(strength: u32) -> f32 {
+    if strength >= 100 {
+        100.0
+    } else {
+        6.0 + strength as f32 * 0.44
+    }
+}
+
+/// Streaming denoiser on the shared 48 kHz timeline.
+pub struct Denoiser {
+    model: DfTract,
+    hop: usize,
+    /// Model latency in samples; output timestamps are shifted back by it.
+    delay: i64,
+    atten: f32,
+    /// Timeline index of input sample 0 (re-based after large gaps).
+    base: Option<i64>,
+    fed: i64,
+    produced: i64,
+    pending: Vec<f32>,
+    inp: Array2<f32>,
+    outp: Array2<f32>,
+}
+
+impl Denoiser {
+    pub fn new(strength: u32) -> Result<Denoiser> {
+        let atten = atten_db(strength);
+        let model = DfTract::new(DfParams::default(), &RuntimeParams::default_with_ch(1).with_atten_lim(atten))?;
+        anyhow::ensure!(model.sr as i64 == RATE, "model sample rate {}", model.sr);
+        let hop = model.hop_size;
+        Ok(Denoiser {
+            // Measured: output lags input by (lookahead + 1) hops = 30 ms.
+            delay: (hop * (model.lookahead + 1)) as i64,
+            hop,
+            model,
+            atten,
+            base: None,
+            fed: 0,
+            produced: 0,
+            pending: Vec::with_capacity(hop),
+            inp: Array2::zeros((1, hop)),
+            outp: Array2::zeros((1, hop)),
+        })
+    }
+
+    pub fn set_strength(&mut self, strength: u32) {
+        let a = atten_db(strength);
+        if a != self.atten {
+            self.model.set_atten_lim(a);
+            self.atten = a;
+        }
+    }
+
+    /// Feeds interleaved stereo samples whose first sample is at timeline
+    /// `idx`. Replaces `out` with denoised stereo and returns the timeline
+    /// index of its first sample (None when a full hop is not ready yet).
+    pub fn process(&mut self, idx: i64, stereo: &[f32], out: &mut Vec<f32>) -> Option<i64> {
+        out.clear();
+        let base = *self.base.get_or_insert(idx);
+        let gap = idx - (base + self.fed);
+        if gap.abs() > RATE / 2 {
+            // Long pause or clock jump: continue the stream from here.
+            self.base = Some(idx - self.fed);
+        }
+        let start = self.base.unwrap() + self.produced - self.delay;
+        if gap > RATE / 40 && gap <= RATE / 2 {
+            // Short hole (dropped packets): keep the timeline with silence.
+            for _ in 0..gap {
+                self.push(0.0, out);
+            }
+        }
+        for f in stereo.chunks_exact(2) {
+            self.push((f[0] + f[1]) * 0.5, out);
+        }
+        (!out.is_empty()).then_some(start)
+    }
+
+    fn push(&mut self, x: f32, out: &mut Vec<f32>) {
+        self.pending.push(x);
+        self.fed += 1;
+        if self.pending.len() < self.hop {
+            return;
+        }
+        for (d, s) in self.inp.iter_mut().zip(&self.pending) {
+            *d = *s;
+        }
+        if let Err(e) = self.model.process(self.inp.view(), self.outp.view_mut()) {
+            log::warn!("denoise: {e:#}");
+            self.outp.assign(&self.inp);
+        }
+        for &y in self.outp.iter() {
+            out.push(y);
+            out.push(y);
+        }
+        self.produced += self.hop as i64;
+        self.pending.clear();
+    }
+}
+
+/// A chunk of microphone audio: timeline index + interleaved stereo.
+pub type Chunk = (i64, Vec<f32>);
+
+/// Runs a denoise thread. Every chunk sent to the returned channel comes
+/// back through `write` — denoised while enabled, untouched otherwise. The
+/// thread ends when the sender is dropped.
+pub fn spawn(control: Arc<DenoiseControl>, write: impl Fn(i64, &[f32]) + Send + 'static) -> std::io::Result<Sender<Chunk>> {
+    let (tx, rx): (Sender<Chunk>, Receiver<Chunk>) = crossbeam_channel::unbounded();
+    std::thread::Builder::new().name("gc-denoise".into()).spawn(move || {
+        let mut model: Option<Denoiser> = None;
+        let mut failed = false;
+        let mut out = Vec::new();
+        for (idx, samples) in rx {
+            let (on, strength) = control.get();
+            if on && model.is_none() && !failed {
+                match Denoiser::new(strength) {
+                    Ok(d) => model = Some(d),
+                    Err(e) => {
+                        log::error!("noise suppression unavailable: {e:#}");
+                        failed = true;
+                    }
+                }
+            }
+            match model.as_mut().filter(|_| on) {
+                Some(d) => {
+                    d.set_strength(strength);
+                    if let Some(at) = d.process(idx, &samples, &mut out) {
+                        write(at, &out);
+                    }
+                }
+                None => write(idx, &samples),
+            }
+        }
+    })?;
+    Ok(tx)
+}

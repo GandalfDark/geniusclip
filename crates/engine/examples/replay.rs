@@ -2,7 +2,7 @@
 //! and a short live recording, then print what was produced.
 //!
 //! cargo run -p geniusclip-engine --example replay -- [seconds] [out_dir]
-//! Set GC_DISK=1 to test the disk-backed buffer.
+//! Set GC_DISK=1 to test the disk-backed buffer, GC_DENOISE=1 for mic noise suppression.
 
 use geniusclip_engine::*;
 use std::path::PathBuf;
@@ -35,7 +35,8 @@ fn main() -> anyhow::Result<()> {
         other => println!("event: {other:?}"),
     });
     let disk_buffer = std::env::var("GC_DISK").is_ok_and(|v| v == "1");
-    engine.configure(EngineConfig { disk_buffer, ..Default::default() }, 30)?;
+    let noise_suppression = std::env::var("GC_DENOISE").is_ok_and(|v| v == "1");
+    engine.configure(EngineConfig { disk_buffer, noise_suppression, noise_strength: 100, ..Default::default() }, 30)?;
     let temp = std::env::temp_dir().join("GeniusClip");
     let buffer_files = || std::fs::read_dir(&temp).map(|d| d.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "buf")).count()).unwrap_or(0);
     engine.set_replay_enabled(true)?;

@@ -13,6 +13,20 @@ crossbeam-channel.workspace = true
 serde.workspace = true
 ffmpeg-sys-next.workspace = true
 windows.workspace = true
+# Microphone noise suppression (DeepFilterNet 3, model embedded). Not on
+# crates.io with the realtime engine, so pinned to a commit; tract must match
+# the version it was built against (newer tract uses another ndarray).
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"] }
+ndarray = "0.15"
+tract-core = "=0.21.4"
+tract-onnx = "=0.21.4"
+tract-pulse = "=0.21.4"
+tract-hir = "=0.21.4"
+tract-nnef = "=0.21.4"
+tract-linalg = "=0.21.4"
+tract-data = "=0.21.4"
+tract-onnx-opl = "=0.21.4"
+tract-pulse-opl = "=0.21.4"
 
 [dev-dependencies]
 serde_json.workspace = true

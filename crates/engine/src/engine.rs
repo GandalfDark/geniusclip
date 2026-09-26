@@ -3,6 +3,7 @@
 
 use crate::audio::AudioPipeline;
 use crate::buffer::ReplayBuffer;
+use crate::denoise::DenoiseControl;
 use crate::disk::DiskStore;
 use crate::clock;
 use crate::config::EngineConfig;
@@ -98,6 +99,7 @@ struct Shot {
 /// State shared between the pipeline threads and the API.
 struct Shared {
     buffer: Mutex<Option<ReplayBuffer>>,
+    denoise: Arc<DenoiseControl>,
     recorder: Mutex<Option<(Recorder, Instant)>>,
     replay_on: AtomicBool,
     force_key: AtomicBool,
@@ -182,6 +184,7 @@ impl Engine {
         }));
         let shared = Arc::new(Shared {
             buffer: Mutex::new(None),
+            denoise: Arc::default(),
             recorder: Mutex::new(None),
             replay_on: AtomicBool::new(false),
             force_key: AtomicBool::new(false),
@@ -241,7 +244,9 @@ impl Engine {
         if let Some(b) = self.shared.buffer.lock().as_mut() {
             b.set_max_seconds(replay_seconds);
         }
-        if st.cfg == cfg {
+        self.shared.denoise.set(cfg.noise_suppression, cfg.noise_strength);
+        if st.cfg.same_pipeline(&cfg) {
+            st.cfg = cfg;
             return Ok(());
         }
         st.cfg = cfg;
@@ -499,7 +504,7 @@ fn start_pipeline(st: &mut State, shared: &Arc<Shared>) -> Result<()> {
     let audio = {
         let shared2 = shared.clone();
         let sink: crate::audio::AudioSink = Arc::new(move |i, p| shared2.on_packet(1 + i, p));
-        match AudioPipeline::start(&cfg, t0, sink) {
+        match AudioPipeline::start(&cfg, t0, sink, shared.denoise.clone()) {
             Ok(Some((a, descs))) => {
                 streams.extend(descs);
                 Some(a)

@@ -8,7 +8,9 @@
 
 use crate::clock;
 use crate::config::EngineConfig;
+use crate::denoise::{self, Chunk, DenoiseControl};
 use crate::ffutil::*;
+use crossbeam_channel::Sender;
 use anyhow::{bail, Context, Result};
 use ffmpeg_sys_next as ff;
 use parking_lot::Mutex;
@@ -339,7 +341,9 @@ unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<Capt
     res
 }
 
-fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceRing>, t0_us: i64, stop: Arc<AtomicBool>) {
+/// `denoise`: when set, chunks go through the denoise thread, which writes
+/// them to the ring itself.
+fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceRing>, denoise: Option<Sender<Chunk>>, t0_us: i64, stop: Arc<AtomicBool>) {
     let _com = ComInit::new();
     let label = if kind == SourceKind::Loopback { "system audio" } else { "microphone" };
     let mut scratch: Vec<u8> = Vec::new();
@@ -412,7 +416,12 @@ fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceR
                     match converted {
                         Ok((samples, delay)) => {
                             let idx = (ts_us - t0_us) * RATE / 1_000_000 - delay;
-                            ring.write(idx, samples);
+                            match &denoise {
+                                Some(tx) => {
+                                    let _ = tx.send((idx, samples.to_vec()));
+                                }
+                                None => ring.write(idx, samples),
+                            }
                         }
                         Err(e) => log::warn!("{label}: resample: {e:#}"),
                     }
@@ -561,7 +570,7 @@ pub type AudioSink = Arc<dyn Fn(usize, Packet) + Send + Sync>;
 impl AudioPipeline {
     /// Builds the track layout for the config. Returns (pipeline, stream descriptions).
     /// Packets are delivered to `sink` with the index into the returned streams.
-    pub fn start(cfg: &EngineConfig, t0_us: i64, sink: AudioSink) -> Result<Option<(AudioPipeline, Vec<StreamDesc>)>> {
+    pub fn start(cfg: &EngineConfig, t0_us: i64, sink: AudioSink, denoise: Arc<DenoiseControl>) -> Result<Option<(AudioPipeline, Vec<StreamDesc>)>> {
         let mut tracks: Vec<(TrackMix, &str, i64)> = Vec::new();
         match (cfg.system_audio, cfg.mic) {
             (true, true) => {
@@ -598,15 +607,17 @@ impl AudioPipeline {
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-system".into())
-                    .spawn(move || capture_thread(SourceKind::Loopback, dev, ring, t0_us, stop))?,
+                    .spawn(move || capture_thread(SourceKind::Loopback, dev, ring, None, t0_us, stop))?,
             );
         }
         if cfg.mic {
             let (ring, stop, dev) = (mic_ring.clone(), stop.clone(), cfg.mic_device.clone());
+            let r = mic_ring.clone();
+            let tx = denoise::spawn(denoise, move |idx, s| r.write(idx, s))?;
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-mic".into())
-                    .spawn(move || capture_thread(SourceKind::Mic, dev, ring, t0_us, stop))?,
+                    .spawn(move || capture_thread(SourceKind::Mic, dev, ring, Some(tx), t0_us, stop))?,
             );
         }
 

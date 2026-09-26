@@ -76,6 +76,20 @@ pub struct EngineConfig {
     pub separate_tracks: bool,
     /// Keep the replay buffer in temporary files instead of RAM.
     pub disk_buffer: bool,
+    /// Microphone noise suppression; applies live (no pipeline restart).
+    pub noise_suppression: bool,
+    /// 0..=100, how much noise is removed (100 = all of it).
+    pub noise_strength: u32,
+}
+
+impl EngineConfig {
+    /// True when the configs differ only in settings that apply live.
+    pub fn same_pipeline(&self, other: &EngineConfig) -> bool {
+        let mut a = self.clone();
+        a.noise_suppression = other.noise_suppression;
+        a.noise_strength = other.noise_strength;
+        a == *other
+    }
 }
 
 impl Default for EngineConfig {
@@ -96,6 +110,8 @@ impl Default for EngineConfig {
             mic_volume: 1.0,
             separate_tracks: true,
             disk_buffer: false,
+            noise_suppression: false,
+            noise_strength: 80,
         }
     }
 }
