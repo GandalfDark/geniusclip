@@ -7,6 +7,7 @@
 
 use crate::state::AppState;
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -72,14 +73,17 @@ fn worker(app: &AppHandle) -> &'static Worker {
 
 /// Registers the set on the calling (hotkey) thread; returns indexes that failed.
 unsafe fn register(accels: &[String]) -> Vec<usize> {
+    // Everything is released first: moving a combo from a later action to
+    // an earlier one would otherwise fail while the later id still holds it.
+    for i in 0..ACTIONS.len() {
+        let _ = UnregisterHotKey(None, i as i32 + 1);
+    }
     let mut failed = Vec::new();
     for (i, accel) in accels.iter().enumerate() {
-        let id = i as i32 + 1;
-        let _ = UnregisterHotKey(None, id);
         if accel.trim().is_empty() {
             continue;
         }
-        let ok = parse(accel).is_some_and(|(mods, vk)| RegisterHotKey(None, id, mods | MOD_NOREPEAT, vk).is_ok());
+        let ok = parse(accel).is_some_and(|(mods, vk)| RegisterHotKey(None, i as i32 + 1, mods | MOD_NOREPEAT, vk).is_ok());
         if !ok {
             log::warn!("hotkey {} ({accel}) could not be registered", ACTIONS[i].0);
             failed.push(i);
@@ -88,11 +92,27 @@ unsafe fn register(accels: &[String]) -> Vec<usize> {
     failed
 }
 
+/// One registration at a time: the worker has a single request slot, and
+/// each run reads the settings (and suspension) once it holds this.
+static REGISTER: Mutex<()> = Mutex::new(());
+/// Hotkeys are released while the UI records a new combo.
+static SUSPENDED: AtomicBool = AtomicBool::new(false);
+/// Bumped on every suspend/resume, so a stale safety timer does nothing.
+static SUSPEND_GEN: AtomicU64 = AtomicU64::new(0);
+/// Hotkeys come back on their own if the UI never resumes them.
+const SUSPEND_MAX: Duration = Duration::from_secs(60);
+
 /// (Re)registers all hotkeys from settings. Failures (a combo already taken
 /// by another app, e.g. a GPU vendor overlay) are stored for the UI.
 pub fn register_all(app: &AppHandle) {
-    let hk = app.state::<AppState>().settings.read().hotkeys.clone();
-    let accels = vec![hk.save_clip, hk.toggle_replay, hk.screenshot, hk.toggle_recording, hk.save_short, hk.toggle_menu];
+    let _one_at_a_time = REGISTER.lock();
+    let suspended = SUSPENDED.load(Ordering::SeqCst);
+    let accels = if suspended {
+        vec![String::new(); ACTIONS.len()]
+    } else {
+        let hk = app.state::<AppState>().settings.read().hotkeys.clone();
+        vec![hk.save_clip, hk.toggle_replay, hk.screenshot, hk.toggle_recording, hk.save_short, hk.toggle_menu]
+    };
     let w = worker(app);
     let (tx, rx) = channel();
     *w.request.lock() = Some((accels, tx));
@@ -100,7 +120,32 @@ pub fn register_all(app: &AppHandle) {
         let _ = PostThreadMessageW(w.thread_id, WM_REREGISTER, Default::default(), Default::default());
     }
     let failed = rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
-    *app.state::<AppState>().hotkey_errors.lock() = failed.into_iter().map(|i| ACTIONS[i].0.to_string()).collect();
+    // While suspended nothing is registered, which says nothing about conflicts.
+    if !suspended {
+        *app.state::<AppState>().hotkey_errors.lock() = failed.into_iter().map(|i| ACTIONS[i].0.to_string()).collect();
+    }
+}
+
+pub fn is_suspended() -> bool {
+    SUSPENDED.load(Ordering::SeqCst)
+}
+
+/// Releases all hotkeys (`true`) so the UI can record a combo that is
+/// already in use instead of triggering it, or registers them again.
+pub fn set_suspended(app: &AppHandle, on: bool) {
+    SUSPENDED.store(on, Ordering::SeqCst);
+    let generation = SUSPEND_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    register_all(app);
+    if on {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(SUSPEND_MAX);
+            if SUSPEND_GEN.load(Ordering::SeqCst) == generation && SUSPENDED.swap(false, Ordering::SeqCst) {
+                log::warn!("hotkeys were suspended too long; registering them again");
+                register_all(&app);
+            }
+        });
+    }
 }
 
 /// Parses "Alt+Shift+F8" / "Control+KeyK" (KeyboardEvent.code names).

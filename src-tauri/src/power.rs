@@ -7,6 +7,7 @@
 //! Capture resumes when all of that is over.
 
 use crate::state::AppState;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
 use windows::core::w;
@@ -37,19 +38,34 @@ fn on_battery_now() -> bool {
     unsafe { GetSystemPowerStatus(&mut s) }.is_ok() && s.ACLineStatus == 0
 }
 
+/// Serializes `apply` runs; each one reads the flags only once it holds this.
+static APPLY: Mutex<()> = Mutex::new(());
+
 /// Re-evaluates after the "pause on battery" setting changed.
 pub fn refresh() {
     apply();
 }
 
+fn should_pause(app: &AppHandle) -> bool {
+    let battery = ON_BATTERY.load(Ordering::Relaxed) && app.state::<AppState>().settings.read().pause_on_battery;
+    DISPLAY_OFF.load(Ordering::Relaxed) || LOCKED.load(Ordering::Relaxed) || battery
+}
+
+/// Whether capture is (or is about to be) paused, without the engine lock.
+pub fn is_paused() -> bool {
+    APP.get().is_some_and(should_pause)
+}
+
 fn apply() {
     let Some(app) = APP.get() else { return };
-    let battery = ON_BATTERY.load(Ordering::Relaxed) && app.state::<AppState>().settings.read().pause_on_battery;
-    let paused = DISPLAY_OFF.load(Ordering::Relaxed) || LOCKED.load(Ordering::Relaxed) || battery;
     let app = app.clone();
     // Stopping/starting capture takes a moment; keep the message loop free.
+    // The state is read inside the serialized section, so of several quick
+    // events (lock, then unlock) the last one to run applies the latest
+    // state instead of an older thread finishing last and re-pausing.
     std::thread::spawn(move || {
-        if let Err(e) = app.state::<AppState>().engine.set_paused(paused) {
+        let _one_at_a_time = APPLY.lock();
+        if let Err(e) = app.state::<AppState>().engine.set_paused(should_pause(&app)) {
             log::warn!("resume capture: {e:#}");
         }
     });

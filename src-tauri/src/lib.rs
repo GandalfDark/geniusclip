@@ -65,7 +65,12 @@ pub fn show_main_at(app: &AppHandle, route: Option<&str>) {
             let h = app.clone();
             w.on_window_event(move |e| {
                 if matches!(e, tauri::WindowEvent::Destroyed) {
-                    h.state::<AppState>().engine.stop_mic_monitor();
+                    commands::stop_mic_test(&h);
+                    // Closed while a hotkey field was listening.
+                    if hotkeys::is_suspended() {
+                        let h = h.clone();
+                        std::thread::spawn(move || hotkeys::set_suspended(&h, false));
+                    }
                 }
             });
         }
@@ -176,20 +181,17 @@ pub fn run() {
             // Start capture off the UI thread.
             let h = handle.clone();
             std::thread::spawn(move || {
-                let st = h.state::<AppState>();
-                let s = st.settings.read().clone();
-                if let Err(e) = st.engine.configure(s.engine.clone(), s.replay_seconds) {
-                    log::error!("configure: {e:#}");
-                }
-                if s.replay_enabled {
-                    if let Err(e) = st.engine.set_replay_enabled(true) {
+                actions::configure_engine(&h);
+                if h.state::<AppState>().settings.read().replay_enabled {
+                    if let Err(e) = actions::apply_replay(&h) {
                         log::error!("replay start: {e:#}");
                     }
                 }
                 tray::refresh(&h);
             });
 
-            // Once a second: remember the focused game, push status to the UI.
+            // Once a second: remember the focused game (skipped while there
+            // is no replay buffer), push status to the UI.
             let h = handle.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(1));
@@ -234,10 +236,12 @@ pub fn run() {
             commands::mic_test,
             commands::menu_close,
             commands::menu_screenshot,
+            commands::menu_ready,
             commands::system_stats,
             commands::open_in_app,
             commands::take_pending_open,
             commands::quit_app,
+            commands::set_hotkeys_suspended,
         ])
         .build(tauri::generate_context!())
         .expect("error while building GeniusClip")

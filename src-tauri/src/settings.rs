@@ -101,12 +101,58 @@ fn path(app: &AppHandle) -> PathBuf {
 
 impl Settings {
     pub fn load(app: &AppHandle) -> Settings {
-        let mut s: Settings = std::fs::read(path(app))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).map_err(|e| log::warn!("settings.json invalid: {e}")).ok())
-            .unwrap_or_default();
+        let p = path(app);
+        let mut s = match std::fs::read(&p) {
+            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
+                // One bad value (e.g. an enum variant from a newer version)
+                // must not reset everything, clip folders included: keep a
+                // copy of the file and every value that still fits.
+                log::warn!("settings.json invalid: {e}; keeping the values that still parse");
+                let _ = std::fs::copy(&p, p.with_file_name("settings.bak.json"));
+                Settings::salvage(&b)
+            }),
+            Err(_) => Settings::default(),
+        };
         s.fill_defaults(app);
         s
+    }
+
+    /// Defaults overlaid with each top-level value (and each engine, hotkey
+    /// and overlay field) from `bytes` that still deserializes.
+    fn salvage(bytes: &[u8]) -> Settings {
+        use serde_json::Value;
+        fn slot<'a>(m: &'a mut Value, path: &[&str]) -> &'a mut Value {
+            path.iter().fold(m, |m, k| &mut m[*k])
+        }
+        /// Sets one value; puts the old one back if the result doesn't parse.
+        fn try_set(merged: &mut Value, path: &[&str], v: Value) {
+            let old = std::mem::replace(slot(merged, path), v);
+            if serde_json::from_value::<Settings>(merged.clone()).is_err() {
+                *slot(merged, path) = old;
+            }
+        }
+        let Ok(Value::Object(file)) = serde_json::from_slice::<Value>(bytes) else { return Settings::default() };
+        let Ok(mut merged) = serde_json::to_value(Settings::default()) else { return Settings::default() };
+        for (key, value) in file {
+            match value {
+                Value::Object(fields) if merged.get(&key).is_some_and(Value::is_object) => {
+                    for (k, v) in fields {
+                        try_set(&mut merged, &[key.as_str(), k.as_str()], v);
+                    }
+                }
+                v => try_set(&mut merged, &[key.as_str()], v),
+            }
+        }
+        serde_json::from_value(merged).unwrap_or_default()
+    }
+
+    /// Settings coming from the UI: empty folders fall back to the defaults,
+    /// lengths stay within what the UI offers.
+    pub fn validate(&mut self, app: &AppHandle) {
+        self.fill_defaults(app);
+        let max = if self.engine.disk_buffer { 3600 } else { 1200 };
+        self.replay_seconds = self.replay_seconds.clamp(60, max);
+        self.short_seconds = self.short_seconds.clamp(10, 60);
     }
 
     fn fill_defaults(&mut self, app: &AppHandle) {

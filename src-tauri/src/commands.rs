@@ -5,14 +5,22 @@ use crate::settings::Settings;
 use crate::state::AppState;
 use crate::updates::UpdateInfo;
 use geniusclip_engine::{media, AudioDevice, EngineStatus, MonitorEvent, MonitorInfo};
+use parking_lot::Mutex;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 type CmdResult<T> = Result<T, String>;
 
 fn err(e: impl std::fmt::Display) -> String {
     format!("{e:#}")
+}
+
+/// Runs blocking work (COM, D3D, FFmpeg, the engine lock) on a worker thread:
+/// Tauri runs synchronous commands on the UI thread.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(err)
 }
 
 #[derive(Serialize)]
@@ -39,26 +47,32 @@ fn ram_total_mb() -> u64 {
 }
 
 #[tauri::command]
-pub fn get_snapshot(app: AppHandle, st: State<'_, AppState>) -> Snapshot {
-    let settings = st.settings.read().clone();
-    Snapshot {
-        lang: settings.lang().into(),
-        ram_total_mb: ram_total_mb(),
-        has_battery: crate::power::has_battery(),
-        settings,
-        status: st.engine.status(),
-        monitors: geniusclip_engine::list_monitors().unwrap_or_default(),
-        audio_outputs: geniusclip_engine::list_audio_devices(false).unwrap_or_default(),
-        audio_inputs: geniusclip_engine::list_audio_devices(true).unwrap_or_default(),
-        version: app.package_info().version.to_string(),
-        hotkey_errors: st.hotkey_errors.lock().clone(),
-        update: st.update.lock().clone(),
-    }
+pub async fn get_snapshot(app: AppHandle) -> CmdResult<Snapshot> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        let settings = st.settings.read().clone();
+        let snapshot = Snapshot {
+            lang: settings.lang().into(),
+            ram_total_mb: ram_total_mb(),
+            has_battery: crate::power::has_battery(),
+            settings,
+            status: st.engine.status(),
+            monitors: geniusclip_engine::list_monitors().unwrap_or_default(),
+            audio_outputs: geniusclip_engine::list_audio_devices(false).unwrap_or_default(),
+            audio_inputs: geniusclip_engine::list_audio_devices(true).unwrap_or_default(),
+            version: app.package_info().version.to_string(),
+            hotkey_errors: st.hotkey_errors.lock().clone(),
+            update: st.update.lock().clone(),
+        };
+        snapshot
+    })
+    .await
 }
 
+/// Async: the engine lock is held while the pipeline restarts.
 #[tauri::command]
-pub fn get_status(st: State<'_, AppState>) -> EngineStatus {
-    st.engine.status()
+pub async fn get_status(app: AppHandle) -> CmdResult<EngineStatus> {
+    blocking(move || app.state::<AppState>().engine.status()).await
 }
 
 #[derive(Serialize)]
@@ -72,7 +86,11 @@ pub struct Estimate {
 
 /// Expected output size, bitrate and replay buffer memory for a config.
 #[tauri::command]
-pub fn estimate(settings: Settings) -> Estimate {
+pub async fn estimate(settings: Settings) -> CmdResult<Estimate> {
+    blocking(move || estimate_for(&settings)).await
+}
+
+fn estimate_for(settings: &Settings) -> Estimate {
     let mons = geniusclip_engine::list_monitors().unwrap_or_default();
     let m = settings
         .engine
@@ -94,50 +112,71 @@ pub fn estimate(settings: Settings) -> Estimate {
 }
 
 #[tauri::command]
-pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settings) -> CmdResult<Settings> {
+pub async fn update_settings(app: AppHandle, settings: Settings) -> CmdResult<Settings> {
+    blocking(move || apply_settings(&app, settings)).await?
+}
+
+/// One settings update at a time, so each compares against the previous one.
+static UPDATE: Mutex<()> = Mutex::new(());
+
+fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
+    let _one_at_a_time = UPDATE.lock();
+    let st = app.state::<AppState>();
     let old = st.settings.read().clone();
     let mut new = settings;
-    new.replay_seconds = new.replay_seconds.clamp(10, 3600);
+    new.validate(app);
     for d in [&new.clips_dir, &new.screenshots_dir] {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
     *st.settings.write() = new.clone();
-    new.save(&app).map_err(err)?;
+    new.save(app).map_err(err)?;
 
     if old.engine != new.engine || old.replay_seconds != new.replay_seconds {
-        let (cfg, secs) = (new.engine.clone(), new.replay_seconds);
         let h = app.clone();
-        // Pipeline restarts take a moment; keep the UI responsive.
-        std::thread::spawn(move || {
-            let _ = h.state::<AppState>().engine.configure(cfg, secs);
-        });
+        // Pipeline restarts take a moment; answer the UI right away. The
+        // latest settings are applied, one change at a time.
+        std::thread::spawn(move || crate::actions::configure_engine(&h));
     }
     if old.replay_enabled != new.replay_enabled {
-        crate::actions::set_replay(&app, new.replay_enabled);
+        crate::actions::set_replay(app, new.replay_enabled);
     }
     if old.hotkeys != new.hotkeys {
-        crate::hotkeys::register_all(&app);
+        crate::hotkeys::register_all(app);
     }
     if old.pause_on_battery != new.pause_on_battery {
         crate::power::refresh();
     }
     if old.autostart != new.autostart {
-        crate::sync_autostart(&app, new.autostart);
+        crate::sync_autostart(app, new.autostart);
     }
     if old.clips_dir != new.clips_dir || old.screenshots_dir != new.screenshots_dir {
-        crate::allow_media_dirs(&app);
+        crate::allow_media_dirs(app);
     }
     if old.accent != new.accent {
-        crate::brand::apply(&app);
+        crate::brand::apply(app);
     }
-    crate::tray::refresh(&app);
-    crate::emit_settings(&app);
+    crate::tray::refresh(app);
+    crate::emit_settings(app);
     Ok(new)
 }
 
+/// Async: turning replay on starts the capture pipeline (D3D, encoder, WASAPI).
 #[tauri::command]
-pub fn set_replay_enabled(app: AppHandle, on: bool) {
-    crate::actions::set_replay(&app, on);
+pub async fn set_replay_enabled(app: AppHandle, on: bool) -> CmdResult<()> {
+    blocking(move || crate::actions::set_replay(&app, on)).await
+}
+
+/// Releases all global hotkeys while the UI records a combo (so pressing one
+/// that is already in use records it instead of triggering it), or registers
+/// them again. They come back on their own after a minute. Returns the
+/// actions whose hotkeys could not be registered, like `hotkey_errors`.
+#[tauri::command]
+pub async fn set_hotkeys_suspended(app: AppHandle, suspended: bool) -> CmdResult<Vec<String>> {
+    blocking(move || {
+        crate::hotkeys::set_suspended(&app, suspended);
+        app.state::<AppState>().hotkey_errors.lock().clone()
+    })
+    .await
 }
 
 #[tauri::command]
@@ -173,20 +212,34 @@ pub async fn list_media(app: AppHandle) -> Vec<Entry> {
 
 #[tauri::command]
 pub async fn thumbnail(app: AppHandle, path: PathBuf) -> CmdResult<PathBuf> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().library.thumbnail(&path).map_err(err))
-        .await
-        .map_err(err)?
+    blocking(move || {
+        let st = app.state::<AppState>();
+        check_media_path(&st, &path)?;
+        st.library.thumbnail(&path).map_err(err)
+    })
+    .await?
 }
 
-/// Only files inside the configured media folders may be modified from the UI.
+/// Paths from the webviews: only existing media files inside the configured
+/// media folders. Not the folders themselves (deleting one would trash every
+/// clip), not other files (opening an .exe runs it), and not URLs or other
+/// strings FFmpeg would read as a protocol.
 fn check_media_path(st: &AppState, p: &Path) -> CmdResult<()> {
+    let denied = || "path is outside the media folders".to_string();
+    // Absolute means a drive or UNC path, never "proto:…".
+    if !p.is_absolute() || !crate::library::is_media(p) {
+        return Err(denied());
+    }
+    let file = std::fs::canonicalize(p).map_err(|_| denied())?;
+    if !file.is_file() {
+        return Err(denied());
+    }
     let s = st.settings.read();
-    let canon = |x: &Path| std::fs::canonicalize(x).unwrap_or_else(|_| x.to_path_buf());
-    let p = canon(p);
-    if [&s.clips_dir, &s.screenshots_dir].iter().any(|d| p.starts_with(canon(d))) {
+    let inside = [&s.clips_dir, &s.screenshots_dir].iter().any(|d| std::fs::canonicalize(d).is_ok_and(|d| file.starts_with(d)));
+    if inside {
         Ok(())
     } else {
-        Err("path is outside the media folders".into())
+        Err(denied())
     }
 }
 
@@ -207,7 +260,10 @@ pub fn rename_media(st: State<'_, AppState>, path: PathBuf, name: String) -> Cmd
     if to == path {
         return Ok(to);
     }
-    if to.exists() {
+    // Windows paths ignore case: for a case-only rename ("clip" to "Clip")
+    // the new name finds the file itself, which is not a conflict.
+    let same_file = || std::fs::canonicalize(&to).ok() == std::fs::canonicalize(&path).ok();
+    if to.exists() && !same_file() {
         return Err("a file with this name already exists".into());
     }
     std::fs::rename(&path, &to).map_err(err)?;
@@ -230,6 +286,7 @@ pub struct ClipAudio {
 #[tauri::command]
 pub async fn clip_audio(app: AppHandle, path: PathBuf) -> CmdResult<ClipAudio> {
     tauri::async_runtime::spawn_blocking(move || {
+        check_media_path(&app.state::<AppState>(), &path)?;
         let titles = geniusclip_engine::remix::audio_tracks(&path).map_err(err)?;
         let mix = geniusclip_engine::remix::is_mix_layout(&titles);
         if titles.is_empty() {
@@ -284,17 +341,23 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
 }
 
 #[tauri::command]
-pub fn media_info(path: PathBuf) -> CmdResult<media::MediaInfo> {
-    media::probe(&path).map_err(err)
+pub async fn media_info(app: AppHandle, path: PathBuf) -> CmdResult<media::MediaInfo> {
+    blocking(move || {
+        check_media_path(&app.state::<AppState>(), &path)?;
+        media::probe(&path).map_err(err)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub fn open_path(path: PathBuf) -> CmdResult<()> {
+pub fn open_path(st: State<'_, AppState>, path: PathBuf) -> CmdResult<()> {
+    check_media_path(&st, &path)?;
     tauri_plugin_opener::open_path(&path, None::<&str>).map_err(err)
 }
 
 #[tauri::command]
-pub fn reveal_path(path: PathBuf) -> CmdResult<()> {
+pub fn reveal_path(st: State<'_, AppState>, path: PathBuf) -> CmdResult<()> {
+    check_media_path(&st, &path)?;
     tauri_plugin_opener::reveal_item_in_dir(path).map_err(err)
 }
 
@@ -335,11 +398,11 @@ pub fn copy_media(st: State<'_, AppState>, paths: Vec<PathBuf>) -> CmdResult<()>
     crate::share::copy_files(owner, &paths).map_err(err)
 }
 
-/// Shows a sample toast so the user can check the overlay position.
 /// Hides the in-game menu (after its closing animation) and gives the game focus back.
+// Async: hide() may wait for an open() in progress, which needs the UI thread.
 #[tauri::command]
-pub fn menu_close(app: AppHandle) {
-    crate::menu::hide(&app, true);
+pub async fn menu_close(app: AppHandle) {
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::menu::hide(&app, true)).await;
 }
 
 /// Screenshot from the in-game menu: the page has made itself invisible, so
@@ -356,9 +419,16 @@ pub async fn menu_screenshot(app: AppHandle) {
     }
 }
 
+/// The menu page has loaded (see `menu::ready`).
 #[tauri::command]
-pub fn system_stats() -> crate::stats::Stats {
-    crate::stats::snapshot()
+pub fn menu_ready() {
+    crate::menu::ready();
+}
+
+/// Async: GPU performance counters can take a moment.
+#[tauri::command]
+pub async fn system_stats() -> crate::stats::Stats {
+    blocking(crate::stats::snapshot).await.unwrap_or_default()
 }
 
 static PENDING_OPEN: parking_lot::Mutex<Option<PathBuf>> = parking_lot::Mutex::new(None);
@@ -379,26 +449,51 @@ pub fn take_pending_open() -> Option<PathBuf> {
     PENDING_OPEN.lock().take()
 }
 
+/// The latest mic_test request. Requests run on worker threads, so each one
+/// applies this (under MIC_TEST) rather than its own argument: a quick on
+/// then off can't end with the microphone left playing.
+static MIC_WANTED: AtomicBool = AtomicBool::new(false);
+static MIC_TEST: Mutex<()> = Mutex::new(());
+
+/// Stops the microphone check, including one that is still starting.
+pub fn stop_mic_test(app: &AppHandle) {
+    MIC_WANTED.store(false, Ordering::SeqCst);
+    app.state::<AppState>().engine.stop_mic_monitor();
+}
+
 /// Microphone check: plays the mic back with the current noise suppression.
 /// Emits `mic://level` [before, after] and `mic://stopped` (error or null).
 #[tauri::command]
-pub fn mic_test(app: AppHandle, st: State<'_, AppState>, on: bool) -> CmdResult<()> {
-    if !on {
-        st.engine.stop_mic_monitor();
-        return Ok(());
-    }
-    st.engine
-        .start_mic_monitor(move |e| match e {
-            MonitorEvent::Level { before, after } => {
-                let _ = app.emit("mic://level", (before, after));
-            }
-            MonitorEvent::Stopped { error } => {
-                let _ = app.emit("mic://stopped", error);
-            }
-        })
-        .map_err(err)
+pub async fn mic_test(app: AppHandle, on: bool) -> CmdResult<()> {
+    MIC_WANTED.store(on, Ordering::SeqCst);
+    blocking(move || {
+        let _one_at_a_time = MIC_TEST.lock();
+        let st = app.state::<AppState>();
+        if !MIC_WANTED.load(Ordering::SeqCst) {
+            st.engine.stop_mic_monitor();
+            return Ok(());
+        }
+        let h = app.clone();
+        st.engine
+            .start_mic_monitor(move |e| match e {
+                MonitorEvent::Level { before, after } => {
+                    let _ = h.emit("mic://level", (before, after));
+                }
+                MonitorEvent::Stopped { error } => {
+                    let _ = h.emit("mic://stopped", error);
+                }
+            })
+            .map_err(err)?;
+        // Stopped (or the window closed) while this was starting.
+        if !MIC_WANTED.load(Ordering::SeqCst) {
+            st.engine.stop_mic_monitor();
+        }
+        Ok(())
+    })
+    .await?
 }
 
+/// Shows a sample toast so the user can check the overlay position.
 #[tauri::command]
 pub fn preview_toast(app: AppHandle) {
     let game = crate::actions::current_game(&app).name;

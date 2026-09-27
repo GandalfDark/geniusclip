@@ -3,11 +3,12 @@
 
 use crate::settings::Settings;
 use geniusclip_engine::media;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -51,6 +52,39 @@ pub struct Library {
     records: Mutex<HashMap<PathBuf, Record>>,
     /// Metadata for files that are being written right now.
     pending: Mutex<HashMap<PathBuf, (Kind, String)>>,
+    /// One library.json writer at a time.
+    persisting: Mutex<()>,
+    thumb_jobs: Limiter,
+}
+
+/// At most this many thumbnails are decoded at once; the gallery asks for a
+/// whole screen of them together.
+const THUMB_JOBS: usize = 3;
+
+/// A counting semaphore (std has none).
+struct Limiter {
+    busy: Mutex<usize>,
+    freed: Condvar,
+}
+
+struct Slot<'a>(&'a Limiter);
+
+impl Limiter {
+    fn acquire(&self, max: usize) -> Slot<'_> {
+        let mut busy = self.busy.lock();
+        while *busy >= max {
+            self.freed.wait(&mut busy);
+        }
+        *busy += 1;
+        Slot(self)
+    }
+}
+
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        *self.0.busy.lock() -= 1;
+        self.0.freed.notify_one();
+    }
 }
 
 fn file_stamp(p: &Path) -> Option<(u64, i64)> {
@@ -65,6 +99,10 @@ fn is_video(p: &Path) -> bool {
 fn is_image(p: &Path) -> bool {
     p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png") || e.eq_ignore_ascii_case("jpg"))
 }
+/// A file type the library lists.
+pub fn is_media(p: &Path) -> bool {
+    is_video(p) || is_image(p)
+}
 
 impl Library {
     pub fn new(data_dir: &Path, cache_dir: &Path) -> Library {
@@ -74,16 +112,32 @@ impl Library {
             .and_then(|b| serde_json::from_slice::<Vec<(PathBuf, Record)>>(&b).ok())
             .map(|v| v.into_iter().collect())
             .unwrap_or_default();
-        Library { index_path, thumbs_dir: cache_dir.join("thumbs"), records: Mutex::new(records), pending: Mutex::new(HashMap::new()) }
+        Library {
+            index_path,
+            thumbs_dir: cache_dir.join("thumbs"),
+            records: Mutex::new(records),
+            pending: Mutex::new(HashMap::new()),
+            persisting: Mutex::new(()),
+            thumb_jobs: Limiter { busy: Mutex::new(0), freed: Condvar::new() },
+        }
     }
 
     fn persist(&self) {
+        // Serialized, with the records read inside, so the newest state is
+        // written last; through a temp file, so a crash or a concurrent write
+        // never leaves a torn index (which would load as empty).
+        let _one_at_a_time = self.persisting.lock();
         let v: Vec<(PathBuf, Record)> = self.records.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         if let Some(d) = self.index_path.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        if let Ok(b) = serde_json::to_vec(&v) {
-            let _ = std::fs::write(&self.index_path, b);
+        let tmp = self.index_path.with_extension("json.tmp");
+        let res = serde_json::to_vec(&v)
+            .map_err(std::io::Error::from)
+            .and_then(|b| std::fs::write(&tmp, b))
+            .and_then(|_| std::fs::rename(&tmp, &self.index_path));
+        if let Err(e) = res {
+            log::warn!("library.json: {e}");
         }
     }
 
@@ -120,31 +174,51 @@ impl Library {
         files.sort();
         files.dedup_by(|a, b| a.0 == b.0);
         let mut out = Vec::new();
-        let mut changed = false;
+        // New or changed files, with what the index knew about them.
+        let mut stale = Vec::new();
         {
-            let mut recs = self.records.lock();
+            let recs = self.records.lock();
             for (path, folder_game) in files {
                 if path.to_string_lossy().ends_with(".part") {
                     continue;
                 }
                 let Some((size, modified)) = file_stamp(&path) else { continue };
-                let rec = match recs.get(&path) {
-                    Some(r) if r.size == size && r.modified == modified => r.clone(),
+                match recs.get(&path) {
+                    Some(r) if r.size == size && r.modified == modified => out.push(entry(&path, r)),
                     old => {
                         let kind = old.map(|r| r.kind).unwrap_or_else(|| guess_kind(&path));
                         let game = old.map(|r| r.game.clone()).filter(|g| !g.is_empty()).unwrap_or(folder_game);
-                        let Some(r) = self.make_record(&path, kind, &game) else { continue };
-                        recs.insert(path.clone(), r.clone());
-                        changed = true;
-                        r
+                        stale.push((path, kind, game));
+                    }
+                }
+            }
+        }
+        // Probing opens every new video with FFmpeg: not under the lock,
+        // which saving a clip (add) needs too.
+        let fresh: Vec<(PathBuf, Record)> =
+            stale.into_iter().filter_map(|(p, kind, game)| self.make_record(&p, kind, &game).map(|r| (p, r))).collect();
+        let known: Vec<PathBuf> = self.records.lock().keys().cloned().collect();
+        let gone: Vec<PathBuf> = known.into_iter().filter(|p| !p.exists()).collect();
+        let mut changed = !fresh.is_empty();
+        {
+            let mut recs = self.records.lock();
+            for (path, rec) in fresh {
+                // add() may have indexed the same file meanwhile, with better metadata.
+                let rec = match recs.get(&path) {
+                    Some(r) if r.size == rec.size && r.modified == rec.modified => r.clone(),
+                    _ => {
+                        recs.insert(path.clone(), rec.clone());
+                        rec
                     }
                 };
                 out.push(entry(&path, &rec));
             }
-            // Forget files that disappeared.
-            let before = recs.len();
-            recs.retain(|p, _| p.exists());
-            changed |= recs.len() != before;
+            // Forget files that disappeared (unless written again meanwhile).
+            for p in gone {
+                if !p.exists() && recs.remove(&p).is_some() {
+                    changed = true;
+                }
+            }
         }
         if changed {
             self.persist();
@@ -172,11 +246,29 @@ impl Library {
         let (size, modified) = file_stamp(path).ok_or_else(|| anyhow::anyhow!("file not found"))?;
         let mut h = std::collections::hash_map::DefaultHasher::new();
         (path, size, modified).hash(&mut h);
-        let out = self.thumbs_dir.join(format!("{:016x}.jpg", h.finish()));
-        if !out.exists() {
-            std::fs::create_dir_all(&self.thumbs_dir)?;
-            let at = if is_video(path) { 1.0 } else { 0.0 };
-            media::thumbnail(path, &out, 480, at)?;
+        let name = format!("{:016x}", h.finish());
+        let out = self.thumbs_dir.join(format!("{name}.jpg"));
+        if out.exists() {
+            return Ok(out);
+        }
+        let _slot = self.thumb_jobs.acquire(THUMB_JOBS);
+        // Made by another request while this one waited.
+        if out.exists() {
+            return Ok(out);
+        }
+        std::fs::create_dir_all(&self.thumbs_dir)?;
+        let at = if is_video(path) { 1.0 } else { 0.0 };
+        // Written aside and moved into place: a half-written JPEG must never
+        // be served (or taken as done by the check above).
+        static TMP: AtomicU64 = AtomicU64::new(0);
+        let tmp = self.thumbs_dir.join(format!("{name}.{}.tmp.jpg", TMP.fetch_add(1, Ordering::Relaxed)));
+        let res = media::thumbnail(path, &tmp, 480, at).and_then(|_| Ok(std::fs::rename(&tmp, &out)?));
+        if let Err(e) = res {
+            let _ = std::fs::remove_file(&tmp);
+            // Another request may have finished the same thumbnail first.
+            if !out.exists() {
+                return Err(e);
+            }
         }
         Ok(out)
     }

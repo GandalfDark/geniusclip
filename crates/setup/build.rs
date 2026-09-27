@@ -32,4 +32,11 @@ fn main() {
     let mut parts = version.split(['.', '-']).map(|p| p.parse::<u16>().unwrap_or(0));
     let macros = ["GC_VER_MAJOR", "GC_VER_MINOR", "GC_VER_PATCH"].map(|name| format!("{name}={}", parts.next().unwrap_or(0)));
     embed_resource::compile("setup.rc", macros).manifest_required().unwrap();
+
+    // The setup usually runs from Downloads: load the DLLs it links against
+    // from System32 only (LOAD_LIBRARY_SEARCH_SYSTEM32), so a DLL planted
+    // next to it is never picked up.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+    }
 }

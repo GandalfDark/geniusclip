@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
+use windows::Win32::Foundation::{COLORREF, D2DERR_RECREATE_TARGET, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Direct2D::Common::*;
 use windows::Win32::Graphics::Direct2D::*;
 use windows::Win32::Graphics::DirectWrite::*;
@@ -236,8 +236,12 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
                     active = Some((spec, Instant::now()));
                     SetTimer(Some(hwnd), 1, 15, None);
                     let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                    if let (Some(r), Some((spec, t0))) = (renderer.as_mut(), active.as_ref()) {
-                        if let Err(e) = r.frame(hwnd, spec, t0.elapsed().as_millis() as f32) {
+                    if renderer.is_none() {
+                        // Creation failed before; the GPU may be back.
+                        renderer = Renderer::new().ok();
+                    }
+                    if let Some((spec, t0)) = active.as_ref() {
+                        if let Err(e) = draw(&mut renderer, hwnd, spec, t0.elapsed().as_millis() as f32) {
                             log::warn!("overlay draw: {e}");
                         }
                     }
@@ -245,9 +249,9 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
                 }
             }
             WM_TIMER => {
-                let done = match (renderer.as_mut(), active.as_ref()) {
-                    (Some(r), Some((spec, t0))) if t0.elapsed().as_millis() < TOTAL_MS => {
-                        let _ = r.frame(hwnd, spec, t0.elapsed().as_millis() as f32);
+                let done = match active.as_ref() {
+                    Some((spec, t0)) if renderer.is_some() && t0.elapsed().as_millis() < TOTAL_MS => {
+                        let _ = draw(&mut renderer, hwnd, spec, t0.elapsed().as_millis() as f32);
                         false
                     }
                     _ => true,
@@ -264,6 +268,20 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
             }
         }
     }
+}
+
+/// Draws a frame. After a GPU reset or driver update the render target is
+/// lost for good (D2DERR_RECREATE_TARGET): the renderer is rebuilt, and the
+/// next frame draws with the new one.
+unsafe fn draw(renderer: &mut Option<Renderer>, hwnd: HWND, spec: &Spec, t_ms: f32) -> windows::core::Result<()> {
+    let Some(r) = renderer.as_mut() else { return Ok(()) };
+    let res = r.frame(hwnd, spec, t_ms);
+    if res.as_ref().is_err_and(|e| e.code() == D2DERR_RECREATE_TARGET) {
+        log::info!("overlay: render target lost; recreating");
+        *renderer = Renderer::new().map_err(|e| log::error!("overlay renderer: {e}")).ok();
+        return Ok(());
+    }
+    res
 }
 
 fn ease_out(x: f32) -> f32 {
@@ -422,5 +440,18 @@ impl Renderer {
             ULW_ALPHA,
         )?;
         Ok(())
+    }
+}
+
+impl Drop for Renderer {
+    // Renderers are rebuilt after a GPU reset; free the GDI objects.
+    fn drop(&mut self) {
+        unsafe {
+            // The DC first: a bitmap still selected into it can't be deleted.
+            let _ = DeleteDC(self.mem_dc);
+            if !self.dib.is_invalid() {
+                let _ = DeleteObject(self.dib.into());
+            }
+        }
     }
 }

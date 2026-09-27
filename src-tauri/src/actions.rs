@@ -6,6 +6,7 @@ use crate::overlay::{self, Toast};
 use crate::settings::Settings;
 use crate::state::AppState;
 use geniusclip_engine::game::{self, AppInfo};
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
@@ -39,17 +40,27 @@ pub fn current_game(app: &AppHandle) -> AppInfo {
     AppInfo { name: t(lang, "desktop").into(), exe: String::new(), is_desktop: true }
 }
 
+/// Names handed out recently. Files are written in the background, so a
+/// second save within the same second would not see the first one on disk
+/// yet and pick the same name.
+static RESERVED: Mutex<Vec<(PathBuf, Instant)>> = Mutex::new(Vec::new());
+
 fn target_path(settings: &Settings, root: &Path, game: &AppInfo, suffix: &str, ext: &str) -> PathBuf {
     let name = game::sanitize(&game.name);
     let dir = if settings.sort_by_game { root.join(&name) } else { root.to_path_buf() };
     let stamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S");
     let base = format!("{name} {stamp}{suffix}");
+    let mut reserved = RESERVED.lock();
+    // Names are stamped to the second, so an old reservation can't collide.
+    reserved.retain(|(_, at)| at.elapsed() < Duration::from_secs(600));
+    let taken = |p: &PathBuf| p.exists() || reserved.iter().any(|(r, _)| r == p);
     let mut p = dir.join(format!("{base}.{ext}"));
     let mut n = 2;
-    while p.exists() {
+    while taken(&p) {
         p = dir.join(format!("{base} ({n}).{ext}"));
         n += 1;
     }
+    reserved.push((p.clone(), Instant::now()));
     p
 }
 
@@ -101,6 +112,32 @@ pub fn toggle_replay(app: &AppHandle) {
     overlay::toast(app, Toast::simple(if on { "replay-on" } else { "replay-off" }));
 }
 
+/// Serializes changes to the engine's configuration. Each change reads the
+/// settings once it holds this, so a slow pipeline restart can't finish
+/// after a newer change and put the older state back.
+static ENGINE_APPLY: Mutex<()> = Mutex::new(());
+
+/// Applies the current capture settings and buffer length to the engine.
+pub fn configure_engine(app: &AppHandle) {
+    let _one_at_a_time = ENGINE_APPLY.lock();
+    let st = app.state::<AppState>();
+    let (cfg, secs) = {
+        let s = st.settings.read();
+        (s.engine.clone(), s.replay_seconds)
+    };
+    if let Err(e) = st.engine.configure(cfg, secs) {
+        log::error!("configure: {e:#}");
+    }
+}
+
+/// Applies the current replay switch to the engine.
+pub fn apply_replay(app: &AppHandle) -> anyhow::Result<()> {
+    let _one_at_a_time = ENGINE_APPLY.lock();
+    let st = app.state::<AppState>();
+    let on = st.settings.read().replay_enabled;
+    st.engine.set_replay_enabled(on)
+}
+
 pub fn set_replay(app: &AppHandle, on: bool) {
     let st = app.state::<AppState>();
     {
@@ -108,7 +145,7 @@ pub fn set_replay(app: &AppHandle, on: bool) {
         s.replay_enabled = on;
         let _ = s.save(app);
     }
-    if let Err(e) = st.engine.set_replay_enabled(on) {
+    if let Err(e) = apply_replay(app) {
         fail(app, e);
     }
     crate::tray::refresh(app);
@@ -150,6 +187,11 @@ pub fn toggle_recording(app: &AppHandle) {
 
 /// Called every second: remembers the last game in focus.
 pub fn track_foreground(app: &AppHandle) {
+    // Only clips from the replay buffer use it; skip the monitor and window
+    // queries while there is no buffer to name.
+    if !app.state::<AppState>().settings.read().replay_enabled || crate::power::is_paused() {
+        return;
+    }
     if let Some(a) = fullscreen_on_capture_monitor(app).or_else(|| game::foreground_app().filter(|a| !a.is_desktop)) {
         *app.state::<AppState>().last_game.lock() = Some((a, Instant::now()));
     }

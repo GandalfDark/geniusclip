@@ -47,7 +47,12 @@ pub async fn install(app: &AppHandle) -> anyhow::Result<()> {
         )
         .await?;
     app.state::<AppState>().engine.shutdown();
-    update.install(bytes)?;
+    if let Err(e) = update.install(bytes) {
+        // Capture is already shut down and can't be started again in this
+        // process: restart the current version rather than keep running
+        // without recording anything.
+        log::error!("update install failed: {e:#}");
+    }
     app.restart();
 }
 
