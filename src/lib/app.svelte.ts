@@ -112,6 +112,13 @@ class AppStore {
       }
     });
     this.refreshMedia();
+    // Files deleted or added in Explorer show up when the window is back.
+    let listedAt = Date.now();
+    window.addEventListener('focus', () => {
+      if (Date.now() - listedAt < 5000) return;
+      listedAt = Date.now();
+      this.refreshMedia();
+    });
   }
 
   /** Resolves once the newest listing is in: responses can arrive out of

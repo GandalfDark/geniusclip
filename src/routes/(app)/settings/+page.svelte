@@ -58,13 +58,27 @@
     if (id) requestAnimationFrame(() => jump(id));
   });
 
+  // While a click scrolls to its section, the sections passed on the way
+  // must not light up one after another: the clicked one stays lit.
+  let jumping = false;
+  let release: ReturnType<typeof setTimeout> | undefined;
   function jump(id: string) {
     active = id;
     const node = document.getElementById(id);
-    if (node && scroller) scroller.scrollTo({ top: node.offsetTop - scroller.offsetTop, behavior: 'smooth' });
+    if (!node || !scroller) return;
+    jumping = true;
+    clearTimeout(release);
+    // `scrollend` ends it; this covers a scroll that had nowhere to go.
+    release = setTimeout(() => (jumping = false), 1500);
+    scroller.scrollTo({ top: node.offsetTop - scroller.offsetTop, behavior: 'smooth' });
+  }
+  function onscrollend() {
+    jumping = false;
+    clearTimeout(release);
   }
 
   function onscroll() {
+    if (jumping) return;
     for (const sec of sections) {
       const node = document.getElementById(sec.id);
       if (node && node.offsetTop - scroller.offsetTop - scroller.scrollTop < 120) active = sec.id;
@@ -156,7 +170,7 @@
     <div class="saved mono" class:show={showSaved}>{#key app.savedPulse}<Icon name="check" size={14} stroke={2} />{/key}{app.t('set.saved')}</div>
   </aside>
 
-  <div class="scroll" bind:this={scroller} {onscroll}>
+  <div class="scroll" bind:this={scroller} {onscroll} {onscrollend}>
     <section id="capture" in:rise|global={{ delay: cascade(0) }}>
       <h2>{app.t('set.capture')}</h2>
       <div class="panel body">
