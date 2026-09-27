@@ -67,20 +67,26 @@
     return 'en';
   }
 
+  // Files change with every deploy while GitHub Pages lets browsers cache
+  // them for 10 minutes: deploy-site.sh stamps the build into <html> and
+  // every URL carries it, so a new page never meets old files.
+  const BUILD = document.documentElement.dataset.build || 'dev';
+  const v = (url) => `${url}?v=${BUILD}`;
+
   // ------------------------------------------------------------ screenshots
 
   // One set per interface language; English if a file is missing.
   function showShots(l) {
     for (const img of $$('img[data-shot]')) {
-      const want = `img/screens/${l}-${img.dataset.shot}.webp`;
+      const want = v(`img/screens/${l}-${img.dataset.shot}.webp`);
       if (img.getAttribute('src') === want) continue;
       img.onerror = () => {
         img.onerror = null;
-        img.src = `img/screens/en-${img.dataset.shot}.webp`;
+        img.src = v(`img/screens/en-${img.dataset.shot}.webp`);
       };
       img.src = want;
     }
-    for (const a of $$('[data-shot-link]')) a.href = `img/screens/${l}-${a.dataset.shotLink}.webp`;
+    for (const a of $$('[data-shot-link]')) a.href = v(`img/screens/${l}-${a.dataset.shotLink}.webp`);
   }
 
   // ------------------------------------------------------------------ text
@@ -113,7 +119,7 @@
 
   async function setLang(l) {
     try {
-      const res = await fetch(`i18n/${l}.json`);
+      const res = await fetch(v(`i18n/${l}.json`));
       if (!res.ok) throw new Error(res.status);
       dict = await res.json();
       lang = l;
