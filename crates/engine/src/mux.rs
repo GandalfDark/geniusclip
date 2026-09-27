@@ -84,6 +84,20 @@ impl Muxer {
 
     /// Writes a packet, shifting its timestamps so `origin_us` becomes t=0.
     pub fn write(&mut self, stream: usize, p: &Packet, origin_us: i64) -> Result<()> {
+        self.write_dur(stream, p, origin_us, p.duration)
+    }
+
+    /// Writes the last video packet of a cut that ends at `end_us`: it lasts
+    /// until then. With variable frame rate the newest frame of a static
+    /// screen can be a few hundred ms older than the end (or, cut out of a
+    /// file, last well past it), and a track's end comes from its last
+    /// packet's duration.
+    pub fn write_last(&mut self, stream: usize, p: &Packet, origin_us: i64, end_us: i64) -> Result<()> {
+        let until_end = rescale(end_us - p.time_us, US, self.src_tb[stream]);
+        self.write_dur(stream, p, origin_us, if until_end > 0 { until_end } else { p.duration })
+    }
+
+    fn write_dur(&mut self, stream: usize, p: &Packet, origin_us: i64, duration: i64) -> Result<()> {
         unsafe {
             let tb = self.src_tb[stream];
             let off = rescale(origin_us, US, tb);
@@ -95,7 +109,7 @@ impl Muxer {
             }
             (*pkt).pts = p.pts - off;
             (*pkt).dts = p.dts - off;
-            (*pkt).duration = p.duration;
+            (*pkt).duration = duration;
             (*pkt).flags = if p.key { ff::AV_PKT_FLAG_KEY as c_int } else { 0 };
             (*pkt).stream_index = stream as c_int;
             let st = *(*self.oc).streams.add(stream);
@@ -160,8 +174,14 @@ pub fn write_clip(dst: &Path, clip: &ClipData, comment: &str) -> Result<PathBuf>
         }
     }
     order.sort_by_key(|&(t, s, i)| (t, s, i));
+    let video = clip.streams.iter().position(|s| s.kind == StreamKind::Video);
     for (_, si, pi) in order {
-        m.write(si, &clip.packets[si][pi], clip.origin_us)?;
+        let p = &clip.packets[si][pi];
+        if Some(si) == video && pi + 1 == clip.packets[si].len() {
+            m.write_last(si, p, clip.origin_us, clip.end_us)?;
+        } else {
+            m.write(si, p, clip.origin_us)?;
+        }
     }
     m.finish()
 }

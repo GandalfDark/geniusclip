@@ -8,7 +8,7 @@ use windows::core::{s, Interface, PCSTR};
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::{ID3DBlob, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP};
 use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{
     DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR,
     DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
@@ -129,6 +129,8 @@ fn blob_bytes(b: &ID3DBlob) -> &[u8] {
     unsafe { std::slice::from_raw_parts(b.GetBufferPointer() as *const u8, b.GetBufferSize()) }
 }
 
+/// The cursor is drawn straight into the desktop image (no full-frame copy
+/// per frame); the pixels it covers are kept here to take it off again.
 pub struct CursorRenderer {
     vs: ID3D11VertexShader,
     ps: ID3D11PixelShader,
@@ -139,6 +141,12 @@ pub struct CursorRenderer {
     /// Shape generation and rotation `tex` was made for.
     tex_key: (u64, Rotation),
     rtv: Option<(usize, ID3D11RenderTargetView)>,
+    /// Holds the pixels under the drawn cursor: a small texture (size and
+    /// format), grown as needed.
+    patch: Option<(ID3D11Texture2D, u32, u32, DXGI_FORMAT)>,
+    /// Where the cursor is drawn now: the target (raw pointer) and the area
+    /// saved in `patch`.
+    under: Option<(usize, D3D11_BOX)>,
 }
 
 impl CursorRenderer {
@@ -195,6 +203,8 @@ impl CursorRenderer {
                 tex: None,
                 tex_key: (u64::MAX, Rotation::None),
                 rtv: None,
+                patch: None,
+                under: None,
             })
         }
     }
@@ -230,8 +240,34 @@ impl CursorRenderer {
         Ok(())
     }
 
+    /// Whether a cursor is drawn into the image now (see `restore`).
+    pub fn drawn(&self) -> bool {
+        self.under.is_some()
+    }
+
+    /// The image the cursor was drawn into has been overwritten as a whole
+    /// (a new desktop frame): the cursor is gone and the saved pixels stale.
+    pub fn forget(&mut self) {
+        self.under = None;
+    }
+
+    /// Takes the cursor off `target` again by putting back the pixels it
+    /// covered: a clean desktop image for screenshots, or for drawing the
+    /// cursor elsewhere when only the pointer moved.
+    pub fn restore(&mut self, ctx: &ID3D11DeviceContext, target: &ID3D11Texture2D) {
+        let Some((key, bx)) = self.under.take() else { return };
+        let Some((patch, ..)) = self.patch.as_ref() else { return };
+        if key != target.as_raw() as usize {
+            return;
+        }
+        let src = D3D11_BOX { left: 0, top: 0, front: 0, right: bx.right - bx.left, bottom: bx.bottom - bx.top, back: 1 };
+        unsafe { ctx.CopySubresourceRegion(target, 0, bx.left, bx.top, 0, patch, 0, Some(&src as *const _)) };
+    }
+
     /// Alpha-blends the cursor onto `target`, a BGRA render target holding
-    /// the duplicated image, which `rotation` turns upright.
+    /// the duplicated image, which `rotation` turns upright. The pixels it
+    /// covers are saved first; a cursor drawn before must have been
+    /// restored or forgotten.
     pub fn draw(
         &mut self,
         device: &ID3D11Device,
@@ -250,6 +286,33 @@ impl CursorRenderer {
         unsafe { target.GetDesc(&mut td) };
         let (tw, th) = (td.Width, td.Height);
 
+        // `w`×`h` is the upright shape size; the uploaded texture is already turned.
+        let (x, y, w, h) = rotation.to_image(cursor.x, cursor.y, w as i32, h as i32, tw as i32, th as i32);
+        // The covered area, clipped to the image.
+        let (l, t, r, b) = (x.max(0), y.max(0), (x + w).min(tw as i32), (y + h).min(th as i32));
+        if l >= r || t >= b {
+            return Ok(());
+        }
+        let bx = D3D11_BOX { left: l as u32, top: t as u32, front: 0, right: r as u32, bottom: b as u32, back: 1 };
+        let (pw, ph) = (bx.right - bx.left, bx.bottom - bx.top);
+        if !self.patch.as_ref().is_some_and(|&(_, w, h, f)| w >= pw && h >= ph && f == td.Format) {
+            let (ow, oh) = self.patch.as_ref().map_or((0, 0), |p| (p.1, p.2));
+            let (nw, nh) = (pw.max(ow), ph.max(oh));
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: nw,
+                Height: nh,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: td.Format,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_DEFAULT,
+                ..Default::default()
+            };
+            let mut tex = None;
+            unsafe { device.CreateTexture2D(&desc, None, Some(&mut tex)).context("cursor patch texture")? };
+            self.patch = Some((tex.unwrap(), nw, nh, td.Format));
+        }
+
         let key = target.as_raw() as usize;
         if self.rtv.as_ref().map(|r| r.0) != Some(key) {
             let mut rtv = None;
@@ -257,10 +320,11 @@ impl CursorRenderer {
             self.rtv = Some((key, rtv.unwrap()));
         }
         let rtv = self.rtv.as_ref().unwrap().1.clone();
+        let patch = &self.patch.as_ref().unwrap().0;
+        unsafe { ctx.CopySubresourceRegion(patch, 0, 0, 0, 0, target, 0, Some(&bx as *const _)) };
+        self.under = Some((key, bx));
 
         let (fw, fh) = (tw as f32, th as f32);
-        // `w`×`h` is the upright shape size; the uploaded texture is already turned.
-        let (x, y, w, h) = rotation.to_image(cursor.x, cursor.y, w as i32, h as i32, tw as i32, th as i32);
         let (x0, y0) = (x as f32, y as f32);
         let (x1, y1) = (x0 + w as f32, y0 + h as f32);
         let rect = [x0 / fw * 2.0 - 1.0, 1.0 - y0 / fh * 2.0, x1 / fw * 2.0 - 1.0, 1.0 - y1 / fh * 2.0];
@@ -294,5 +358,100 @@ impl CursorRenderer {
             ctx.PSSetShaderResources(0, Some(&[None]));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_WARP;
+
+    fn read(device: &ID3D11Device, ctx: &ID3D11DeviceContext, tex: &ID3D11Texture2D) -> Vec<u8> {
+        unsafe {
+            let mut d = D3D11_TEXTURE2D_DESC::default();
+            tex.GetDesc(&mut d);
+            let sd = D3D11_TEXTURE2D_DESC { Usage: D3D11_USAGE_STAGING, BindFlags: 0, CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32, ..d };
+            let mut staging = None;
+            device.CreateTexture2D(&sd, None, Some(&mut staging)).unwrap();
+            let staging = staging.unwrap();
+            ctx.CopyResource(&staging, tex);
+            let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+            ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut m)).unwrap();
+            let row = d.Width as usize * 4;
+            let data = (0..d.Height as usize)
+                .flat_map(|y| std::slice::from_raw_parts((m.pData as *const u8).add(y * m.RowPitch as usize), row).to_vec())
+                .collect();
+            ctx.Unmap(&staging, 0);
+            data
+        }
+    }
+
+    /// The cursor is drawn into the image and taken off again exactly,
+    /// also when it moves and when it hangs over the edge (software
+    /// rendering: no GPU or display needed).
+    #[test]
+    fn draw_and_restore_leave_the_image_as_it_was() {
+        let (mut device, mut ctx) = (None, None);
+        unsafe {
+            D3D11CreateDevice(
+                None,
+                D3D_DRIVER_TYPE_WARP,
+                HMODULE::default(),
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                None,
+                D3D11_SDK_VERSION,
+                Some(&mut device),
+                None,
+                Some(&mut ctx),
+            )
+            .expect("WARP device");
+        }
+        let (device, ctx) = (device.unwrap(), ctx.unwrap());
+        let (w, h) = (64u32, 48u32);
+        let pattern: Vec<u8> = (0..w * h * 4).map(|i| (i * 7 % 251) as u8).collect();
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: w,
+            Height: h,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0) as u32,
+            ..Default::default()
+        };
+        let init = D3D11_SUBRESOURCE_DATA { pSysMem: pattern.as_ptr() as *const c_void, SysMemPitch: w * 4, SysMemSlicePitch: 0 };
+        let mut target = None;
+        unsafe { device.CreateTexture2D(&desc, Some(&init), Some(&mut target)).unwrap() };
+        let target = target.unwrap();
+
+        let mut r = CursorRenderer::new(&device).expect("renderer");
+        let shape = CursorShape { width: 8, height: 8, pixels: vec![255; 8 * 8 * 4] };
+        let mut cursor = CursorState { visible: true, x: 10, y: 5, shape: Some(shape), shape_gen: 1 };
+        r.draw(&device, &ctx, &target, &cursor, Rotation::None).unwrap();
+        assert!(r.drawn());
+        let img = read(&device, &ctx, &target);
+        let px = |img: &[u8], x: u32, y: u32| img[((y * w + x) * 4) as usize..][..4].to_vec();
+        assert_eq!(px(&img, 12, 7), vec![255; 4], "cursor drawn");
+        assert_eq!(px(&img, 30, 30), px(&pattern, 30, 30), "rest untouched");
+
+        // Only the pointer moves: off the old spot, onto the new one (half
+        // outside the image).
+        r.restore(&ctx, &target);
+        cursor.x = 60;
+        cursor.y = 44;
+        r.draw(&device, &ctx, &target, &cursor, Rotation::None).unwrap();
+        let img = read(&device, &ctx, &target);
+        assert_eq!(px(&img, 12, 7), px(&pattern, 12, 7), "old spot restored");
+        assert_eq!(px(&img, 62, 46), vec![255; 4], "cursor at the edge");
+        r.restore(&ctx, &target);
+        assert!(!r.drawn());
+        assert!(read(&device, &ctx, &target) == pattern, "image back as it was");
+
+        // Entirely outside: nothing drawn, nothing to restore.
+        cursor.x = 100;
+        r.draw(&device, &ctx, &target, &cursor, Rotation::None).unwrap();
+        assert!(!r.drawn());
     }
 }

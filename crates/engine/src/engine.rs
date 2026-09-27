@@ -72,6 +72,8 @@ pub struct EngineStatus {
     pub encoder: String,
     pub width: u32,
     pub height: u32,
+    /// Capture ticks per second that had an image to show, encoded or
+    /// unchanged (with a variable frame rate a static screen is not slow).
     pub fps: f32,
     pub dropped_frames: u64,
     /// Frames dropped during the last 10 seconds (0 when capture keeps up).
@@ -98,6 +100,15 @@ pub enum SaveOutcome {
 const MIN_NEW_US: i64 = 1_000_000;
 /// Mixer latency (≈125 ms) plus AAC encoder delay, with margin.
 const AUDIO_CATCH_UP: Duration = Duration::from_millis(260);
+/// Variable frame rate: an unchanged screen is still encoded this often
+/// (frames per second), so players and seeking stay smooth.
+const MIN_FPS: u32 = 5;
+/// Frames encoded at the full rate after a clip is asked for. Encoders hand
+/// a frame out only once a few more have come in (NVENC holds 3), which on
+/// a static screen at `MIN_FPS` would keep the clip's last frames waiting.
+const SAVE_BURST: i64 = 8;
+/// Longest extra wait for the video to reach a clip's end (see `SAVE_BURST`).
+const VIDEO_CATCH_UP: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 struct Shot {
@@ -129,6 +140,9 @@ struct Shared {
     recorder: Mutex<Option<(Recorder, Instant)>>,
     replay_on: AtomicBool,
     force_key: AtomicBool,
+    /// Encode the next ticks' images even if nothing changed (a clip ends
+    /// now, see `save_replay` and `SAVE_BURST`).
+    frame_now: AtomicBool,
     shots: Mutex<Vec<Sender<Result<Shot>>>>,
     fps_x100: AtomicU64,
     dropped: AtomicU64,
@@ -232,6 +246,7 @@ impl Engine {
             recorder: Mutex::new(None),
             replay_on: AtomicBool::new(false),
             force_key: AtomicBool::new(false),
+            frame_now: AtomicBool::new(false),
             shots: Mutex::new(Vec::new()),
             fps_x100: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
@@ -508,20 +523,34 @@ impl Engine {
         let secs = seconds.unwrap_or(self.state.lock().replay_seconds);
         // The clip ends at the moment of the key press; claim that range now so
         // a quick second press continues after it.
-        let (since, end, prev_end) = {
+        let (since, end, prev_end, ahead) = {
             let mut guard = self.shared.buffer.lock();
             let b = guard.as_mut().ok_or_else(|| anyhow!("replay buffer is off"))?;
             let since = if continue_after_last { b.last_saved_end_us } else { None };
-            let end = b.end_us().ok_or_else(|| anyhow!("replay buffer is empty"))?;
+            b.end_us().ok_or_else(|| anyhow!("replay buffer is empty"))?;
+            // Not the newest packet: with a variable frame rate that can be
+            // a few hundred ms old on a static screen. The next tick's frame
+            // (asked for below) is the clip's last; if it comes late, the
+            // frame before it is stretched to the end (see `write_clip`).
+            let end = b.now_us();
             if since.is_some_and(|s| end - s < MIN_NEW_US) {
                 return Ok(SaveOutcome::NothingNew);
             }
-            (since, end, b.last_saved_end_us.replace(end))
+            let ahead = (end - (clock::now_us() - b.t0_us())).max(0);
+            (since, end, b.last_saved_end_us.replace(end), ahead)
         };
+        self.shared.frame_now.store(true, Ordering::Relaxed);
         let (events, shared) = (self.events.clone(), self.shared.clone());
         std::thread::Builder::new().name("gc-save".into()).spawn(move || {
-            // Audio is encoded slightly behind video; let it catch up to `end`.
-            std::thread::sleep(AUDIO_CATCH_UP);
+            // Audio is encoded slightly behind video; let it catch up to
+            // `end`, which is up to a frame ahead of now.
+            std::thread::sleep(AUDIO_CATCH_UP + Duration::from_micros(ahead as u64));
+            // The frames up to `end` may still sit in the encoder (see
+            // `SAVE_BURST`): wait a little more for a frame at or past it.
+            let until = Instant::now() + VIDEO_CATCH_UP;
+            while Instant::now() < until && shared.buffer.lock().as_ref().and_then(|b| b.end_us()).is_some_and(|t| t < end) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
             let clip = match shared.buffer.lock().as_ref().and_then(|b| b.snapshot(secs, since, Some(end))) {
                 Some(c) => c,
                 None => {
@@ -781,7 +810,7 @@ impl Launch {
         } else {
             None
         };
-        let old = shared.buffer.lock().replace(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk));
+        let old = shared.buffer.lock().replace(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk, self.t0));
         // Freed after unlocking: audio packets already wait for this lock.
         drop(old);
         let _ = self.go_tx.send(true);
@@ -991,23 +1020,44 @@ fn video_thread(
     let dev2 = device.clone();
     let mut make_tex = move |w, h| create_texture(&dev2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, bind);
     let mut desktop_raw = None;
-    let mut composed: Option<ID3D11Texture2D> = None;
+    // What is encoded: the desktop texture itself, with the cursor drawn
+    // into it (see `CursorRenderer`).
     let mut input: Option<ID3D11Texture2D> = None;
     // The labelled copy of the last frame while holding.
     let mut held: Option<ID3D11Texture2D> = None;
     // Setup may have grabbed the first frame already.
     let mut dirty = desktop.is_some();
 
+    // Variable frame rate: a tick whose image is the one encoded last is
+    // skipped, except that a frame still goes out every `max_gap` ticks
+    // (players and seeking stay smooth) and a keyframe every second of wall
+    // time (the encoder counts frames, which would stretch its GOP).
+    let vfr = !cfg.constant_fps;
+    let max_gap = fps.div_ceil(MIN_FPS) as i64;
+    let key_every = fps as i64;
+    // An image not encoded yet: new desktop or pointer, hold start or end,
+    // or a frame asked for (a clip ends now).
+    let mut need = true;
+    let mut last_sent: Option<i64> = None;
+    let mut last_key: Option<i64> = None;
+    // Every tick is encoded before this one (a clip was asked for).
+    let mut burst_until = 0i64;
+
     let timer = Timer::new();
     let period = 1_000_000.0 / fps as f64;
     let tick_time = |k: i64| t0 + (k as f64 * period) as i64;
     let mut tick: i64 = ((clock::now_us() - t0) as f64 / period).ceil() as i64;
     let mut stat_t = Instant::now();
+    // Ticks handled with an image (encoded or unchanged), for the status
+    // fps: a static screen is not a low frame rate. Refused frames do not count.
     let mut stat_frames = 0u32;
     let mut warmed_up = false;
-    // Per-stage timing (poll, compose, convert, encode) for the periodic log.
+    // Per-stage timing (poll, compose, convert, encode) for the periodic log;
+    // the first two per tick, the others per encoded frame.
     let mut prof = [(0u64, 0u64); 4];
-    let mut prof_n = 0u64;
+    let (mut prof_ticks, mut prof_frames) = (0u64, 0u64);
+    // New desktop images and pointer-only changes, for the same log.
+    let mut prof_changes = [0u64; 2];
     let mut prof_t = Instant::now();
     let mut dropped_at_log = 0u64;
     // Drops per second over the last 10 s, for a "dropping now" indicator.
@@ -1036,20 +1086,31 @@ fn video_thread(
                 }
             }
             held = Some(t);
+            need = true;
         } else if !hold && held.is_some() {
             held = None;
             conv.reset_inputs();
+            need = true;
         }
         if !hold {
             match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
                 Poll::Changed { desktop: d } => {
-                    // Resolution or orientation changed (the video keeps its size).
-                    if d && !conv.fits(dup.width, dup.height, dup.rotation) {
-                        log::info!("desktop changed to {}x{} rotation {:?}", dup.width, dup.height, dup.rotation);
-                        conv = Converter::new(&device, &ctx, dup.width, dup.height, dup.rotation, enc_w, enc_h, fps)?;
-                        composed = None;
+                    if d {
+                        // The copy replaced the whole image, a drawn cursor included.
+                        if let Some(c) = cursor_r.as_mut() {
+                            c.forget();
+                        }
+                        // Resolution or orientation changed (the video keeps its size).
+                        if !conv.fits(dup.width, dup.height, dup.rotation) {
+                            log::info!("desktop changed to {}x{} rotation {:?}", dup.width, dup.height, dup.rotation);
+                            conv = Converter::new(&device, &ctx, dup.width, dup.height, dup.rotation, enc_w, enc_h, fps)?;
+                        }
                     }
-                    dirty = true;
+                    // Only the pointer changed: news only if it is drawn.
+                    if d || cursor_r.is_some() {
+                        dirty = true;
+                    }
+                    prof_changes[usize::from(!d)] += 1;
                 }
                 Poll::Idle | Poll::Lost => {}
             }
@@ -1059,38 +1120,23 @@ fn video_thread(
             if raw != desktop_raw {
                 desktop_raw = raw;
                 conv.reset_inputs();
+                if let Some(c) = cursor_r.as_mut() {
+                    c.forget();
+                }
             }
         }
         mark(0, &mut lap, &mut prof);
 
-        if dirty {
-            if let Some(src) = desktop.as_ref() {
-                let draw_cursor = cursor_r.is_some() && cursor.visible && cursor.shape.is_some();
-                if draw_cursor {
-                    if composed.is_none() {
-                        composed = Some(make_tex(dup.width, dup.height)?);
-                        conv.reset_inputs();
-                    }
-                    let c = composed.as_ref().unwrap();
-                    unsafe { ctx.CopyResource(c, src) };
-                    // The pointer is placed by how the image itself is turned,
-                    // whether or not the converter manages to turn it upright.
-                    if let Err(e) = cursor_r.as_mut().unwrap().draw(&device, &ctx, c, &cursor, dup.rotation) {
-                        log::warn!("cursor draw failed, disabling: {e:#}");
-                        cursor_r = None;
-                    }
-                    input = Some(c.clone());
-                } else {
-                    input = Some(src.clone());
-                }
-                dirty = false;
-            }
-        }
-
-        // Screenshot requests are served from the clean desktop image.
+        // Screenshot requests are served from the clean desktop image: the
+        // cursor comes off first and is drawn again below.
         let pending: Vec<_> = std::mem::take(&mut *shared.shots.lock());
         if !pending.is_empty() {
-            let shot = desktop.as_ref().ok_or_else(|| anyhow!("no frame yet")).and_then(|t| readback(&device, &ctx, t, dup.rotation));
+            let shot = desktop.as_ref().ok_or_else(|| anyhow!("no frame yet")).and_then(|t| {
+                if let Some(c) = cursor_r.as_mut() {
+                    c.restore(&ctx, t);
+                }
+                readback(&device, &ctx, t, dup.rotation)
+            });
             for tx in pending {
                 let _ = tx.send(match &shot {
                     Ok(s) => Ok(s.clone()),
@@ -1099,45 +1145,101 @@ fn video_thread(
             }
         }
 
-        mark(1, &mut lap, &mut prof);
-        if let Some(inp) = held.as_ref().or(input.as_ref()) {
-            let tx = encoder.tx.as_ref().unwrap();
-            // Only this thread sends, so a full queue stays full until the
-            // encoder takes a frame: this one would be dropped, skip its GPU work.
-            let sent = if tx.is_full() {
-                // A dead encoder never takes one, and the queue keeps
-                // reporting full after it is gone: end so capture restarts.
-                if encoder.is_finished() {
-                    break;
-                }
-                false
-            } else {
-                let (frame, surf, slice) = pool.acquire()?;
-                conv.convert(inp, &surf, slice).context("convert")?;
-                mark(2, &mut lap, &mut prof);
-                // Taken, not just read: a request arriving while this frame
-                // is sent (start_recording, encoder refusal) stays pending.
-                let force = shared.force_key.swap(false, Ordering::Relaxed);
-                match tx.try_send((frame, tick, force)) {
-                    Ok(()) => true,
-                    Err(e) => {
-                        if force {
-                            shared.force_key.store(true, Ordering::Relaxed);
+        if !hold {
+            if let Some(src) = desktop.as_ref() {
+                // The cursor is drawn into the desktop image itself, saving
+                // only the pixels under it, instead of copying the whole
+                // frame first (a full-frame GPU copy per frame is a real
+                // cost on integrated graphics). When only the pointer moved,
+                // the old spot is restored before drawing the new one.
+                if let Some(c) = cursor_r.as_mut() {
+                    let want = cursor.visible && cursor.shape.is_some();
+                    if dirty || want != c.drawn() {
+                        c.restore(&ctx, src);
+                        // The pointer is placed by how the image itself is turned,
+                        // whether or not the converter manages to turn it upright.
+                        if want {
+                            if let Err(e) = c.draw(&device, &ctx, src, &cursor, dup.rotation) {
+                                log::warn!("cursor draw failed, disabling: {e:#}");
+                                c.restore(&ctx, src);
+                                cursor_r = None;
+                            }
                         }
-                        if e.is_disconnected() {
-                            break;
-                        }
-                        false
                     }
                 }
-            };
-            if !sent {
-                queue_drops += 1;
-                shared.dropped.fetch_add(1, Ordering::Relaxed);
+                input = Some(src.clone());
+                if std::mem::take(&mut dirty) {
+                    need = true;
+                }
             }
-            mark(3, &mut lap, &mut prof);
-            prof_n += 1;
-            stat_frames += 1;
+        }
+        if shared.frame_now.swap(false, Ordering::Relaxed) {
+            need = true;
+            burst_until = tick + SAVE_BURST;
+        }
+
+        mark(1, &mut lap, &mut prof);
+        prof_ticks += 1;
+        if let Some(inp) = held.as_ref().or(input.as_ref()) {
+            let key_due = vfr && last_key.is_none_or(|k| tick - k >= key_every);
+            let send = !vfr
+                || need
+                || key_due
+                || tick < burst_until
+                || shared.force_key.load(Ordering::Relaxed)
+                || last_sent.is_none_or(|s| tick - s >= max_gap);
+            let mut sent = true;
+            if send {
+                let tx = encoder.tx.as_ref().unwrap();
+                // Only this thread sends, so a full queue stays full until the
+                // encoder takes a frame: this one would be dropped, skip its GPU work.
+                sent = if tx.is_full() {
+                    // A dead encoder never takes one, and the queue keeps
+                    // reporting full after it is gone: end so capture restarts.
+                    if encoder.is_finished() {
+                        break;
+                    }
+                    false
+                } else {
+                    let (frame, surf, slice) = pool.acquire()?;
+                    conv.convert(inp, &surf, slice).context("convert")?;
+                    mark(2, &mut lap, &mut prof);
+                    // Taken, not just read: a request arriving while this frame
+                    // is sent (start_recording, encoder refusal) stays pending.
+                    let force = shared.force_key.swap(false, Ordering::Relaxed);
+                    let key = force || key_due;
+                    match tx.try_send((frame, tick, key)) {
+                        Ok(()) => {
+                            if key {
+                                last_key = Some(tick);
+                            }
+                            true
+                        }
+                        Err(e) => {
+                            if force {
+                                shared.force_key.store(true, Ordering::Relaxed);
+                            }
+                            if e.is_disconnected() {
+                                break;
+                            }
+                            false
+                        }
+                    }
+                };
+                if sent {
+                    need = false;
+                    last_sent = Some(tick);
+                } else {
+                    // Still `need`: sent at the next tick the queue has room.
+                    queue_drops += 1;
+                    shared.dropped.fetch_add(1, Ordering::Relaxed);
+                }
+                mark(3, &mut lap, &mut prof);
+                prof_frames += 1;
+            }
+            if sent {
+                stat_frames += 1;
+            }
         }
 
         tick += 1;
@@ -1164,12 +1266,19 @@ fn video_thread(
             stat_t = Instant::now();
             stat_frames = 0;
         }
-        if prof_t.elapsed() >= Duration::from_secs(10) && prof_n > 0 {
+        if prof_t.elapsed() >= Duration::from_secs(10) && prof_ticks > 0 {
             let d = shared.dropped.load(Ordering::Relaxed);
-            let f = |i: usize| format!("{:.1}/{:.1}", prof[i].0 as f64 / prof_n as f64 / 1000.0, prof[i].1 as f64 / 1000.0);
+            let secs = prof_t.elapsed().as_secs_f64();
+            let f = |i: usize| {
+                let n = if i < 2 { prof_ticks } else { prof_frames.max(1) };
+                format!("{:.1}/{:.1}", prof[i].0 as f64 / n as f64 / 1000.0, prof[i].1 as f64 / 1000.0)
+            };
             log::info!(
-                "video: {:.1} fps, dropped {} (encoder busy {}) | ms avg/max poll {} compose {} convert {} queue {}",
-                prof_n as f64 / prof_t.elapsed().as_secs_f64(),
+                "video: {:.1} ticks/s, {:.1} encoded/s (desktop changed {:.1}/s, pointer only {:.1}/s), dropped {} (encoder busy {}) | ms avg/max poll {} compose {} convert {} queue {}",
+                prof_ticks as f64 / secs,
+                prof_frames as f64 / secs,
+                prof_changes[0] as f64 / secs,
+                prof_changes[1] as f64 / secs,
                 d - dropped_at_log,
                 queue_drops,
                 f(0),
@@ -1180,7 +1289,7 @@ fn video_thread(
             dropped_at_log = d;
             queue_drops = 0;
             prof = [(0, 0); 4];
-            prof_n = 0;
+            (prof_ticks, prof_frames, prof_changes) = (0, 0, [0; 2]);
             prof_t = Instant::now();
         }
     }

@@ -53,7 +53,8 @@ impl MicMonitor {
         let ring = Arc::new(SourceRing::default());
         let levels = Arc::new(Levels::default());
         let r = ring.clone();
-        let tx = denoise::spawn(control, Some(levels.clone()), move |idx, s| r.write(idx, s))?;
+        // The check plays the microphone at its own volume, never muted.
+        let tx = denoise::spawn(control, Some(levels.clone()), || false, move |idx, s| r.write(idx, s))?;
         {
             let (ring, stop) = (ring.clone(), stop.clone());
             std::thread::Builder::new()

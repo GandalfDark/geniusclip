@@ -54,7 +54,9 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
                 ff::AVMediaType::AVMEDIA_TYPE_VIDEO if info.width == 0 => {
                     info.width = par.width as u32;
                     info.height = par.height as u32;
-                    let r = (*st).avg_frame_rate;
+                    // The capture rate: with variable frame rate the average
+                    // drops on a static screen, the timestamp grid does not.
+                    let r = if (*st).r_frame_rate.num > 0 && (*st).r_frame_rate.den > 0 { (*st).r_frame_rate } else { (*st).avg_frame_rate };
                     info.fps = if r.den > 0 { r.num as f64 / r.den as f64 } else { 0.0 };
                     info.video_codec = CStr::from_ptr(ff::avcodec_get_name(par.codec_id)).to_string_lossy().into_owned();
                 }
@@ -80,7 +82,11 @@ pub fn thumbnail(path: &Path, out: &Path, max_w: u32, at_seconds: f64) -> Result
         }
         let dctx = CodecCtx(ff::avcodec_alloc_context3(dec));
         check(ff::avcodec_parameters_to_context(dctx.0, par), "parameters_to_context")?;
-        (*dctx.0).thread_count = 0;
+        // One frame is wanted: a frame-threaded decoder (thread_count 0)
+        // decodes about as many frames as there are cores before the first
+        // comes out, and thumbnails are made several at a time.
+        (*dctx.0).thread_count = 1;
+        (*dctx.0).thread_type = ff::FF_THREAD_SLICE as c_int;
         check(ff::avcodec_open2(dctx.0, dec, ptr::null_mut()), "open decoder")?;
 
         if at_seconds > 0.0 {
@@ -240,6 +246,10 @@ pub fn trim(input_path: &Path, output: &Path, start: f64, end: f64) -> Result<()
         let pkt = AvPacket::new();
         let mut done = vec![false; descs.len()];
         let mut seen_key = vec![false; descs.len()];
+        // Each video stream's newest packet waits for the next one: when that
+        // is past the end, it is the last frame and lasts until the end (a
+        // variable frame rate video can hold a frame for a while).
+        let mut held: Vec<Option<Packet>> = descs.iter().map(|_| None).collect();
         while ff::av_read_frame(input.0, pkt.0) >= 0 {
             let si = (*pkt.0).stream_index as usize;
             let Some(oi) = map.get(si).copied().flatten() else {
@@ -250,6 +260,9 @@ pub fn trim(input_path: &Path, output: &Path, start: f64, end: f64) -> Result<()
             let p = Packet::from_av(pkt.0, d.time_base);
             ff::av_packet_unref(pkt.0);
             if p.time_us > end_us {
+                if let Some(last) = held[oi].take() {
+                    mux.write_last(oi, &last, start_us, end_us)?;
+                }
                 done[oi] = true;
                 if done.iter().all(|&x| x) {
                     break;
@@ -264,14 +277,23 @@ pub fn trim(input_path: &Path, output: &Path, start: f64, end: f64) -> Result<()
                         }
                         seen_key[oi] = true;
                     }
+                    if let Some(prev) = held[oi].replace(p) {
+                        mux.write(oi, &prev, start_us)?;
+                    }
                 }
                 StreamKind::Audio => {
                     if p.time_us < start_us {
                         continue;
                     }
+                    mux.write(oi, &p, start_us)?;
                 }
             }
-            mux.write(oi, &p, start_us)?;
+        }
+        // The file ended first: its last frames keep their own durations.
+        for (oi, last) in held.into_iter().enumerate() {
+            if let Some(last) = last {
+                mux.write(oi, &last, start_us)?;
+            }
         }
         mux.finish()?;
     }

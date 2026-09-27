@@ -176,7 +176,8 @@ pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, g
         let mut encoders = Vec::new();
         let mut descs = vec![vdesc];
         for (k, t) in titles.iter().enumerate() {
-            let enc = AudioEncoder::new(bitrates[k].clamp(96_000, 256_000))?;
+            // A one-off export: the default coder's quality is worth its time.
+            let enc = AudioEncoder::new(bitrates[k].clamp(96_000, 256_000), false)?;
             descs.push(StreamDesc { kind: StreamKind::Audio, params: enc.params.clone(), time_base: enc.time_base, title: t.clone() });
             encoders.push(enc);
         }

@@ -82,6 +82,11 @@ pub struct EngineConfig {
     pub noise_strength: u32,
     /// Microphone left out of recordings (applies live).
     pub mic_muted: bool,
+    /// Encode every tick, as video editors expect. Off (the default), an
+    /// unchanged screen is encoded only a few times per second (variable
+    /// frame rate), which saves most of the GPU encoder's work on a static
+    /// desktop.
+    pub constant_fps: bool,
 }
 
 impl EngineConfig {
@@ -118,6 +123,7 @@ impl Default for EngineConfig {
             noise_suppression: false,
             noise_strength: 80,
             mic_muted: false,
+            constant_fps: false,
         }
     }
 }

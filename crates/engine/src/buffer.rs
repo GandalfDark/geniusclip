@@ -8,8 +8,9 @@
 //! found by binary search, and an index of video keyframes keeps each push
 //! O(1) while nothing has to be dropped.
 
+use crate::clock;
 use crate::disk::DiskStore;
-use crate::ffutil::{Packet, PacketRef, StreamDesc, StreamKind};
+use crate::ffutil::{rescale, Packet, PacketRef, StreamDesc, StreamKind, US};
 use std::collections::VecDeque;
 
 pub struct ReplayBuffer {
@@ -24,6 +25,8 @@ pub struct ReplayBuffer {
     /// End of the last saved clip; the next clip can continue from here
     /// instead of repeating footage that is already saved.
     pub last_saved_end_us: Option<i64>,
+    /// Engine clock time (µs) of timeline 0 of this pipeline's packets.
+    t0_us: i64,
 }
 
 /// Packets selected for one clip, per stream, in decode order.
@@ -37,7 +40,8 @@ pub struct ClipData {
 }
 
 impl ReplayBuffer {
-    pub fn new(streams: Vec<StreamDesc>, max_seconds: u32, disk: Option<DiskStore>) -> Self {
+    /// `t0_us`: engine clock time of the packets' timeline 0.
+    pub fn new(streams: Vec<StreamDesc>, max_seconds: u32, disk: Option<DiskStore>, t0_us: i64) -> Self {
         let n = streams.len();
         ReplayBuffer {
             streams,
@@ -47,7 +51,27 @@ impl ReplayBuffer {
             max_us: max_seconds as i64 * 1_000_000,
             disk,
             last_saved_end_us: None,
+            t0_us,
         }
+    }
+
+    pub fn t0_us(&self) -> i64 {
+        self.t0_us
+    }
+
+    /// The current time on the packets' timeline, rounded up to the next
+    /// video frame time: a frame asked for now is sent at the next capture
+    /// tick and is then the last frame of a clip ending here. Clips end at
+    /// this time rather than at the newest packet, which with a variable
+    /// frame rate can be a few hundred ms old (static screen).
+    pub fn now_us(&self) -> i64 {
+        let now = clock::now_us() - self.t0_us;
+        let Some(v) = self.video_index() else { return now };
+        let tb = self.streams[v].time_base;
+        // Ticks of `num/den` s, rounded up (packet times round to nearest).
+        let per = tb.num as i128 * 1_000_000;
+        let ticks = (now as i128 * tb.den as i128 + per - 1).div_euclid(per) as i64;
+        rescale(ticks, tb, US)
     }
 
     pub fn set_max_seconds(&mut self, s: u32) {

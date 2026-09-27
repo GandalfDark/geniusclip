@@ -36,6 +36,9 @@ struct AVD3D11VAFramesContext {
 /// the slow, two-pass one up to 1440p144, a faster one up to 4K120.
 const NVENC_HQ_MAX: u64 = 2560 * 1440 * 144;
 const NVENC_FAST_MAX: u64 = 3840 * 2160 * 120;
+/// Variable frame rate: the encoder's own keyframe interval, in seconds of
+/// full-rate frames (the capture loop forces one every second).
+const VFR_GOP_SECONDS: i32 = 4;
 
 pub struct VideoEncoder {
     ctx: CodecCtx,
@@ -150,7 +153,11 @@ impl VideoEncoder {
         c.pix_fmt = ff::AVPixelFormat::AV_PIX_FMT_D3D11;
         c.sw_pix_fmt = ff::AVPixelFormat::AV_PIX_FMT_NV12;
         c.hw_frames_ctx = ff::av_buffer_ref(hw_frames.0);
-        c.gop_size = fps; // 1 s keyframes: precise clip starts and fast seeking
+        // 1 s keyframes: precise clip starts and fast seeking. With variable
+        // frame rate a GOP counted in frames would stretch on a static
+        // screen, so the capture loop forces a keyframe every second of wall
+        // time and the encoder's own interval is only a fallback beyond it.
+        c.gop_size = if cfg.constant_fps { fps } else { fps * VFR_GOP_SECONDS };
         c.keyint_min = fps;
         c.max_b_frames = 0;
         c.flags |= ff::AV_CODEC_FLAG_GLOBAL_HEADER as c_int;

@@ -492,7 +492,10 @@ pub(crate) struct AudioEncoder {
 unsafe impl Send for AudioEncoder {}
 
 impl AudioEncoder {
-    pub fn new(bitrate: i64) -> Result<Self> {
+    /// `fast`: live capture, where up to three tracks are encoded all the
+    /// time. The fast coder takes well under half the CPU of the default
+    /// (two-loop) one, with no audible difference at these bitrates.
+    pub fn new(bitrate: i64, fast: bool) -> Result<Self> {
         unsafe {
             let codec = ff::avcodec_find_encoder(ff::AVCodecID::AV_CODEC_ID_AAC);
             if codec.is_null() {
@@ -506,6 +509,9 @@ impl AudioEncoder {
             c.bit_rate = bitrate;
             c.time_base = q(1, RATE as i32);
             c.flags |= ff::AV_CODEC_FLAG_GLOBAL_HEADER as c_int;
+            if fast {
+                set_opt(c.priv_data, "aac_coder", "fast");
+            }
             check(ff::avcodec_open2(ctx.0, codec, ptr::null_mut()), "avcodec_open2(aac)")?;
 
             let frame = AvFrame::new();
@@ -610,6 +616,11 @@ impl LiveAudio {
         let mic = if self.mic_muted.load(Ordering::Relaxed) { 0.0 } else { f32::from_bits(self.mic_volume.load(Ordering::Relaxed)) };
         (f32::from_bits(self.system_volume.load(Ordering::Relaxed)), mic)
     }
+
+    /// The microphone is muted or at volume 0: nothing of it is heard.
+    pub(crate) fn mic_silent(&self) -> bool {
+        self.gains().1 <= 0.0
+    }
 }
 
 impl AudioPipeline {
@@ -633,7 +644,7 @@ impl AudioPipeline {
         let mut encoders = Vec::new();
         let mut descs = Vec::new();
         for (mix, title, br) in &tracks {
-            let enc = AudioEncoder::new(*br)?;
+            let enc = AudioEncoder::new(*br, true)?;
             descs.push(StreamDesc {
                 kind: StreamKind::Audio,
                 params: enc.params.clone(),
@@ -657,8 +668,8 @@ impl AudioPipeline {
         }
         if cfg.mic {
             let (ring, stop, dev) = (mic_ring.clone(), stop.clone(), cfg.mic_device.clone());
-            let r = mic_ring.clone();
-            let tx = denoise::spawn(denoise, None, move |idx, s| r.write(idx, s))?;
+            let (r, live) = (mic_ring.clone(), live.clone());
+            let tx = denoise::spawn(denoise, None, move || live.mic_silent(), move |idx, s| r.write(idx, s))?;
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-mic".into())
@@ -675,7 +686,12 @@ impl AudioPipeline {
             let mut mic = vec![0f32; BLOCK * 2];
             let mut mix = vec![0f32; BLOCK * 2];
             while !stop2.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_millis(10));
+                // Sleep until the next block is due (≈21 ms) rather than
+                // waking every 10 ms to find nothing to do; capped so a
+                // stop is noticed quickly.
+                let due_us = t0_us + (pos + BLOCK as i64 + MIX_LATENCY) * 1_000_000 / RATE;
+                let wait = (due_us - clock::now_us()).clamp(1_000, 50_000);
+                std::thread::sleep(Duration::from_micros(wait as u64));
                 let target = now_idx() - MIX_LATENCY;
                 if target - pos > RATE {
                     // Fell far behind (system sleep, debugger): skip ahead.
@@ -740,5 +756,36 @@ impl AudioPipeline {
 impl Drop for AudioPipeline {
     fn drop(&mut self) {
         self.join();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The live encoder uses the fast AAC coder (no devices involved).
+    #[test]
+    fn live_aac_encoder_is_fast() {
+        let block: Vec<f32> = (0..BLOCK * 2).map(|i| ((i / 2) as f32 * 0.05).sin() * 0.3).collect();
+        let mut timing = Vec::new();
+        for fast in [false, true] {
+            let mut enc = AudioEncoder::new(192_000, fast).expect("aac");
+            let (coder, fast_value) = unsafe {
+                let obj = (*enc.ctx.0).priv_data;
+                let mut coder = -1i64;
+                ff::av_opt_get_int(obj, cstr("aac_coder").as_ptr(), 0, &mut coder);
+                let opt = ff::av_opt_find(obj, cstr("fast").as_ptr(), cstr("coder").as_ptr(), 0, 0);
+                assert!(!opt.is_null(), "no fast AAC coder");
+                (coder, (*opt).default_val.i64_)
+            };
+            assert_eq!(coder == fast_value, fast);
+            let (t, mut bytes) = (Instant::now(), 0);
+            for k in 0..500 {
+                enc.encode(&block, k * BLOCK as i64, &mut |p| bytes += p.data.len()).unwrap();
+            }
+            assert!(bytes > 0);
+            timing.push(t.elapsed());
+        }
+        println!("500 AAC blocks: two-loop {:?}, fast {:?}", timing[0], timing[1]);
     }
 }
