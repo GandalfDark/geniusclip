@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Монітор',
   'set.primary': 'основний',
   'set.cursor': 'Курсор',
+  'set.constantFps': 'Стала частота кадрів',
+  'set.constantFpsHint': 'Для відеоредакторів. Без неї кадри, де картинка не змінюється, не записуються — менше навантаження',
   'set.estimate': '{mbps} Мбіт/с · буфер ≈ {mem}',
   'set.estimateDisk': '{mbps} Мбіт/с · на диску ≈ {mem}',
   'set.diskBuffer': 'Буфер на диску',

@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Монитор',
   'set.primary': 'негізгі',
   'set.cursor': 'Курсор',
+  'set.constantFps': 'Тұрақты кадр жиілігі',
+  'set.constantFpsHint': 'Бейнеөңдегіштер үшін. Онсыз сурет өзгермеген кадрлар жазылмайды — жүктеме аз',
   'set.estimate': '{mbps} Мбит/с · буфер ≈ {mem}',
   'set.estimateDisk': '{mbps} Мбит/с · дискіде ≈ {mem}',
   'set.diskBuffer': 'Дискідегі буфер',

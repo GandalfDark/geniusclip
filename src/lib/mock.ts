@@ -79,6 +79,7 @@ let settings: Settings = {
     quality: "high",
     bitrateKbps: null,
     captureCursor: true,
+    constantFps: false,
     systemAudio: true,
     systemDevice: null,
     systemVolume: 1,

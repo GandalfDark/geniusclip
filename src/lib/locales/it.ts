@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Monitor',
   'set.primary': 'principale',
   'set.cursor': 'Cursore',
+  'set.constantFps': 'Frequenza fotogrammi costante',
+  'set.constantFpsHint': 'Per i programmi di montaggio. Senza, i fotogrammi invariati non vengono codificati: meno carico',
   'set.estimate': '{mbps} Mbit/s · buffer ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbit/s · su disco ≈ {mem}',
   'set.diskBuffer': 'Buffer su disco',

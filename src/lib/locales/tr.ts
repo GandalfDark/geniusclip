@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Monitör',
   'set.primary': 'ana',
   'set.cursor': 'İmleç',
+  'set.constantFps': 'Sabit kare hızı',
+  'set.constantFpsHint': 'Video düzenleyiciler için. Kapalıyken değişmeyen kareler kodlanmaz — daha az yük',
   'set.estimate': '{mbps} Mbit/sn · arabellek ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbit/sn · diskte ≈ {mem}',
   'set.diskBuffer': 'Diskte arabellek',

@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Monitor',
   'set.primary': 'primary',
   'set.cursor': 'Cursor',
+  'set.constantFps': 'Constant frame rate',
+  'set.constantFpsHint': 'For video editors. Without it, frames where nothing changes aren’t encoded — less load',
   'set.estimate': '{mbps} Mbit/s · buffer ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbit/s · on disk ≈ {mem}',
   'set.diskBuffer': 'Buffer on disk',

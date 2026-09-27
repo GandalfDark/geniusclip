@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': '모니터',
   'set.primary': '기본',
   'set.cursor': '커서',
+  'set.constantFps': '고정 프레임 레이트',
+  'set.constantFpsHint': '영상 편집용이에요. 끄면 화면이 바뀌지 않는 프레임은 인코딩하지 않아 부하가 줄어요',
   'set.estimate': '{mbps} Mbps · 버퍼 ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbps · 디스크 ≈ {mem}',
   'set.diskBuffer': '디스크 버퍼',

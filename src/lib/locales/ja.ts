@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'モニター',
   'set.primary': 'メイン',
   'set.cursor': 'カーソル',
+  'set.constantFps': '固定フレームレート',
+  'set.constantFpsHint': '動画編集ソフト向け。オフのときは変化のないフレームをエンコードせず、負荷を抑えます',
   'set.estimate': '{mbps} Mbps · バッファ ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbps · ディスク使用量 ≈ {mem}',
   'set.diskBuffer': 'ディスクバッファ',

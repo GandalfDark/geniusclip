@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Monitor',
   'set.primary': 'principal',
   'set.cursor': 'Cursor',
+  'set.constantFps': 'Frecuencia de fotogramas constante',
+  'set.constantFpsHint': 'Para editores de vídeo. Sin ella, los fotogramas sin cambios no se codifican: menos carga',
   'set.estimate': '{mbps} Mbit/s · búfer ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbit/s · en disco ≈ {mem}',
   'set.diskBuffer': 'Búfer en disco',

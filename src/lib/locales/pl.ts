@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Monitor',
   'set.primary': 'główny',
   'set.cursor': 'Kursor',
+  'set.constantFps': 'Stała liczba klatek',
+  'set.constantFpsHint': 'Dla edytorów wideo. Bez niej niezmienione klatki nie są kodowane — mniejsze obciążenie',
   'set.estimate': '{mbps} Mb/s · bufor ≈ {mem}',
   'set.estimateDisk': '{mbps} Mb/s · na dysku ≈ {mem}',
   'set.diskBuffer': 'Bufor na dysku',

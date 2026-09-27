@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Écran',
   'set.primary': 'principal',
   'set.cursor': 'Curseur',
+  'set.constantFps': 'Fréquence d’images constante',
+  'set.constantFpsHint': 'Pour les logiciels de montage. Sinon, les images identiques ne sont pas encodées — moins de charge',
   'set.estimate': '{mbps} Mbit/s · tampon ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbit/s · sur le disque ≈ {mem}',
   'set.diskBuffer': 'Tampon sur le disque',

@@ -231,6 +231,9 @@
         <Row label={app.t('set.cursor')}>
           <Switch checked={s.engine.captureCursor} onchange={(v) => app.change((x) => (x.engine.captureCursor = v))} />
         </Row>
+        <Row label={app.t('set.constantFps')} hint={app.t('set.constantFpsHint')}>
+          <Switch checked={!!s.engine.constantFps} onchange={(v) => app.change((x) => (x.engine.constantFps = v), 0)} />
+        </Row>
         {#if estimate}
           <div class="estimate mono">
             {estimate.width}×{estimate.height} · {s.engine.fps} {app.t('home.fps')} · {app.t(s.engine.diskBuffer ? 'set.estimateDisk' : 'set.estimate', {

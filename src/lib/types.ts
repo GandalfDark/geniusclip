@@ -10,6 +10,8 @@ export interface EngineConfig {
   quality: Quality;
   bitrateKbps: number | null;
   captureCursor: boolean;
+  /** Encode every frame even when the screen doesn't change (for video editors). */
+  constantFps: boolean;
   systemAudio: boolean;
   systemDevice: string | null;
   systemVolume: number;

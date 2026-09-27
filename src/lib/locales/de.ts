@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': 'Monitor',
   'set.primary': 'primär',
   'set.cursor': 'Mauszeiger',
+  'set.constantFps': 'Konstante Bildrate',
+  'set.constantFpsHint': 'Für Videoschnitt. Ohne sie werden unveränderte Bilder nicht kodiert – weniger Last',
   'set.estimate': '{mbps} Mbit/s · Puffer ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbit/s · auf Festplatte ≈ {mem}',
   'set.diskBuffer': 'Puffer auf Festplatte',

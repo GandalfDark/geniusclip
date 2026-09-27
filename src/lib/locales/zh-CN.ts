@@ -108,6 +108,8 @@ const locale: Locale = {
   'set.monitor': '显示器',
   'set.primary': '主显示器',
   'set.cursor': '鼠标指针',
+  'set.constantFps': '固定帧率',
+  'set.constantFpsHint': '供视频编辑软件使用。关闭时画面不变的帧不编码，负载更低',
   'set.estimate': '{mbps} Mbps · 缓冲 ≈ {mem}',
   'set.estimateDisk': '{mbps} Mbps · 磁盘占用 ≈ {mem}',
   'set.diskBuffer': '磁盘缓冲',

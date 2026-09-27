@@ -108,6 +108,8 @@ export const strings = {
   'set.monitor': 'Монитор',
   'set.primary': 'основной',
   'set.cursor': 'Курсор',
+  'set.constantFps': 'Постоянная частота кадров',
+  'set.constantFpsHint': 'Для видеоредакторов. Без неё кадры, где картинка не меняется, не записываются — меньше нагрузка',
   'set.estimate': '{mbps} Мбит/с · буфер ≈ {mem}',
   'set.estimateDisk': '{mbps} Мбит/с · на диске ≈ {mem}',
   'set.diskBuffer': 'Буфер на диске',
