@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Download and install help
+    url: https://github.com/GandalfDark/geniusclip-releases#install
+    about: How to install GeniusClip and what to do when Windows warns about the installer.

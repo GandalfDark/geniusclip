@@ -79,6 +79,15 @@ if [ "$MODE" = "--build-only" ]; then
     echo "Not published (--build-only). Files: $OUT"
     exit 0
 fi
+# The release page gets install help under the notes (the app and latest.json
+# show the notes alone).
+BODY="$NOTES
+
+---
+
+**Install:** download [GeniusClip-Setup.exe](https://github.com/$REPO/releases/download/$TAG/GeniusClip-Setup.exe) and run it (Windows 10 or 11, 64-bit). Already have GeniusClip? It offers this update by itself.
+If Windows shows *\"Windows protected your PC\"*, click **More info → Run anyway** — the installer isn't code-signed yet ([why](https://github.com/$REPO#is-it-safe)).
+\`$UPDATE_NAME\` and \`latest.json\` are used by the built-in updater."
 gh release create "$TAG" "$OUT/GeniusClip-Setup.exe" "$OUT/$UPDATE_NAME" "$OUT/latest.json" \
-    --repo "$REPO" --title "GeniusClip $VERSION" --notes "$NOTES"
+    --repo "$REPO" --title "GeniusClip $VERSION" --notes "$BODY"
 echo "Published https://github.com/$REPO/releases/tag/$TAG"

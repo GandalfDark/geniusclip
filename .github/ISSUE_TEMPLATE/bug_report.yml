@@ -1,0 +1,33 @@
+name: Bug report
+description: Something doesn't work or works wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time! A report from the app helps a lot: *Settings → Report a problem → Create report* puts a zip with the log on your desktop (your user and computer names are taken out). Drag it into the box at the bottom.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GeniusClip version
+      description: Shown at the bottom of Settings.
+      placeholder: "0.1.5"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows and graphics card
+      placeholder: "Windows 11 23H2, NVIDIA RTX 3060"
+  - type: textarea
+    id: report
+    attributes:
+      label: Report and screenshots
+      description: Drop the report zip, screenshots or a short video here.

@@ -1,0 +1,11 @@
+name: Idea
+description: Suggest a feature or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like GeniusClip to do?
+      description: Describe the idea and the situation where it would help.
+    validations:
+      required: true
