@@ -182,7 +182,6 @@ static UPDATE: Mutex<()> = Mutex::new(());
 fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
     let _one_at_a_time = UPDATE.lock();
     let st = app.state::<AppState>();
-    let old = st.settings.read().clone();
     let mut new = settings;
     new.validate(app);
     for d in [&new.clips_dir, &new.screenshots_dir] {
@@ -191,28 +190,33 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
             code::FOLDER_UNAVAILABLE.to_string()
         })?;
     }
-    {
+    // The UI sends whole snapshots, debounced: values the backend owns may
+    // have changed since it took one, so those come from the current state.
+    // Merged, compared and saved under the write lock, which `set_replay`
+    // and `mark_onboarding` save under too: an older snapshot can neither
+    // undo their change nor overwrite their file.
+    let (old, saved) = {
         let mut cur = st.settings.write();
+        // Replay is switched by the hotkey, the tray and the in-game menu;
+        // the UI changes it only through `set_replay_enabled`, never here.
+        new.replay_enabled = cur.replay_enabled;
         // "First steps" reached meanwhile (a clip saved while the UI held
         // older settings) stay reached: the UI never clears them.
         new.onboarding.clip_saved |= cur.onboarding.clip_saved;
         new.onboarding.menu_opened |= cur.onboarding.menu_opened;
-        *cur = new.clone();
-    }
-    // Reported only after the side effects below: the new values are live
-    // either way, and the next update compares against them, so skipping
-    // the side effects here would lose them for good (resending the same
-    // values would be a no-op). Resending does retry the save.
-    let saved = new.save(app);
+        let old = std::mem::replace(&mut *cur, new.clone());
+        // Reported only after the side effects below: the new values are
+        // live either way, and the next update compares against them, so
+        // skipping the side effects here would lose them for good (resending
+        // the same values would be a no-op). Resending does retry the save.
+        (old, new.save(app))
+    };
 
     if old.engine != new.engine || old.replay_seconds != new.replay_seconds {
         let h = app.clone();
         // Pipeline restarts take a moment; answer the UI right away. The
         // latest settings are applied, one change at a time.
         std::thread::spawn(move || crate::actions::configure_engine(&h));
-    }
-    if old.replay_enabled != new.replay_enabled {
-        crate::actions::set_replay(app, new.replay_enabled);
     }
     if old.hotkeys != new.hotkeys {
         crate::hotkeys::register_all(app);
@@ -251,8 +255,12 @@ pub async fn set_replay_enabled(app: AppHandle, on: bool) -> CmdResult<()> {
 /// actions whose hotkeys could not be registered, like `hotkey_errors`.
 #[tauri::command]
 pub async fn set_hotkeys_suspended(app: AppHandle, suspended: bool) -> CmdResult<Vec<String>> {
+    // Recorded here, before any await, in the order the UI asked: the worker
+    // threads below can start in any order, and only the latest request's
+    // worker changes the registration.
+    let generation = crate::hotkeys::request_suspended(&app, suspended);
     blocking(move || {
-        crate::hotkeys::set_suspended(&app, suspended);
+        crate::hotkeys::apply_suspended(&app, generation);
         app.state::<AppState>().hotkey_errors.lock().clone()
     })
     .await

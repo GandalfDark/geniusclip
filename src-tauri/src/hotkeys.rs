@@ -7,7 +7,6 @@
 
 use crate::state::AppState;
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -95,10 +94,16 @@ unsafe fn register(accels: &[String]) -> Vec<usize> {
 /// One registration at a time: the worker has a single request slot, and
 /// each run reads the settings (and suspension) once it holds this.
 static REGISTER: Mutex<()> = Mutex::new(());
+
 /// Hotkeys are released while the UI records a new combo.
-static SUSPENDED: AtomicBool = AtomicBool::new(false);
-/// Bumped on every suspend/resume, so a stale safety timer does nothing.
-static SUSPEND_GEN: AtomicU64 = AtomicU64::new(0);
+struct Suspension {
+    on: bool,
+    /// Bumped on every request, so only the latest one registers and a stale
+    /// safety timer does nothing.
+    generation: u64,
+}
+
+static SUSPENSION: Mutex<Suspension> = Mutex::new(Suspension { on: false, generation: 0 });
 /// Hotkeys come back on their own if the UI never resumes them.
 const SUSPEND_MAX: Duration = Duration::from_secs(60);
 
@@ -106,7 +111,12 @@ const SUSPEND_MAX: Duration = Duration::from_secs(60);
 /// by another app, e.g. a GPU vendor overlay) are stored for the UI.
 pub fn register_all(app: &AppHandle) {
     let _one_at_a_time = REGISTER.lock();
-    let suspended = SUSPENDED.load(Ordering::SeqCst);
+    register_locked(app);
+}
+
+/// `register_all` for a caller holding `REGISTER`.
+fn register_locked(app: &AppHandle) {
+    let suspended = is_suspended();
     let accels = if suspended {
         vec![String::new(); ACTIONS.len()]
     } else {
@@ -127,24 +137,49 @@ pub fn register_all(app: &AppHandle) {
 }
 
 pub fn is_suspended() -> bool {
-    SUSPENDED.load(Ordering::SeqCst)
+    SUSPENSION.lock().on
 }
 
-/// Releases all hotkeys (`true`) so the UI can record a combo that is
-/// already in use instead of triggering it, or registers them again.
-pub fn set_suspended(app: &AppHandle, on: bool) {
-    SUSPENDED.store(on, Ordering::SeqCst);
-    let generation = SUSPEND_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    register_all(app);
+/// Asks for all hotkeys to be released (`true`) so the UI can record a combo
+/// that is already in use instead of triggering it, or registered again.
+/// Only records the wish and returns its generation; `apply_suspended` does
+/// the (slow, cross-thread) registration. Call it in request order.
+pub fn request_suspended(app: &AppHandle, on: bool) -> u64 {
+    let generation = {
+        let mut s = SUSPENSION.lock();
+        s.on = on;
+        s.generation += 1;
+        s.generation
+    };
     if on {
         let app = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(SUSPEND_MAX);
-            if SUSPEND_GEN.load(Ordering::SeqCst) == generation && SUSPENDED.swap(false, Ordering::SeqCst) {
+            // Resumes only if nothing was asked since: counts as a new request.
+            let resumed = {
+                let mut s = SUSPENSION.lock();
+                (s.generation == generation && s.on).then(|| {
+                    s.on = false;
+                    s.generation += 1;
+                    s.generation
+                })
+            };
+            if let Some(generation) = resumed {
                 log::warn!("hotkeys were suspended too long; registering them again");
-                register_all(&app);
+                apply_suspended(&app, generation);
             }
         });
+    }
+    generation
+}
+
+/// Registers or releases the hotkeys for request `generation`. A newer
+/// request has its own call coming, so an older one does nothing: requests
+/// applied out of order can't leave the hotkeys in an older state.
+pub fn apply_suspended(app: &AppHandle, generation: u64) {
+    let _one_at_a_time = REGISTER.lock();
+    if SUSPENSION.lock().generation == generation {
+        register_locked(app);
     }
 }
 

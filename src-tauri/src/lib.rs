@@ -68,10 +68,13 @@ pub fn show_main_at(app: &AppHandle, route: Option<&str>) {
             w.on_window_event(move |e| {
                 if matches!(e, tauri::WindowEvent::Destroyed) {
                     commands::stop_mic_test(&h);
-                    // Closed while a hotkey field was listening.
+                    // Closed while a hotkey field was listening. Asked here,
+                    // after the window's own requests; registered off the
+                    // UI thread (it waits for the hotkey thread).
                     if hotkeys::is_suspended() {
+                        let generation = hotkeys::request_suspended(&h, false);
                         let h = h.clone();
-                        std::thread::spawn(move || hotkeys::set_suspended(&h, false));
+                        std::thread::spawn(move || hotkeys::apply_suspended(&h, generation));
                     }
                 }
             });

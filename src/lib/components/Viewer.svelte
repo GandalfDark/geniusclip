@@ -369,10 +369,14 @@
     (e.shiftKey ? items[items.length - 1] : items[0])?.focus();
   }
 
-  /** Space and the like belong to a focused control (button, field, slider). */
+  /** Space belongs to a focused text field or slider; everywhere else it
+   *  plays and pauses. Never to a button: after a mouse click focus stays on
+   *  it (WebView2 may even treat that focus as keyboard focus), and Space
+   *  would click it again — on "Delete? Sure" that deletes the clip. Buttons
+   *  still work with Enter. */
   function onControl() {
     const at = document.activeElement;
-    return !!at && at !== panel && at.matches('button, input, select, textarea, a[href], [role], [tabindex]:not([tabindex="-1"])');
+    return !!at && at !== panel && at.matches('input, select, textarea, [role="slider"]');
   }
 
   function onkey(e: KeyboardEvent) {
@@ -385,6 +389,8 @@
     else if (e.key === 'ArrowRight' && (!isVideo || e.ctrlKey)) go(1);
     else if (isVideo && e.code === 'Space' && !onControl()) {
       e.preventDefault();
+      // Take focus off a mouse-clicked button so the key can't activate it.
+      if (document.activeElement instanceof HTMLButtonElement) panel.focus({ preventScroll: true });
       if (video) video.paused ? video.play() : video.pause();
     } else if (isVideo && e.code === 'KeyI') setIn();
     else if (isVideo && e.code === 'KeyO') setOut();

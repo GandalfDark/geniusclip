@@ -43,6 +43,13 @@ static UNLOAD_CHANGED: Condvar = Condvar::new();
 static UNLOAD_TIMER: OnceLock<()> = OnceLock::new();
 /// The window that was in front (the game), to give focus back on close.
 static PREV: Mutex<isize> = Mutex::new(0);
+/// A destroy of the menu window was requested and it hasn't gone yet.
+/// `destroy()` only queues it on the UI thread: until then the dying window
+/// is still returned by `get_webview_window`, and showing it would leave the
+/// menu flagged open with no page (presses ignored until the 5 s recovery).
+static UNLOADING: AtomicBool = AtomicBool::new(false);
+/// How long `open` waits for a dying window to go before giving up.
+const DESTROY_WAIT: Duration = Duration::from_secs(2);
 
 /// Freezes the video on the game, labelled "menu is open" (or resumes it).
 pub fn hold(app: &AppHandle, on: bool) {
@@ -83,7 +90,7 @@ pub fn toggle(app: &AppHandle) {
         log::warn!("menu page did not start; recreating it");
         hide(app, false);
         if let Some(w) = app.get_webview_window(LABEL) {
-            let _ = w.destroy();
+            destroy(&w);
         }
     }
     if OPEN.load(Ordering::Relaxed) {
@@ -114,17 +121,14 @@ fn open(app: &AppHandle) {
     // loop checks once per frame).
     hold(app, true);
     std::thread::sleep(std::time::Duration::from_millis(40));
-    let win = match app.get_webview_window(LABEL) {
-        Some(w) => w,
-        None => match create(app) {
-            Ok(w) => w,
-            Err(e) => {
-                log::error!("menu window: {e}");
-                // No menu after all: don't leave clips frozen on the card.
-                hold(app, false);
-                return;
-            }
-        },
+    let win = match window(app) {
+        Ok(w) => w,
+        Err(e) => {
+            log::error!("menu window: {e}");
+            // No menu after all: don't leave clips frozen on the card.
+            hold(app, false);
+            return;
+        }
     };
     let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     let r = unsafe {
@@ -140,6 +144,38 @@ fn open(app: &AppHandle) {
     GENERATION.fetch_add(1, Ordering::Relaxed);
     let _ = app.emit_to(LABEL, "menu://open", ());
     crate::settings::Settings::mark_onboarding(app, |o| &mut o.menu_opened);
+}
+
+/// The menu window to show: the existing one, or a new one once a window
+/// being destroyed is really gone. Waits, so never on the UI thread (which
+/// delivers the destruction); `open` runs on a hotkey thread.
+fn window(app: &AppHandle) -> anyhow::Result<WebviewWindow> {
+    if UNLOADING.load(Ordering::SeqCst) {
+        // Tauri drops the window from its list right before the Destroyed
+        // handlers run: once it is gone here, a new one can take its label.
+        let until = Instant::now() + DESTROY_WAIT;
+        while app.get_webview_window(LABEL).is_some() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if app.get_webview_window(LABEL).is_some() {
+            // The next press uses whatever window there is then.
+            UNLOADING.store(false, Ordering::SeqCst);
+            anyhow::bail!("the previous menu window is still closing");
+        }
+    }
+    match app.get_webview_window(LABEL) {
+        Some(w) => Ok(w),
+        None => Ok(create(app)?),
+    }
+}
+
+/// Destroys the menu window (asynchronously, see `UNLOADING`).
+fn destroy(w: &WebviewWindow) {
+    UNLOADING.store(true, Ordering::SeqCst);
+    if let Err(e) = w.destroy() {
+        log::warn!("menu window destroy: {e}");
+        UNLOADING.store(false, Ordering::SeqCst);
+    }
 }
 
 fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
@@ -171,7 +207,10 @@ fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
                 }
             });
         }
-        tauri::WindowEvent::Destroyed => READY.store(false, Ordering::Relaxed),
+        tauri::WindowEvent::Destroyed => {
+            READY.store(false, Ordering::Relaxed);
+            UNLOADING.store(false, Ordering::SeqCst);
+        }
         _ => {}
     });
     Ok(win)
@@ -246,7 +285,7 @@ fn unload_timer(app: AppHandle) {
                     // Still that hide, not a newer open or hide.
                     if GENERATION.load(Ordering::Relaxed) == generation && !OPEN.load(Ordering::Relaxed) {
                         if let Some(w) = app.get_webview_window(LABEL) {
-                            let _ = w.destroy();
+                            destroy(&w);
                         }
                     }
                 });

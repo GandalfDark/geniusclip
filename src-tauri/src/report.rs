@@ -1,7 +1,7 @@
 //! "Report a problem": a zip on the Desktop with the logs, the settings and a
 //! summary of the system, for attaching to a bug report. Reports end up in
-//! public issues, so the user's profile path and name are taken out of every
-//! file in it.
+//! public issues, so the user's profile path and name, the computer's name
+//! and a work OneDrive's organisation are taken out of every file in it.
 
 use crate::state::AppState;
 use anyhow::Context;
@@ -261,10 +261,14 @@ fn refresh_hz(device: &str) -> Option<u32> {
 // Privacy
 
 /// What identifies the user in logs and settings: the profile folder (in the
-/// spellings paths get in text) and the account name.
+/// spellings paths get in text, long and 8.3), the account and computer
+/// names, and the organisation in a work OneDrive folder's name. Audio
+/// device names stay (they matter for debugging); a user name in one is
+/// taken out like anywhere else.
 struct Privacy {
     profiles: Vec<String>,
-    names: Vec<String>,
+    /// Whole words and what replaces them, longest first.
+    words: Vec<(String, &'static str)>,
 }
 
 impl Privacy {
@@ -274,27 +278,41 @@ impl Privacy {
             .ok()
             .filter(|p| !p.is_empty())
             .or_else(|| known_folder(&FOLDERID_Profile).map(|p| p.to_string_lossy().into_owned()));
+        // Old tools, and paths that went through them, use the 8.3 spelling
+        // (C:\Users\IVANPE~1).
+        let short = profile.as_deref().and_then(short_path);
         let mut names: Vec<String> = std::env::var("USERNAME").ok().into_iter().collect();
         // The profile folder can be named differently (a renamed or Microsoft account).
-        if let Some(n) = profile.as_deref().and_then(|p| Path::new(p).file_name()) {
-            names.push(n.to_string_lossy().into_owned());
+        for p in [&profile, &short].into_iter().flatten() {
+            if let Some(n) = Path::new(p).file_name() {
+                names.push(n.to_string_lossy().into_owned());
+            }
         }
-        Privacy::new(profile.as_deref(), names)
+        let computers = std::env::var("COMPUTERNAME").ok().into_iter().collect();
+        Privacy::new(&[profile, short].into_iter().flatten().collect::<Vec<_>>(), names, computers)
     }
 
-    fn new(profile: Option<&str>, names: Vec<String>) -> Privacy {
-        let mut profiles = Vec::new();
-        if let Some(p) = profile.map(|p| p.trim_end_matches(['\\', '/'])).filter(|p| p.len() > 3) {
+    fn new(profiles: &[String], names: Vec<String>, computers: Vec<String>) -> Privacy {
+        let mut spellings = Vec::new();
+        for p in profiles.iter().map(|p| p.trim_end_matches(['\\', '/'])).filter(|p| p.len() > 3) {
             // As written in JSON and Rust's debug output, as is, and with slashes.
-            profiles.push(p.replace('\\', r"\\"));
-            profiles.push(p.to_string());
-            profiles.push(p.replace('\\', "/"));
+            spellings.push(p.replace('\\', r"\\"));
+            spellings.push(p.to_string());
+            spellings.push(p.replace('\\', "/"));
         }
-        let mut names: Vec<String> = names.into_iter().map(|n| n.trim().to_string()).filter(|n| n.chars().count() >= 2).collect();
-        // Longer first: "ivan.petrov" before "ivan".
-        names.sort_by_key(|n| std::cmp::Reverse(n.len()));
-        names.dedup_by(|a, b| a.to_lowercase() == b.to_lowercase());
-        Privacy { profiles, names }
+        let names = names.into_iter().map(|n| (n, "<user>"));
+        let computers = computers.into_iter().map(|n| (n, "<computer>"));
+        let mut words: Vec<(String, &'static str)> =
+            names.chain(computers).map(|(w, with)| (w.trim().to_string(), with)).filter(|(w, _)| w.chars().count() >= 2).collect();
+        // Longer first: "ivan.petrov" before "ivan", "IVAN-PC" before "ivan".
+        // Spellings of the same word end up side by side for the dedup; the
+        // sort is stable, so a user name that is also the computer's stays <user>.
+        words.sort_by_key(|(w, _)| {
+            let w = w.to_lowercase();
+            (std::cmp::Reverse(w.len()), w)
+        });
+        words.dedup_by(|a, b| a.0.to_lowercase() == b.0.to_lowercase());
+        Privacy { profiles: spellings, words }
     }
 
     fn clean(&self, text: &str) -> String {
@@ -302,11 +320,47 @@ impl Privacy {
         for p in &self.profiles {
             s = replace_word(&s, p, "%USERPROFILE%");
         }
-        for n in &self.names {
-            s = replace_word(&s, n, "<user>");
+        // Before the names: "<user>" would end the organisation's name early.
+        s = mask_onedrive_org(&s);
+        for (w, with) in &self.words {
+            s = replace_word(&s, w, with);
         }
         s
     }
+}
+
+/// The 8.3 spelling of an existing path, if it differs from `path`.
+fn short_path(path: &str) -> Option<String> {
+    use windows::Win32::Storage::FileSystem::GetShortPathNameW;
+    let mut buf = vec![0u16; 1024];
+    // 0 on failure, or the size needed when the buffer is too small.
+    let n = unsafe { GetShortPathNameW(&HSTRING::from(path), Some(&mut buf)) } as usize;
+    let short = (n > 0 && n < buf.len()).then(|| String::from_utf16_lossy(&buf[..n]))?;
+    (!short.trim_end_matches('\\').eq_ignore_ascii_case(path.trim_end_matches('\\'))).then_some(short)
+}
+
+/// "OneDrive - Contoso Ltd" (a work or school OneDrive folder, named after
+/// the organisation) becomes "OneDrive - <org>", in any case. The name runs
+/// to the end of the folder name: the first character Windows doesn't allow
+/// in one (path separators and quotes included).
+fn mask_onedrive_org(text: &str) -> String {
+    const PREFIX: &str = "onedrive - ";
+    // ASCII lowercasing keeps every byte offset.
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while let Some(at) = lower[i..].find(PREFIX) {
+        let start = i + at + PREFIX.len();
+        let len = text[start..].find(|c: char| c.is_control() || r#"<>:"/\|?*"#.contains(c)).unwrap_or(text.len() - start);
+        out.push_str(&text[i..start]);
+        // Empty for text cleaned before ("OneDrive - <org>").
+        if len > 0 {
+            out.push_str("<org>");
+        }
+        i = start + len;
+    }
+    out.push_str(&text[i..]);
+    out
 }
 
 /// `text` with every whole-word, case-insensitive occurrence of `find`
@@ -354,8 +408,8 @@ mod tests {
 
     #[test]
     fn profile_and_name_are_removed_everywhere() {
-        let p = Privacy::new(Some(r"C:\Users\Gandalf"), vec!["Gandalf".into(), "gandalf".into(), "G".into()]);
-        assert_eq!(p.names, vec!["Gandalf".to_string()]);
+        let p = Privacy::new(&[r"C:\Users\Gandalf".to_string()],vec!["Gandalf".into(), "gandalf".into(), "G".into()], vec![]);
+        assert_eq!(p.words, vec![("Gandalf".to_string(), "<user>")]);
         let log = r#"clips at c:\users\GANDALF\Videos\GeniusClip; "clipsDir": "C:\\Users\\Gandalf\\Videos", url file:///C:/Users/Gandalf/x.mp4, D:\Clips\Gandalf, Gandalfian"#;
         assert_eq!(
             p.clean(log),
@@ -365,6 +419,26 @@ mod tests {
         let json = r#"{"clipsDir":"C:\\Users\\Gandalf\\Videos\\GeniusClip"}"#;
         let v: serde_json::Value = serde_json::from_str(&p.clean(json)).unwrap();
         assert_eq!(v["clipsDir"], r"%USERPROFILE%\Videos\GeniusClip");
+    }
+
+    #[test]
+    fn short_path_computer_and_organisation_are_removed() {
+        let p = Privacy::new(
+            &[r"C:\Users\Ivan Petrov".to_string(), r"C:\Users\IVANPE~1".to_string()],
+            vec!["ivan".into(), "Ivan Petrov".into(), "IVANPE~1".into()],
+            vec!["DESKTOP-7Q2K".into(), "IVAN".into()],
+        );
+        // The same word as a user and a computer name counts as the user.
+        assert!(p.words.contains(&("ivan".to_string(), "<user>")) && !p.words.iter().any(|(w, _)| w == "IVAN"));
+        let log = r#"temp c:\users\ivanpe~1\AppData\Local\Temp\x; host desktop-7q2k (DESKTOP-7Q2Kx); "clipsDir": "C:\\Users\\Ivan Petrov\\OneDrive - Contoso, Ltd.\\Videos"; mic "Headset (Ivan's AirPods)""#;
+        assert_eq!(
+            p.clean(log),
+            r#"temp %USERPROFILE%\AppData\Local\Temp\x; host <computer> (DESKTOP-7Q2Kx); "clipsDir": "%USERPROFILE%\\OneDrive - <org>\\Videos"; mic "Headset (<user>'s AirPods)""#
+        );
+        // Cleaning twice changes nothing more.
+        assert_eq!(p.clean(&p.clean(log)), p.clean(log));
+        assert_eq!(mask_onedrive_org("d:/onedrive - Uni Köln/a, OneDrive - X"), "d:/onedrive - <org>/a, OneDrive - <org>");
+        assert_eq!(mask_onedrive_org("OneDrive\\Videos, OneDrive - "), "OneDrive\\Videos, OneDrive - ");
     }
 
     #[test]

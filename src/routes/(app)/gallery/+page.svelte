@@ -36,6 +36,20 @@
     return () => off.then((f) => f());
   });
   let origin = $state<Origin | null>(null);
+  // The open clip can drop out of the filtered grid (unstarred on the
+  // Favorites tab, renamed past the search): keep it in the viewer's list
+  // where it was, so prev/next and delete still work from there.
+  let lastIndex = 0;
+  let viewerList = $derived.by(() => {
+    if (!viewing) return list;
+    const i = list.findIndex((e) => e.path === viewing!.path);
+    if (i >= 0) {
+      lastIndex = i;
+      return list;
+    }
+    const at = Math.min(lastIndex, list.length);
+    return [...list.slice(0, at), viewing, ...list.slice(at)];
+  });
   function open(e: MediaEntry, rect: DOMRect, src: string | null) {
     origin = { rect, src };
     viewing = e;
@@ -120,7 +134,7 @@
 </div>
 
 {#if viewing}
-  <Viewer entry={viewing} {list} {origin} onclose={() => (viewing = null)} onselect={(e) => (viewing = e)} />
+  <Viewer entry={viewing} list={viewerList} {origin} onclose={() => (viewing = null)} onselect={(e) => (viewing = e)} />
 {/if}
 
 <style>

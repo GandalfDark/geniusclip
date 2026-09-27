@@ -72,6 +72,19 @@
     onclose();
   }
 
+  // Space plays/pauses, never clicks a button: after a mouse click focus stays
+  // on it, and Space would click it again (on "Delete? Sure" that deletes the
+  // clip). Buttons still work with Enter.
+  function onkey(e: KeyboardEvent) {
+    if (e.code !== 'Space' || e.defaultPrevented || !video) return;
+    const at = document.activeElement;
+    if (at === video) return; // the video's own controls handle it
+    if (at instanceof HTMLElement && at.matches('input, select, textarea, [role="slider"]')) return;
+    e.preventDefault();
+    video.focus({ preventScroll: true });
+    video.paused ? video.play() : video.pause();
+  }
+
   async function send() {
     try {
       await api.copyMedia([entry.path]);
@@ -97,6 +110,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={onkey} />
 
 <div class="stage">
   <div class="card" bind:this={card}>

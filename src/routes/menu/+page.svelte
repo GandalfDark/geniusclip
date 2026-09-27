@@ -57,7 +57,10 @@
   }
 
   /** Off screen: no playback, polling or library refreshes until the next open. */
+  /** Bumped whenever the backend hides the window. */
+  let hides = 0;
   function hidden() {
+    hides++;
     shown = false;
     playing = null;
     clearInterval(statsTimer);
@@ -97,7 +100,10 @@
       // First open: the window was created for it, so the event came too
       // early. Unless it was hidden again while starting up.
       if (!shown) {
-        if (await getCurrentWindow().isVisible().catch(() => true)) open();
+        const before = hides;
+        const visible = await getCurrentWindow().isVisible().catch(() => true);
+        // Hidden again while we asked: stay closed.
+        if (visible && hides === before) open();
         else app.mediaPaused = true;
       }
     })().catch((e) => console.error('menu start-up', e));

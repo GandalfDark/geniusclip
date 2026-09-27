@@ -217,32 +217,47 @@ impl Library {
             .collect();
         let known: Vec<PathBuf> = self.records.lock().keys().cloned().collect();
         let gone: Vec<PathBuf> = known.into_iter().filter(|p| !p.exists()).collect();
-        let mut changed = !fresh.is_empty();
-        {
-            let mut recs = self.records.lock();
-            for (path, rec) in fresh {
-                // add() may have indexed the same file meanwhile, with better metadata.
-                let rec = match recs.get(&path) {
-                    Some(r) if r.size == rec.size && r.modified == rec.modified => r.clone(),
-                    _ => {
-                        recs.insert(path.clone(), rec.clone());
-                        rec
-                    }
-                };
-                out.push(entry(&path, &rec));
-            }
-            // Forget files that disappeared (unless written again meanwhile).
-            for p in gone {
-                if !p.exists() && recs.remove(&p).is_some() {
-                    changed = true;
-                }
-            }
-        }
-        if changed {
+        if self.merge_probed(fresh, gone, &mut out) {
             self.persist();
         }
         out.sort_by(|a, b| b.modified.cmp(&a.modified));
         out
+    }
+
+    /// The locked end of a scan: indexes the records probed outside the lock
+    /// and forgets the files found gone; lists the entries in `out`. Returns
+    /// whether the index changed.
+    fn merge_probed(&self, fresh: Vec<(PathBuf, Record)>, gone: Vec<PathBuf>, out: &mut Vec<Entry>) -> bool {
+        let mut changed = false;
+        let mut recs = self.records.lock();
+        for (path, rec) in fresh {
+            // The file as it is now, checked under the lock: deletes, renames
+            // and replace-trims move the file before they update the index
+            // (forget, rename, add), so a file deleted or replaced during the
+            // probe is caught here and never comes back into the index.
+            let Some((size, modified)) = file_stamp(&path) else { continue };
+            // add() may have indexed the same file meanwhile, with better metadata.
+            let rec = match recs.get(&path) {
+                Some(r) if r.size == size && r.modified == modified => r.clone(),
+                // Changed during the probe (a replace-trim, a copy still being
+                // written): what was probed is outdated. Left out; add() or
+                // the next scan lists it.
+                _ if rec.size != size || rec.modified != modified => continue,
+                _ => {
+                    recs.insert(path.clone(), rec.clone());
+                    changed = true;
+                    rec
+                }
+            };
+            out.push(entry(&path, &rec));
+        }
+        // Forget files that disappeared (unless written again meanwhile).
+        for p in gone {
+            if !p.exists() && recs.remove(&p).is_some() {
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// What the index knows about a file (kind, game), without a folder scan.
@@ -586,6 +601,25 @@ mod tests {
         let other = root.join("c.png");
         std::fs::write(&other, b"x").unwrap();
         assert!(lib.set_favorite(&other, true).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn files_deleted_or_replaced_during_a_scan_are_not_indexed() {
+        let root = scratch("race");
+        let lib = Library::new(&root.join("data"), &root.join("cache"));
+        let (a, b, c) = (root.join("a.png"), root.join("b.png"), root.join("c.png"));
+        for p in [&a, &b, &c] {
+            std::fs::write(p, b"x").unwrap();
+        }
+        let probed: Vec<(PathBuf, Record)> = [&a, &b, &c].into_iter().map(|p| (p.clone(), lib.make_record(p, Kind::Screenshot, "").unwrap())).collect();
+        // While the probe ran: a deleted, b replaced by a different file.
+        std::fs::remove_file(&a).unwrap();
+        std::fs::write(&b, b"longer").unwrap();
+        let mut out = Vec::new();
+        assert!(lib.merge_probed(probed, Vec::new(), &mut out));
+        assert_eq!(out.iter().map(|e| &e.path).collect::<Vec<_>>(), vec![&c]);
+        assert!(lib.info(&a).is_none() && lib.info(&b).is_none() && lib.info(&c).is_some());
         let _ = std::fs::remove_dir_all(&root);
     }
 

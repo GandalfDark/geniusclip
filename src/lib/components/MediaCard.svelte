@@ -13,9 +13,11 @@
   let el: HTMLElement;
   let frame: HTMLElement;
   let fresh = $derived(!!app.fresh[entry.path]);
-  // Every library refresh hands over new entry objects; only a new path
-  // should reload the thumbnail (otherwise all cards blink).
+  // Every library refresh hands over new entry objects; only a new file
+  // should reload the thumbnail (otherwise all cards blink). A replace-trim
+  // keeps the path but changes the size and time.
   let path = $derived(entry.path);
+  let version = $derived(`${entry.path}|${entry.modified}|${entry.size}`);
   let fav = $derived(!!entry.favorite);
   // The star bounces when it's switched on by a click (not when it just shows up).
   let bounce = $state(false);
@@ -25,6 +27,7 @@
   }
 
   $effect(() => {
+    void version;
     const p = path;
     thumb = null;
     loaded = false;

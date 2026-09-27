@@ -57,6 +57,8 @@ class AppStore {
   #noticeId = 0;
   /** Favorite requests made per path, so an older answer can't win. */
   #favSeq: Record<string, number> = {};
+  /** The star state the newest pending click asked for, per path. */
+  #favWant: Record<string, boolean> = {};
 
   get settings(): Settings | null {
     return this.snapshot?.settings ?? null;
@@ -96,7 +98,9 @@ class AppStore {
         this.fresh[path] = true;
         setTimeout(() => delete this.fresh[path], 2200);
       }
-      if (c?.entry) this.#patch(c.path, c.entry);
+      // An event from an older star click must not undo a newer one.
+      const want = path ? this.#favWant[path] : undefined;
+      if (c?.entry) this.#patch(c.path, want === undefined ? c.entry : { ...c.entry, favorite: want });
       else this.refreshMedia();
     });
     await listen<UpdateInfo>('update://available', (e) => (this.update = e.payload));
@@ -123,6 +127,12 @@ class AppStore {
         if (seq !== this.#mediaSeq) return this.#mediaReq!;
         this.media = list;
         this.mediaLoaded = true;
+      })
+      // A failed listing keeps the current list; callers (after a rename or
+      // delete that did work) must not report it as their own failure.
+      .catch((e) => {
+        console.error('list media', e);
+        if (seq === this.#mediaSeq) this.mediaLoaded = true;
       });
     this.#mediaReq = req;
     return req;
@@ -141,13 +151,18 @@ class AppStore {
   async setFavorite(entry: MediaEntry, on: boolean) {
     const path = entry.path;
     const seq = (this.#favSeq[path] = (this.#favSeq[path] ?? 0) + 1);
+    this.#favWant[path] = on;
     const current = this.media.find((m) => m.path === path);
     if (current) this.#patch(path, { ...current, favorite: on });
     try {
       const updated = await api.setFavorite(path, on);
-      if (this.#favSeq[path] === seq) this.#patch(path, updated);
+      if (this.#favSeq[path] === seq) {
+        delete this.#favWant[path];
+        this.#patch(path, updated);
+      }
     } catch (e) {
       if (this.#favSeq[path] === seq) {
+        delete this.#favWant[path];
         const now = this.media.find((m) => m.path === path);
         if (now) this.#patch(path, { ...now, favorite: !on });
       }
