@@ -295,6 +295,8 @@
       list = [];
     };
     for (const line of String(body || '').split(/\r?\n/)) {
+      // Install help follows the notes on GitHub, after a "---" line.
+      if (/^\s*---\s*$/.test(line)) break;
       const m = line.match(/^\s*[-*•]\s+(.*)$/);
       if (m) list.push(m[1]);
       else {
