@@ -10,8 +10,9 @@
 
 use crate::overlay::{self, Toast};
 use crate::state::AppState;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
@@ -35,6 +36,11 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LOCK: Mutex<()> = Mutex::new(());
 /// The hidden menu's WebView (~100 MB) is freed after this long unused.
 const UNLOAD_AFTER: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// The pending unload: when, and the generation of the hide that asked for
+/// it. One timer thread serves every hide (a newer hide replaces it).
+static UNLOAD: Mutex<Option<(Instant, u64)>> = Mutex::new(None);
+static UNLOAD_CHANGED: Condvar = Condvar::new();
+static UNLOAD_TIMER: OnceLock<()> = OnceLock::new();
 /// The window that was in front (the game), to give focus back on close.
 static PREV: Mutex<isize> = Mutex::new(0);
 
@@ -199,21 +205,51 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
             hold(&h, false);
         }
     });
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(UNLOAD_AFTER);
-        let _guard = LOCK.lock();
-        if current() {
-            if let Some(w) = handle.get_webview_window(LABEL) {
-                let _ = w.destroy();
-            }
-        }
-    });
+    schedule_unload(app, generation);
     let prev = *PREV.lock();
     if restore_focus && prev != 0 {
         // On the UI thread, queued after the hide above.
         let _ = app.run_on_main_thread(move || unsafe {
             let _ = SetForegroundWindow(HWND(prev as _));
         });
+    }
+}
+
+/// Frees the menu's WebView after `UNLOAD_AFTER`, unless it is opened (or
+/// hidden again, which sets a new deadline) before then.
+fn schedule_unload(app: &AppHandle, generation: u64) {
+    *UNLOAD.lock() = Some((Instant::now() + UNLOAD_AFTER, generation));
+    UNLOAD_CHANGED.notify_one();
+    UNLOAD_TIMER.get_or_init(|| {
+        let app = app.clone();
+        if let Err(e) = std::thread::Builder::new().name("gc-menu-unload".into()).spawn(move || unload_timer(app)) {
+            log::warn!("menu unload timer: {e}");
+        }
+    });
+}
+
+fn unload_timer(app: AppHandle) {
+    let mut pending = UNLOAD.lock();
+    loop {
+        match *pending {
+            None => UNLOAD_CHANGED.wait(&mut pending),
+            Some((at, _)) if Instant::now() < at => {
+                UNLOAD_CHANGED.wait_until(&mut pending, at);
+            }
+            Some((_, generation)) => {
+                *pending = None;
+                // LOCK is taken with UNLOAD released: hide() takes them the
+                // other way round.
+                MutexGuard::unlocked(&mut pending, || {
+                    let _guard = LOCK.lock();
+                    // Still that hide, not a newer open or hide.
+                    if GENERATION.load(Ordering::Relaxed) == generation && !OPEN.load(Ordering::Relaxed) {
+                        if let Some(w) = app.get_webview_window(LABEL) {
+                            let _ = w.destroy();
+                        }
+                    }
+                });
+            }
+        }
     }
 }

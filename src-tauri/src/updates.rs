@@ -3,7 +3,8 @@
 
 use crate::state::AppState;
 use serde::Serialize;
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -31,21 +32,33 @@ pub async fn check(app: &AppHandle) -> anyhow::Result<Option<UpdateInfo>> {
     Ok(info)
 }
 
+/// `update://progress` events at most this often: download chunks arrive
+/// every few KB, and each event re-renders the UI.
+const PROGRESS_EVERY: Duration = Duration::from_millis(100);
+
 /// Downloads, stops capture (finalizing any recording) and runs the installer.
 /// On Windows the installer replaces the app and restarts it.
 pub async fn install(app: &AppHandle) -> anyhow::Result<()> {
     let Some(update) = app.updater()?.check().await? else { anyhow::bail!("no update available") };
     let handle = app.clone();
     let mut downloaded = 0usize;
+    let mut last_sent: Option<Instant> = None;
     let bytes = update
         .download(
             move |chunk, total| {
                 downloaded += chunk;
-                let _ = handle.emit("update://progress", (downloaded, total));
+                let done = total.is_some_and(|t| downloaded as u64 >= t);
+                if done || last_sent.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY) {
+                    last_sent = Some(Instant::now());
+                    let _ = handle.emit("update://progress", (downloaded, total));
+                }
             },
             || {},
         )
         .await?;
+    // The installer (or the restart below) relaunches with this process's
+    // arguments; see `take_show_after_update`.
+    mark_show_after_update(app);
     app.state::<AppState>().engine.shutdown();
     if let Err(e) = update.install(bytes) {
         // Capture is already shut down and can't be started again in this
@@ -56,20 +69,50 @@ pub async fn install(app: &AppHandle) -> anyhow::Result<()> {
     app.restart();
 }
 
+/// A marker that the user started an update from the main window.
+fn show_after_update_marker(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_local_data_dir().ok().map(|d| d.join("show-after-update"))
+}
+
+fn mark_show_after_update(app: &AppHandle) {
+    let Some(p) = show_after_update_marker(app) else { return };
+    let res = p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&p, b""));
+    if let Err(e) = res {
+        log::warn!("update marker: {e}");
+    }
+}
+
+/// The marker only counts this long after the install began, so an install
+/// that never relaunched doesn't open the window at some later boot.
+const MARKER_FRESH: Duration = Duration::from_secs(10 * 60);
+
+/// This start follows an update the user installed: show the main window
+/// even with `--autostart`. The updater relaunches the app with the
+/// arguments it was running with (tauri-plugin-updater passes them to the
+/// NSIS installer as `/ARGS`), so an app started with Windows would come
+/// back hidden in the tray. Consumes the marker.
+pub fn take_show_after_update(app: &AppHandle) -> bool {
+    let Some(p) = show_after_update_marker(app) else { return false };
+    let Ok(written) = std::fs::metadata(&p).and_then(|m| m.modified()) else { return false };
+    let _ = std::fs::remove_file(&p);
+    SystemTime::now().duration_since(written).is_ok_and(|age| age < MARKER_FRESH)
+}
+
 pub fn spawn_periodic(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        tokio_sleep(Duration::from_secs(15)).await;
+    // A plain sleeping thread: sleeping in spawn_blocking held a thread of
+    // the async runtime's blocking pool for six hours at a time.
+    let res = std::thread::Builder::new().name("gc-updates".into()).spawn(move || {
+        std::thread::sleep(Duration::from_secs(15));
         loop {
             if app.state::<AppState>().settings.read().auto_update {
-                if let Err(e) = check(&app).await {
+                if let Err(e) = tauri::async_runtime::block_on(check(&app)) {
                     log::info!("update check failed: {e:#}");
                 }
             }
-            tokio_sleep(Duration::from_secs(6 * 3600)).await;
+            std::thread::sleep(Duration::from_secs(6 * 3600));
         }
     });
-}
-
-async fn tokio_sleep(d: Duration) {
-    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d)).await;
+    if let Err(e) = res {
+        log::warn!("update checks: {e}");
+    }
 }

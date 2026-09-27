@@ -17,6 +17,62 @@ fn err(e: impl std::fmt::Display) -> String {
     format!("{e:#}")
 }
 
+/// Error codes for the usual, user-caused failures; the UI translates them.
+/// Any error string not starting with "err." is technical text, shown as is.
+/// The technical details of a coded error go to the log.
+pub mod code {
+    /// The file no longer exists.
+    pub const NOT_FOUND: &str = "err.not-found";
+    /// Not a media file inside the clips or screenshots folder.
+    pub const NOT_IN_LIBRARY: &str = "err.not-in-library";
+    /// Rename: another file already has that name.
+    pub const NAME_TAKEN: &str = "err.name-taken";
+    /// The file is open in another program.
+    pub const IN_USE: &str = "err.in-use";
+    /// Not enough free disk space.
+    pub const DISK_FULL: &str = "err.disk-full";
+    /// Trimming failed for another reason.
+    pub const TRIM_FAILED: &str = "err.trim-failed";
+    /// The clips or screenshots folder can't be created (drive gone, no access).
+    pub const FOLDER_UNAVAILABLE: &str = "err.folder-unavailable";
+    /// The settings were applied but could not be written to disk.
+    pub const SETTINGS_NOT_SAVED: &str = "err.settings-not-saved";
+}
+
+/// The code for a well-known file error, if it is one.
+fn io_code(e: &std::io::Error) -> Option<&'static str> {
+    use std::io::ErrorKind;
+    match (e.kind(), e.raw_os_error()) {
+        (ErrorKind::NotFound, _) => Some(code::NOT_FOUND),
+        // ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL
+        (ErrorKind::StorageFull, _) | (_, Some(39 | 112)) => Some(code::DISK_FULL),
+        // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+        (_, Some(32 | 33)) => Some(code::IN_USE),
+        _ => None,
+    }
+}
+
+/// The first I/O error in an error chain.
+fn io_cause(e: &anyhow::Error) -> Option<&std::io::Error> {
+    e.chain().find_map(|c| c.downcast_ref::<std::io::Error>())
+}
+
+/// Logs a failed operation on a library file and returns what the UI shows:
+/// a code when the file is gone or open elsewhere or the disk is full, else
+/// the technical message.
+fn file_failed(what: &str, path: &Path, e: &dyn std::fmt::Display, cause: Option<&std::io::Error>) -> String {
+    log::warn!("{what} {}: {e:#}", path.display());
+    if let Some(c) = cause.and_then(io_code) {
+        c.into()
+    } else if !path.exists() {
+        code::NOT_FOUND.into()
+    } else if crate::library::is_locked(path) {
+        code::IN_USE.into()
+    } else {
+        format!("{e:#}")
+    }
+}
+
 /// Runs blocking work (COM, D3D, FFmpeg, the engine lock) on a worker thread:
 /// Tauri runs synchronous commands on the UI thread.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
@@ -126,10 +182,17 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
     let mut new = settings;
     new.validate(app);
     for d in [&new.clips_dir, &new.screenshots_dir] {
-        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+        std::fs::create_dir_all(d).map_err(|e| {
+            log::warn!("media folder {}: {e}", d.display());
+            code::FOLDER_UNAVAILABLE.to_string()
+        })?;
     }
     *st.settings.write() = new.clone();
-    new.save(app).map_err(err)?;
+    // Reported only after the side effects below: the new values are live
+    // either way, and the next update compares against them, so skipping
+    // the side effects here would lose them for good (resending the same
+    // values would be a no-op). Resending does retry the save.
+    let saved = new.save(app);
 
     if old.engine != new.engine || old.replay_seconds != new.replay_seconds {
         let h = app.clone();
@@ -157,6 +220,11 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
     }
     crate::tray::refresh(app);
     crate::emit_settings(app);
+    if let Err(e) = saved {
+        log::error!("settings.json: {e:#}");
+        let full = io_cause(&e).and_then(io_code) == Some(code::DISK_FULL);
+        return Err(if full { code::DISK_FULL } else { code::SETTINGS_NOT_SAVED }.into());
+    }
     Ok(new)
 }
 
@@ -225,17 +293,25 @@ pub async fn thumbnail(app: AppHandle, path: PathBuf) -> CmdResult<PathBuf> {
 /// clip), not other files (opening an .exe runs it), and not URLs or other
 /// strings FFmpeg would read as a protocol.
 fn check_media_path(st: &AppState, p: &Path) -> CmdResult<()> {
-    let denied = || "path is outside the media folders".to_string();
+    let denied = || code::NOT_IN_LIBRARY.to_string();
     // Absolute means a drive or UNC path, never "proto:…".
     if !p.is_absolute() || !crate::library::is_media(p) {
         return Err(denied());
     }
-    let file = std::fs::canonicalize(p).map_err(|_| denied())?;
+    let (clips, shots) = {
+        let s = st.settings.read();
+        (s.clips_dir.clone(), s.screenshots_dir.clone())
+    };
+    let Ok(file) = std::fs::canonicalize(p) else {
+        // Gone (deleted or moved outside the app). Said only for paths in
+        // the media folders, so it can't be used to probe the whole disk.
+        let listed = [&clips, &shots].iter().any(|d| p.starts_with(d));
+        return Err(if listed { code::NOT_FOUND.into() } else { denied() });
+    };
     if !file.is_file() {
         return Err(denied());
     }
-    let s = st.settings.read();
-    let inside = [&s.clips_dir, &s.screenshots_dir].iter().any(|d| std::fs::canonicalize(d).is_ok_and(|d| file.starts_with(d)));
+    let inside = [&clips, &shots].iter().any(|d| std::fs::canonicalize(d).is_ok_and(|d| file.starts_with(d)));
     if inside {
         Ok(())
     } else {
@@ -244,15 +320,18 @@ fn check_media_path(st: &AppState, p: &Path) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub fn delete_media(st: State<'_, AppState>, path: PathBuf) -> CmdResult<()> {
+pub fn delete_media(app: AppHandle, path: PathBuf) -> CmdResult<()> {
+    let st = app.state::<AppState>();
     check_media_path(&st, &path)?;
-    trash::delete(&path).map_err(err)?;
+    trash::delete(&path).map_err(|e| file_failed("delete", &path, &e, None))?;
     st.library.forget(&path);
+    crate::emit_library_changed(&app, &path, None, true);
     Ok(())
 }
 
 #[tauri::command]
-pub fn rename_media(st: State<'_, AppState>, path: PathBuf, name: String) -> CmdResult<PathBuf> {
+pub fn rename_media(app: AppHandle, path: PathBuf, name: String) -> CmdResult<PathBuf> {
+    let st = app.state::<AppState>();
     check_media_path(&st, &path)?;
     let clean = geniusclip_engine::game::sanitize(&name);
     let ext = path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
@@ -264,10 +343,13 @@ pub fn rename_media(st: State<'_, AppState>, path: PathBuf, name: String) -> Cmd
     // the new name finds the file itself, which is not a conflict.
     let same_file = || std::fs::canonicalize(&to).ok() == std::fs::canonicalize(&path).ok();
     if to.exists() && !same_file() {
-        return Err("a file with this name already exists".into());
+        return Err(code::NAME_TAKEN.into());
     }
-    std::fs::rename(&path, &to).map_err(err)?;
+    std::fs::rename(&path, &to).map_err(|e| file_failed("rename", &path, &e, Some(&e)))?;
     st.library.rename(&path, &to);
+    crate::emit_library_changed(&app, &path, None, true);
+    let entry = st.library.entry(&to);
+    crate::emit_library_changed(&app, &to, entry.as_ref(), false);
     Ok(to)
 }
 
@@ -294,7 +376,8 @@ pub async fn clip_audio(app: AppHandle, path: PathBuf) -> CmdResult<ClipAudio> {
         }
         // The mix track is rebuilt from the game and mic tracks, so it is never shown.
         let skip: &[usize] = if mix { &[0] } else { &[] };
-        let (files, peaks) = app.state::<AppState>().library.clip_audio(&path, titles.len(), skip).map_err(err)?;
+        let (files, peaks) =
+            app.state::<AppState>().library.clip_audio(&path, titles.len(), skip).map_err(|e| file_failed("clip audio", &path, &e, io_cause(&e)))?;
         Ok(ClipAudio { titles, mix, files, peaks })
     })
     .await
@@ -315,26 +398,50 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
             out = path.with_file_name(format!("{stem} ({suffix} {n}).mp4"));
             n += 1;
         }
-        let meta = st.library.scan(&st.settings.read().clone()).into_iter().find(|e| e.path == path);
-        let (kind, game) = meta.map(|e| (e.kind, e.game)).unwrap_or((Kind::Clip, String::new()));
-        match gains.filter(|g| g.iter().any(|&x| (x - 1.0).abs() > 0.005)) {
+        // From the index; a folder scan (only for a file not indexed yet)
+        // runs on a copy of the settings, not under their lock.
+        let (kind, game) = st.library.info(&path).unwrap_or_else(|| {
+            let settings = st.settings.read().clone();
+            let meta = st.library.scan(&settings).into_iter().find(|e| e.path == path);
+            meta.map(|e| (e.kind, e.game)).unwrap_or((Kind::Clip, String::new()))
+        });
+        let trimmed = match gains.filter(|g| g.iter().any(|&x| (x - 1.0).abs() > 0.005)) {
             Some(g) => geniusclip_engine::remix::trim_with_gains(&path, &out, start, end, &g),
             None => media::trim(&path, &out, start, end),
-        }
-        .map_err(|e| {
+        };
+        if let Err(e) = trimmed {
+            // Checked before the partial output is removed, which frees the space again.
+            let full = crate::library::disk_nearly_full(&out) || io_cause(&e).and_then(io_code) == Some(code::DISK_FULL);
             let _ = std::fs::remove_file(&out);
-            err(e)
-        })?;
+            log::warn!("trim {}: {e:#}", path.display());
+            return Err(if full { code::DISK_FULL } else { code::TRIM_FAILED }.into());
+        }
         let final_path = if replace {
-            trash::delete(&path).map_err(err)?;
-            std::fs::rename(&out, &path).map_err(err)?;
+            if let Err(e) = trash::delete(&path) {
+                // The original stays as it was (usually open in another
+                // program): drop the trimmed copy rather than leave it
+                // behind under a name the user never asked for.
+                let _ = std::fs::remove_file(&out);
+                return Err(file_failed("trim: delete original", &path, &e, None));
+            }
             st.library.forget(&path);
-            path.clone()
+            match std::fs::rename(&out, &path) {
+                Ok(()) => path.clone(),
+                Err(e) => {
+                    // The original is in the recycle bin already: keep the
+                    // trimmed copy under its own name instead of losing it.
+                    log::warn!("trim: replace {}: {e}", path.display());
+                    crate::emit_library_changed(&app, &path, None, true);
+                    out
+                }
+            }
         } else {
             out
         };
         st.library.expect(&final_path, kind, &game);
-        Ok(st.library.add(&final_path))
+        let entry = st.library.add(&final_path);
+        crate::emit_library_changed(&app, &final_path, entry.as_ref(), false);
+        Ok(entry)
     })
     .await
     .map_err(err)?
@@ -503,4 +610,21 @@ pub fn preview_toast(app: AppHandle) {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn io_errors_map_to_codes() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(io_code(&Error::from_raw_os_error(32)), Some(code::IN_USE));
+        assert_eq!(io_code(&Error::from_raw_os_error(112)), Some(code::DISK_FULL));
+        assert_eq!(io_code(&Error::from(ErrorKind::NotFound)), Some(code::NOT_FOUND));
+        assert_eq!(io_code(&Error::from_raw_os_error(5)), None);
+        let chained = anyhow::Error::from(Error::from(ErrorKind::StorageFull)).context("extract");
+        assert_eq!(io_cause(&chained).and_then(io_code), Some(code::DISK_FULL));
+        assert!([code::NOT_FOUND, code::IN_USE, code::DISK_FULL, code::NAME_TAKEN].iter().all(|c| c.starts_with("err.")));
+    }
 }

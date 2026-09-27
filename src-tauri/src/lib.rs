@@ -96,6 +96,13 @@ pub fn sync_autostart(app: &AppHandle, on: bool) {
     }
 }
 
+/// Lets the webviews load files from the media folders (asset protocol).
+///
+/// Folders that are no longer configured stay allowed until the app restarts:
+/// tauri's asset scope (2.11) can only add allowed or forbidden paths, never
+/// remove one, and a forbidden path wins over any later allow, so forbidding
+/// an old folder would break playback if the user picked it (or a folder
+/// containing it) again.
 pub fn allow_media_dirs(app: &AppHandle) {
     let st = app.state::<AppState>();
     let s = st.settings.read();
@@ -106,13 +113,35 @@ pub fn allow_media_dirs(app: &AppHandle) {
     let _ = scope.allow_directory(st.library.thumbs_dir(), true);
 }
 
+/// `library://changed` payload, sent to every window when a library file is
+/// added, changed or removed, so lists can be patched without a rescan:
+///
+/// `{ path: string, entry: MediaEntry | null, removed: boolean }`
+///
+/// - saved, trimmed or renamed-to: `entry` is the file's new listing (upsert
+///   it by `path`), `removed` is false;
+/// - deleted or renamed-from: `entry` is null, `removed` is true;
+/// - `entry` null and `removed` false: the file could not be read; rescan.
+///
+/// A rename sends two events: the old path removed, then the new entry.
+#[derive(Clone, serde::Serialize)]
+struct LibraryChange<'a> {
+    path: &'a Path,
+    entry: Option<&'a library::Entry>,
+    removed: bool,
+}
+
+pub fn emit_library_changed(app: &AppHandle, path: &Path, entry: Option<&library::Entry>, removed: bool) {
+    let _ = app.emit("library://changed", LibraryChange { path, entry, removed });
+}
+
 fn media_saved(app: &AppHandle, path: &Path, kind: &str, seconds: f64) {
     let st = app.state::<AppState>();
     let entry = st.library.add(path);
     let game = entry.as_ref().map(|e| e.game.clone()).unwrap_or_default();
     let seconds = entry.as_ref().map(|e| e.duration).filter(|d| *d > 0.0).unwrap_or(seconds);
     overlay::toast(app, Toast { kind: kind.into(), game, seconds, ..Default::default() });
-    let _ = app.emit("library://changed", &entry);
+    emit_library_changed(app, path, entry.as_ref(), false);
     tray::refresh(app);
 }
 
@@ -202,7 +231,11 @@ pub fn run() {
                 }
             });
 
-            if !std::env::args().any(|a| a == "--autostart") {
+            // Started with Windows: stay in the tray. Unless this start comes
+            // from an update the user installed, which relaunches with the
+            // original arguments, `--autostart` included.
+            let after_update = updates::take_show_after_update(&handle);
+            if after_update || !std::env::args().any(|a| a == "--autostart") {
                 show_main(&handle);
             }
             updates::spawn_periodic(handle.clone());
