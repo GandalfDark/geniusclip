@@ -91,6 +91,13 @@
   }
 
   let video = $state<HTMLVideoElement | null>(null);
+  /** The built-in player couldn't decode this clip. */
+  let playError = $state(false);
+  function onVideoError(e: Event) {
+    const v = e.currentTarget as HTMLVideoElement;
+    playError = true;
+    api.logPlaybackError(entry.path, v.error?.code ?? 0, v.error?.message ?? '').catch(() => {});
+  }
   let current = $state(0);
   let total = $state(0);
   let start = $state(0);
@@ -122,6 +129,7 @@
 
   $effect(() => {
     entry.path;
+    playError = false;
     trimming = false;
     renaming = false;
     confirmDelete = false;
@@ -585,11 +593,18 @@
     {#key entry.path}
       {#if isVideo}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={video} src={fileUrl(entry.path)} crossorigin="anonymous" controls autoplay bind:currentTime={current} onloadedmetadata={loaded}></video>
+        <video bind:this={video} src={fileUrl(entry.path)} crossorigin="anonymous" controls autoplay bind:currentTime={current} onloadedmetadata={loaded} onerror={onVideoError}></video>
       {:else}
         <img src={fileUrl(entry.path)} alt={entry.name} />
       {/if}
     {/key}
+    {#if playError}
+      <div class="playerr">
+        <Icon name="alert" size={22} />
+        <p>{app.t('player.error')}</p>
+        <button class="btn primary" onclick={() => api.openPath(entry.path)}>{app.t('player.openExternal')}</button>
+      </div>
+    {/if}
     {#if index < list.length - 1}
       <button class="nav next" disabled={busy} onclick={() => go(1)} aria-label={app.t('gallery.next')}><Icon name="right" size={20} /></button>
     {/if}
@@ -777,6 +792,25 @@
     height: 20px;
     background: var(--line-2);
     margin: 0 6px;
+  }
+  /* The built-in player can't decode this file (codec missing on this PC). */
+  .playerr {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-2);
+    background: rgba(10, 10, 12, 0.85);
+  }
+  .playerr p {
+    margin: 0;
+    max-width: 420px;
+    font-size: 14px;
   }
   .stage {
     position: relative;

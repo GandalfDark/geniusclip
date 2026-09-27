@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'Kopiert',
   'gallery.pasteHint': 'Clip kopiert. In einen Chat einfügen: Strg+V',
   'gallery.reveal': 'Im Ordner zeigen',
+  'player.error': 'Dieser Clip lässt sich im eingebauten Player nicht abspielen',
+  'player.openExternal': 'Im Windows-Player öffnen',
   'gallery.open': 'Im Player öffnen',
   'gallery.rename': 'Umbenennen',
   'gallery.delete': 'Löschen',

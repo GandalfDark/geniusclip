@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'Skopiowano',
   'gallery.pasteHint': 'Klip skopiowany. Wklej na czacie: Ctrl+V',
   'gallery.reveal': 'Pokaż w folderze',
+  'player.error': 'Tego klipu nie da się odtworzyć we wbudowanym odtwarzaczu',
+  'player.openExternal': 'Otwórz w odtwarzaczu Windows',
   'gallery.open': 'Otwórz w odtwarzaczu',
   'gallery.rename': 'Zmień nazwę',
   'gallery.delete': 'Usuń',

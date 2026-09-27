@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'Көшірілді',
   'gallery.pasteHint': 'Клип көшірілді. Чатқа қойыңыз: Ctrl+V',
   'gallery.reveal': 'Қалтадан көрсету',
+  'player.error': 'Бұл клип кіріктірілген ойнатқышта ойнатылмайды',
+  'player.openExternal': 'Windows ойнатқышында ашу',
   'gallery.open': 'Плеерде ашу',
   'gallery.rename': 'Атын өзгерту',
   'gallery.delete': 'Жою',

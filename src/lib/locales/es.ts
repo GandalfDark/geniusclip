@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'Copiado',
   'gallery.pasteHint': 'Clip copiado. Pégalo en un chat: Ctrl+V',
   'gallery.reveal': 'Mostrar en carpeta',
+  'player.error': 'Este clip no se puede reproducir en el reproductor integrado',
+  'player.openExternal': 'Abrir en el reproductor de Windows',
   'gallery.open': 'Abrir en reproductor',
   'gallery.rename': 'Renombrar',
   'gallery.delete': 'Eliminar',

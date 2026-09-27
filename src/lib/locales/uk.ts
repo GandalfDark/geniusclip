@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'Скопійовано',
   'gallery.pasteHint': 'Кліп скопійовано. Вставте в чат: Ctrl+V',
   'gallery.reveal': 'Показати в папці',
+  'player.error': 'Цей кліп не відтворюється у вбудованому плеєрі',
+  'player.openExternal': 'Відкрити в плеєрі Windows',
   'gallery.open': 'Відкрити в плеєрі',
   'gallery.rename': 'Перейменувати',
   'gallery.delete': 'Видалити',

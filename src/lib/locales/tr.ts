@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'Kopyalandı',
   'gallery.pasteHint': 'Klip kopyalandı. Sohbete yapıştır: Ctrl+V',
   'gallery.reveal': 'Klasörde göster',
+  'player.error': 'Bu klip dahili oynatıcıda oynatılamıyor',
+  'player.openExternal': 'Windows oynatıcısında aç',
   'gallery.open': 'Oynatıcıda aç',
   'gallery.rename': 'Yeniden adlandır',
   'gallery.delete': 'Sil',

@@ -66,12 +66,20 @@ export function ago(ms: number, lang: Lang): string {
 }
 
 /** "Alt+Shift+KeyA" → ["Alt", "Shift", "A"] for display. */
+const NUMPAD: Record<string, string> = { Add: '+', Subtract: '−', Multiply: '*', Divide: '/', Decimal: '.' };
+
 export function hotkeyParts(accel: string): string[] {
   if (!accel) return [];
   return accel.split('+').map((p) =>
     p
       .replace(/^Key([A-Z])$/, '$1')
       .replace(/^Digit(\d)$/, '$1')
+      .replace(/^Numpad(\d)$/, 'Num $1')
+      .replace(/^Numpad(Add|Subtract|Multiply|Divide|Decimal)$/, (_, k: string) => `Num ${NUMPAD[k]}`)
+      .replace(/^PageUp$/, 'PgUp')
+      .replace(/^PageDown$/, 'PgDn')
+      .replace(/^ScrollLock$/, 'Scroll Lock')
+      .replace(/^PrintScreen$/, 'PrtSc')
       .replace(/^Control$/, 'Ctrl')
       .replace(/^Super$/, 'Win'),
   );

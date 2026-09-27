@@ -85,6 +85,13 @@
     video.paused ? video.play() : video.pause();
   }
 
+  /** The built-in player couldn't decode this clip. */
+  let playError = $state(false);
+  function onVideoError() {
+    playError = true;
+    api.logPlaybackError(entry.path, video?.error?.code ?? 0, video?.error?.message ?? '').catch(() => {});
+  }
+
   async function send() {
     try {
       await api.copyMedia([entry.path]);
@@ -132,7 +139,14 @@
         autoplay
         controlslist="nofullscreen nodownload noremoteplayback"
         disablepictureinpicture
+        onerror={onVideoError}
       ></video>
+      {#if playError}
+        <div class="playerr">
+          <p>{app.t('player.error')}</p>
+          <button class="btn primary" onclick={() => api.openPath(entry.path)}>{app.t('player.openExternal')}</button>
+        </div>
+      {/if}
     </div>
     <div class="actions">
       <button class="btn primary" onclick={send}><Icon name={copied ? 'check' : 'send'} size={16} />{app.t('gallery.send')}</button>
@@ -229,6 +243,23 @@
     height: 100%;
     object-fit: contain;
     outline: none;
+  }
+  .playerr {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text-2);
+    background: rgba(10, 10, 12, 0.85);
+  }
+  .playerr p {
+    margin: 0;
   }
   video.hidden {
     opacity: 0;

@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': '已复制',
   'gallery.pasteHint': '片段已复制。粘贴到聊天：Ctrl+V',
   'gallery.reveal': '在文件夹中显示',
+  'player.error': '内置播放器无法播放此剪辑',
+  'player.openExternal': '在 Windows 播放器中打开',
   'gallery.open': '在播放器中打开',
   'gallery.rename': '重命名',
   'gallery.delete': '删除',

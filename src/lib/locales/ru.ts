@@ -56,6 +56,8 @@ export const strings = {
   'gallery.copied': 'Скопировано',
   'gallery.pasteHint': 'Клип скопирован. Вставьте в чат: Ctrl+V',
   'gallery.reveal': 'Показать в папке',
+  'player.error': 'Этот клип не воспроизводится во встроенном плеере',
+  'player.openExternal': 'Открыть в плеере Windows',
   'gallery.open': 'Открыть в плеере',
   'gallery.rename': 'Переименовать',
   'gallery.delete': 'Удалить',

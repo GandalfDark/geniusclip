@@ -132,11 +132,13 @@ fn open(app: &AppHandle) {
             return;
         }
     };
-    let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-    let r = unsafe {
-        let _ = GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTOPRIMARY), &mut info);
+    let r = capture_monitor_rect(app).unwrap_or_else(|| {
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        unsafe {
+            let _ = GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTOPRIMARY), &mut info);
+        }
         info.rcMonitor
-    };
+    });
     // Wake the page first: queued on the UI thread ahead of the show and of
     // menu://open, so the event never waits in a suspended renderer.
     set_asleep(&win, false);
@@ -219,6 +221,18 @@ fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         _ => {}
     });
     Ok(win)
+}
+
+/// The recorded monitor's rectangle: the menu opens over the game being
+/// captured (whose video it freezes), not on whichever monitor has focus.
+fn capture_monitor_rect(app: &AppHandle) -> Option<windows::Win32::Foundation::RECT> {
+    let wanted = app.state::<AppState>().settings.read().engine.monitor.clone();
+    let monitors = crate::monitors::list();
+    let m = wanted
+        .as_deref()
+        .and_then(|id| monitors.iter().find(|m| m.id == id))
+        .or_else(|| monitors.iter().find(|m| m.primary))?;
+    Some(windows::Win32::Foundation::RECT { left: m.x, top: m.y, right: m.x + m.width as i32, bottom: m.y + m.height as i32 })
 }
 
 /// The foreground window belongs to GeniusClip (the menu itself).

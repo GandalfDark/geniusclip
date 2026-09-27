@@ -23,6 +23,8 @@ export const api = {
     invoke<MediaEntry | null>('trim_media', { path, start, end, replace, gains }),
   clipAudio: (path: string) => invoke<ClipAudio>('clip_audio', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),
+  /** Logs a built-in player failure with the file's format (for problem reports). */
+  logPlaybackError: (path: string, code: number, message: string) => invoke<void>('log_playback_error', { path, code, message }),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   openMediaDir: (screenshots: boolean) => invoke<void>('open_media_dir', { screenshots }),
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),

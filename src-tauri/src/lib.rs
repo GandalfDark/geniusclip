@@ -324,6 +324,7 @@ pub fn run() {
             commands::trim_media,
             commands::clip_audio,
             commands::media_info,
+            commands::log_playback_error,
             commands::open_path,
             commands::reveal_path,
             commands::open_media_dir,

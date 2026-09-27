@@ -534,6 +534,23 @@ pub async fn make_report(app: AppHandle) -> CmdResult<String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// The built-in player couldn't play a clip (e.g. a codec WebView2 can't
+/// decode on this PC): logged with the file's format for problem reports.
+#[tauri::command]
+pub async fn log_playback_error(app: AppHandle, path: PathBuf, code: u32, message: String) {
+    let _ = blocking(move || {
+        let format = check_media_path(&app.state::<AppState>(), &path)
+            .ok()
+            .and_then(|_| media::probe(&path).ok())
+            .map(|i| format!("{} {}x{} {:.0} fps, {} audio tracks", i.video_codec, i.width, i.height, i.fps, i.audio_tracks))
+            .unwrap_or_else(|| "unknown format".into());
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let message: String = message.chars().take(200).collect();
+        log::warn!("built-in player failed (MediaError {code}: {message}) on {name}: {format}");
+    })
+    .await;
+}
+
 #[tauri::command]
 pub async fn media_info(app: AppHandle, path: PathBuf) -> CmdResult<media::MediaInfo> {
     blocking(move || {

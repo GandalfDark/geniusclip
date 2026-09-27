@@ -35,6 +35,7 @@
   let nameId = $derived(label ? `${id}-name` : row?.label);
 
   const MODS = ['Control', 'Alt', 'Shift', 'Meta'];
+  const SOLO = /^(F\d{1,2}|Numpad(\d|Add|Subtract|Multiply|Divide|Decimal)|Insert|Home|End|PageUp|PageDown|Pause|ScrollLock|PrintScreen)$/;
 
   // Capture phase on window runs before any other key handler, so Esc here
   // cancels the rebinding without also closing the menu or the viewer.
@@ -66,8 +67,10 @@
     if (e.altKey) mods.push('Alt');
     if (e.shiftKey) mods.push('Shift');
     if (e.metaKey) mods.push('Super');
-    const isF = /^F\d{1,2}$/.test(e.code);
-    if (!mods.length && !isF) return; // plain letters would fire while typing in games/chat
+    // Keys that don't type text work alone (numpad, F-keys, Insert, Home…);
+    // letters, digits and the like need a modifier, or they'd fire while
+    // typing in a game's chat.
+    if (!mods.length && !SOLO.test(e.code)) return;
     onchange([...mods, e.code].join('+'));
     listening = false;
   }

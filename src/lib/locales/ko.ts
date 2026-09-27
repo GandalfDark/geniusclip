@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': '복사됨',
   'gallery.pasteHint': '클립을 복사했어요. 채팅에 붙여넣기: Ctrl+V',
   'gallery.reveal': '폴더에서 보기',
+  'player.error': '내장 플레이어에서 이 클립을 재생할 수 없어요',
+  'player.openExternal': 'Windows 플레이어로 열기',
   'gallery.open': '플레이어로 열기',
   'gallery.rename': '이름 바꾸기',
   'gallery.delete': '삭제',

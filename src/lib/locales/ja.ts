@@ -56,6 +56,8 @@ const locale: Locale = {
   'gallery.copied': 'コピーしました',
   'gallery.pasteHint': 'クリップをコピーしました。チャットに貼り付け：Ctrl+V',
   'gallery.reveal': 'フォルダーで表示',
+  'player.error': 'このクリップは内蔵プレーヤーで再生できません',
+  'player.openExternal': 'Windows のプレーヤーで開く',
   'gallery.open': 'プレーヤーで開く',
   'gallery.rename': '名前を変更',
   'gallery.delete': '削除',
