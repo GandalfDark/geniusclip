@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': '閉じる — Esc',
     'menu.shot': 'スクショ',
     'menu.settings': '設定',
+    'menu.play': '再生',
+    'menu.trimInApp': 'アプリでトリミング',
     'set.memWarn': 'バッファがメモリ {total} のうち {mem} を使います。多めです',
     'set.memWarnFix': 'ディスクに保存',
     'set.pauseOnBattery': 'バッテリー駆動時は一時停止',

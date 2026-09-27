@@ -12,6 +12,8 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import HotkeyInput from '$lib/components/HotkeyInput.svelte';
+  import MenuPlayer, { type PlayerOrigin } from '$lib/components/MenuPlayer.svelte';
+  import { easeOut, reduced } from '$lib/motion';
   import { api, fileUrl } from '$lib/api';
   import { app } from '$lib/app.svelte';
   import { ago, bytes, duration } from '$lib/format';
@@ -19,7 +21,11 @@
   import type { TKey } from '$lib/i18n';
 
   let shown = $state(false);
-  let view = $state<'clips' | 'settings'>('clips');
+  // Settings are a page of their own that replaces the main one.
+  let page = $state<'main' | 'settings'>('main');
+  let playing = $state<MediaEntry | null>(null);
+  let playerOrigin = $state<PlayerOrigin | null>(null);
+  let player = $state<ReturnType<typeof MenuPlayer> | null>(null);
   let stats = $state<SystemStats | null>(null);
   let thumbs = $state<Record<string, string>>({});
   let copied = $state<string | null>(null);
@@ -36,7 +42,8 @@
   }
 
   function open() {
-    view = 'clips';
+    page = 'main';
+    playing = null;
     shown = true;
     app.refreshMedia();
     pollStats();
@@ -49,6 +56,7 @@
     if (closing || !shown) return;
     closing = true;
     shown = false;
+    playing = null;
     clearInterval(statsTimer);
     await new Promise((r) => setTimeout(r, 220));
     await api.menuClose().catch(() => {});
@@ -56,7 +64,17 @@
   }
 
   onMount(() => {
-    const offs = [listen('menu://open', open), listen('menu://close', close)];
+    const offs = [
+      listen('menu://open', open),
+      listen('menu://close', close),
+      // Hidden without the page asking (focus went to the game): stop
+      // playback and polling until the next open.
+      listen('menu://hidden', () => {
+        shown = false;
+        playing = null;
+        clearInterval(statsTimer);
+      }),
+    ];
     (async () => {
       if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
         (await import('$lib/mock')).installMock();
@@ -101,6 +119,23 @@
     setTimeout(() => (shotFlash = false), 1200);
   }
 
+  function play(m: MediaEntry, e: MouseEvent) {
+    const img = (e.currentTarget as HTMLElement).closest('.clip')?.querySelector<HTMLImageElement>('.thumb img');
+    playerOrigin = img?.src ? { rect: img.getBoundingClientRect(), src: img.src } : null;
+    playing = m;
+  }
+
+  // Esc and clicks on the game close the player first, then the menu.
+  function back() {
+    if (playing) player?.close();
+    else close();
+  }
+
+  function slide(_node: Element, { x }: { x: number }) {
+    if (reduced()) return { duration: 0 };
+    return { duration: 240, easing: easeOut, css: (t: number, u: number) => `opacity:${t};transform:translateX(${u * x}px)` };
+  }
+
   async function send(m: MediaEntry) {
     try {
       await api.copyMedia([m.path]);
@@ -134,114 +169,118 @@
             run: () => app.change((x) => (x.engine.micMuted = !x.engine.micMuted), 0),
           },
           { icon: 'replay', label: app.t('menu.replay'), on: s.replayEnabled, alert: !s.replayEnabled, run: () => api.setReplay(!s.replayEnabled) },
-          { icon: 'sliders', label: app.t('menu.settings'), on: view === 'settings', run: () => (view = view === 'settings' ? 'clips' : 'settings') },
+          { icon: 'sliders', label: app.t('menu.settings'), run: () => (page = 'settings') },
         ]
       : [],
   );
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && close()} />
+<svelte:window onkeydown={(e) => e.key === 'Escape' && back()} />
 
 <div class="menu" class:shown>
-  <div class="dim" onclick={close} role="presentation"></div>
+  <div class="dim" onclick={back} role="presentation"></div>
   {#if s && st}
     <aside class="panel">
-      <header>
-        <Logo size={30} />
-        <span class="name">GeniusClip</span>
-        <span class="status" class:off={!s.replayEnabled}><i></i>{app.t(s.replayEnabled ? 'menu.replayOn' : 'menu.replayOff')}</span>
-      </header>
+      {#if page === 'main'}
+        <div class="page" in:slide={{ x: -28 }}>
+          <header>
+            <Logo size={30} />
+            <span class="name">GeniusClip</span>
+            <span class="status" class:off={!s.replayEnabled}><i></i>{app.t(s.replayEnabled ? 'menu.replayOn' : 'menu.replayOff')}</span>
+          </header>
 
-      <button class="save on-accent" class:saved={savedFlash} disabled={!s.replayEnabled} onclick={() => api.saveClip()}>
-        <Icon name={savedFlash ? 'check' : 'clapper'} size={19} stroke={1.9} />
-        <span>{app.t(savedFlash ? 'home.saved' : 'home.saveClip')}</span>
-        {#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
-      </button>
-
-      <div class="actions">
-        {#each actions as a (a.label)}
-          <button class="act" class:on={a.on} class:alert={a.alert} onclick={a.run} title={a.label}>
-            <Icon name={a.icon} size={20} />
-            <span>{a.label}</span>
+          <button class="save on-accent" class:saved={savedFlash} disabled={!s.replayEnabled} onclick={() => api.saveClip()}>
+            <Icon name={savedFlash ? 'check' : 'clapper'} size={19} stroke={1.9} />
+            <span>{app.t(savedFlash ? 'home.saved' : 'home.saveClip')}</span>
+            {#if s.hotkeys.saveClip}<Keys variant="chip" accel={s.hotkeys.saveClip} />{/if}
           </button>
-        {/each}
-      </div>
 
-      {#if view === 'clips'}
-        <section class="list">
-          <h4>{app.t('menu.recent')}</h4>
-          {#if recent.length === 0}
-            <p class="empty">{app.t('menu.empty')}</p>
-          {/if}
-          {#each recent as m (m.path)}
-            <div class="clip" class:fresh={app.fresh[m.path]}>
-              <button class="thumb" onclick={() => api.openInApp('gallery', m.path)} title={app.t('menu.open')}>
-                {#if thumbs[m.path]}<img src={thumbs[m.path]} alt="" />{/if}
-                <span class="dur mono">{duration(m.duration)}</span>
+          <div class="actions">
+            {#each actions as a (a.label)}
+              <button class="act" class:on={a.on} class:alert={a.alert} onclick={a.run} title={a.label}>
+                <Icon name={a.icon} size={20} />
+                <span>{a.label}</span>
               </button>
-              <div class="meta">
-                <b>{m.game || m.name}</b>
-                <span>{ago(m.modified, app.lang)} · {bytes(m.size, app.lang)}</span>
+            {/each}
+          </div>
+
+          <section class="list">
+            <h4>{app.t('menu.recent')}</h4>
+            {#if recent.length === 0}
+              <p class="empty">{app.t('menu.empty')}</p>
+            {/if}
+            {#each recent as m (m.path)}
+              <div class="clip" class:fresh={app.fresh[m.path]} class:playing={playing?.path === m.path} data-path={m.path}>
+                <button class="thumb" onclick={(e) => play(m, e)} title={app.t('menu.play')}>
+                  {#if thumbs[m.path]}<img src={thumbs[m.path]} alt="" />{/if}
+                  <span class="dur mono">{duration(m.duration)}</span>
+                </button>
+                <div class="meta">
+                  <b>{m.game || m.name}</b>
+                  <span>{ago(m.modified, app.lang)} · {bytes(m.size, app.lang)}</span>
+                </div>
+                <div class="tools">
+                  <button title={app.t('gallery.send')} onclick={() => send(m)}><Icon name={copied === m.path ? 'check' : 'send'} size={16} /></button>
+                  <button title={app.t('menu.play')} onclick={(e) => play(m, e)}><Icon name="open" size={16} /></button>
+                  <button title={app.t('gallery.reveal')} onclick={() => api.revealPath(m.path)}><Icon name="folder" size={16} /></button>
+                </div>
               </div>
-              <div class="tools">
-                <button title={app.t('gallery.send')} onclick={() => send(m)}><Icon name={copied === m.path ? 'check' : 'send'} size={16} /></button>
-                <button title={app.t('menu.open')} onclick={() => api.openInApp('gallery', m.path)}><Icon name="open" size={16} /></button>
-                <button title={app.t('gallery.reveal')} onclick={() => api.revealPath(m.path)}><Icon name="folder" size={16} /></button>
-              </div>
-            </div>
-          {/each}
-        </section>
+            {/each}
+          </section>
+        </div>
       {:else}
-        <section class="list quick">
-          <h4>
-            <button class="back" onclick={() => (view = 'clips')} title={app.t('menu.back')}><Icon name="left" size={16} /></button>
-            {app.t('nav.settings')}
-          </h4>
-          <div class="q">
-            <span>{app.t('set.length')}</span>
-            <Slider
-              value={s.replaySeconds}
-              min={60}
-              max={s.engine.diskBuffer ? 3600 : 1200}
-              step={30}
-              format={minutes}
-              width="100%"
-              onchange={(v) => app.change((x) => (x.replaySeconds = v), 600)}
-            />
-          </div>
-          <div class="q">
-            <span>{app.t('set.quality')}</span>
-            <Segmented
-              value={s.engine.quality}
-              onchange={(v) => app.change((x) => (x.engine.quality = v))}
-              options={(['low', 'medium', 'high', 'ultra'] as const).map((q) => ({ value: q, label: app.t(`set.q.${q}`) }))}
-            />
-          </div>
-          <div class="q">
-            <span>{app.t('menu.gameVolume')}</span>
-            <Slider value={Math.round(s.engine.systemVolume * 100)} min={0} max={200} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.systemVolume = v / 100), 300)} />
-          </div>
-          <div class="q">
-            <span>{app.t('menu.micVolume')}</span>
-            <Slider value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 300)} />
-          </div>
-          <div class="q row">
-            <span>{app.t('set.noise')}</span>
-            <Switch checked={s.engine.noiseSuppression} onchange={(v) => app.change((x) => (x.engine.noiseSuppression = v), 0)} />
-          </div>
-          <div class="q row">
-            <span>{app.t('set.overlayEnabled')}</span>
-            <Switch checked={s.overlay.enabled} onchange={(v) => app.change((x) => (x.overlay.enabled = v), 0)} />
-          </div>
-          <h5>{app.t('set.hotkeys')}</h5>
-          {#each hkRows as r (r.key)}
-            <div class="q row hk">
-              <span>{app.t(r.label)}</span>
-              <HotkeyInput value={s.hotkeys[r.key]} conflict={app.hotkeyErrors.includes(r.key)} onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)} />
+        <div class="page" in:slide={{ x: 28 }}>
+          <header class="sub">
+            <button class="back" onclick={() => (page = 'main')} title={app.t('menu.back')}><Icon name="left" size={18} /></button>
+            <span class="name">{app.t('nav.settings')}</span>
+          </header>
+          <section class="list quick">
+            <div class="q">
+              <span>{app.t('set.length')}</span>
+              <Slider
+                value={s.replaySeconds}
+                min={60}
+                max={s.engine.diskBuffer ? 3600 : 1200}
+                step={30}
+                format={minutes}
+                width="100%"
+                onchange={(v) => app.change((x) => (x.replaySeconds = v), 600)}
+              />
             </div>
-          {/each}
-          <button class="all" onclick={() => api.openInApp('settings')}>{app.t('menu.allSettings')}<Icon name="right" size={15} /></button>
-        </section>
+            <div class="q">
+              <span>{app.t('set.quality')}</span>
+              <Segmented
+                value={s.engine.quality}
+                onchange={(v) => app.change((x) => (x.engine.quality = v))}
+                options={(['low', 'medium', 'high', 'ultra'] as const).map((q) => ({ value: q, label: app.t(`set.q.${q}`) }))}
+              />
+            </div>
+            <div class="q">
+              <span>{app.t('menu.gameVolume')}</span>
+              <Slider value={Math.round(s.engine.systemVolume * 100)} min={0} max={200} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.systemVolume = v / 100), 300)} />
+            </div>
+            <div class="q">
+              <span>{app.t('menu.micVolume')}</span>
+              <Slider value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 300)} />
+            </div>
+            <div class="q row">
+              <span>{app.t('set.noise')}</span>
+              <Switch checked={s.engine.noiseSuppression} onchange={(v) => app.change((x) => (x.engine.noiseSuppression = v), 0)} />
+            </div>
+            <div class="q row">
+              <span>{app.t('set.overlayEnabled')}</span>
+              <Switch checked={s.overlay.enabled} onchange={(v) => app.change((x) => (x.overlay.enabled = v), 0)} />
+            </div>
+            <h5>{app.t('set.hotkeys')}</h5>
+            {#each hkRows as r (r.key)}
+              <div class="q row hk">
+                <span>{app.t(r.label)}</span>
+                <HotkeyInput value={s.hotkeys[r.key]} conflict={app.hotkeyErrors.includes(r.key)} onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)} />
+              </div>
+            {/each}
+            <button class="all" onclick={() => api.openInApp('settings')}>{app.t('menu.allSettings')}<Icon name="right" size={15} /></button>
+          </section>
+        </div>
       {/if}
 
       <footer>
@@ -254,7 +293,13 @@
         </div>
       </footer>
     </aside>
-    <span class="hint">{app.t('menu.close')}</span>
+    {#if playing}
+      {#key playing.path}
+        <MenuPlayer bind:this={player} entry={playing} origin={playerOrigin} onclose={() => (playing = null)} />
+      {/key}
+    {:else}
+      <span class="hint">{app.t('menu.close')}</span>
+    {/if}
   {/if}
 </div>
 
@@ -403,6 +448,27 @@
   .act.alert {
     color: var(--danger);
   }
+  .page {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  header.sub {
+    gap: 8px;
+    padding: 18px 16px 12px;
+  }
+  header.sub .back {
+    width: 34px;
+    height: 34px;
+    margin: 0;
+    border-radius: 10px;
+    background: var(--hover);
+  }
+  .clip.playing {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
   .list {
     position: relative;
     flex: 1;
@@ -410,6 +476,9 @@
     overflow-y: auto;
     padding: 6px 12px 12px;
     border-top: 1px solid var(--line);
+  }
+  .quick {
+    padding-top: 2px;
   }
   h4 {
     display: flex;

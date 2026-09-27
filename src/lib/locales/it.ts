@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': 'Chiudi — Esc',
     'menu.shot': 'Cattura',
     'menu.settings': 'Opzioni',
+    'menu.play': 'Guarda',
+    'menu.trimInApp': 'Taglia nell’app',
     'set.memWarn': 'Il buffer occuperà {mem} su {total} di memoria — è tanto',
     'set.memWarnFix': 'Tienilo su disco',
     'set.pauseOnBattery': 'Pausa a batteria',

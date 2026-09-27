@@ -179,6 +179,8 @@ export const strings = {
   'menu.close': 'Закрыть — Esc',
   'menu.shot': 'Скриншот',
   'menu.settings': 'Настройки',
+  'menu.play': 'Смотреть',
+  'menu.trimInApp': 'Обрезать в программе',
   'set.memWarn': 'Буфер займёт {mem} из {total} памяти — это много',
   'set.memWarnFix': 'Хранить на диске',
   'set.pauseOnBattery': 'Пауза на батарее',

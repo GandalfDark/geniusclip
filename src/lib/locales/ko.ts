@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': '닫기 — Esc',
     'menu.shot': '스크린샷',
     'menu.settings': '설정',
+    'menu.play': '보기',
+    'menu.trimInApp': '앱에서 자르기',
     'set.memWarn': '버퍼가 메모리 {total} 중 {mem} 사용 — 많은 편이에요',
     'set.memWarnFix': '디스크에 보관',
     'set.pauseOnBattery': '배터리 사용 시 일시 정지',

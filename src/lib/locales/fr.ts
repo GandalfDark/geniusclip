@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': 'Fermer — Esc',
     'menu.shot': 'Capture',
     'menu.settings': 'Réglages',
+    'menu.play': 'Regarder',
+    'menu.trimInApp': 'Couper dans l’app',
     'set.memWarn': 'Le tampon occupera {mem} sur {total} de mémoire — c’est beaucoup',
     'set.memWarnFix': 'Le garder sur le disque',
     'set.pauseOnBattery': 'Pause sur batterie',

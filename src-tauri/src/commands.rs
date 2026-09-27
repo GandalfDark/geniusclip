@@ -351,8 +351,10 @@ static PENDING_OPEN: parking_lot::Mutex<Option<PathBuf>> = parking_lot::Mutex::n
 
 /// From the in-game menu: show the main window on a page, optionally with a
 /// clip open in the viewer (picked up by the gallery via `take_pending_open`).
+// Async: it may create the main window, which deadlocks when done from a
+// synchronous command on Windows.
 #[tauri::command]
-pub fn open_in_app(app: AppHandle, route: String, path: Option<PathBuf>) {
+pub async fn open_in_app(app: AppHandle, route: String, path: Option<PathBuf>) {
     *PENDING_OPEN.lock() = path;
     crate::menu::hide(&app, false);
     crate::show_main_at(&app, Some(&route));

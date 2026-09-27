@@ -179,6 +179,8 @@ const locale: Locale = {
   'menu.close': 'Жабу — Esc',
   'menu.shot': 'Скриншот',
   'menu.settings': 'Баптаулар',
+  'menu.play': 'Көру',
+  'menu.trimInApp': 'Бағдарламада қию',
   'set.memWarn': 'Буфер {total} жадтың {mem} көлемін алады — бұл көп',
   'set.memWarnFix': 'Дискіде сақтау',
   'set.pauseOnBattery': 'Батареяда кідірту',

@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': 'Close — Esc',
     'menu.shot': 'Screenshot',
     'menu.settings': 'Settings',
+    'menu.play': 'Watch',
+    'menu.trimInApp': 'Trim in the app',
     'set.memWarn': 'The buffer will take {mem} of {total} memory — that’s a lot',
     'set.memWarnFix': 'Keep it on disk',
     'set.pauseOnBattery': 'Pause on battery',

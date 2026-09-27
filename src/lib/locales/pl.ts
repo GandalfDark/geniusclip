@@ -179,6 +179,8 @@ const locale: Locale = {
   'menu.close': 'Zamknij — Esc',
   'menu.shot': 'Zrzut',
   'menu.settings': 'Opcje',
+  'menu.play': 'Obejrzyj',
+  'menu.trimInApp': 'Przytnij w aplikacji',
   'set.memWarn': 'Bufor zajmie {mem} z {total} pamięci — to dużo',
   'set.memWarnFix': 'Trzymaj na dysku',
   'set.pauseOnBattery': 'Pauza na baterii',

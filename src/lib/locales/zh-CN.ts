@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': '关闭 — Esc',
     'menu.shot': '截图',
     'menu.settings': '设置',
+    'menu.play': '观看',
+    'menu.trimInApp': '在应用中剪辑',
     'set.memWarn': '缓冲将占用 {mem}（共 {total} 内存），占用较多',
     'set.memWarnFix': '改存到磁盘',
     'set.pauseOnBattery': '使用电池时暂停',

@@ -179,6 +179,8 @@ const locale: Locale = {
   'menu.close': 'Закрити — Esc',
   'menu.shot': 'Скриншот',
   'menu.settings': 'Параметри',
+  'menu.play': 'Дивитися',
+  'menu.trimInApp': 'Обрізати в програмі',
   'set.memWarn': 'Буфер займе {mem} із {total} пам’яті — це багато',
   'set.memWarnFix': 'Зберігати на диску',
   'set.pauseOnBattery': 'Пауза на батареї',

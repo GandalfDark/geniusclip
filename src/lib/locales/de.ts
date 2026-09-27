@@ -179,6 +179,8 @@ const locale: Locale = {
     'menu.close': 'Schließen – Esc',
     'menu.shot': 'Foto',
     'menu.settings': 'Optionen',
+    'menu.play': 'Ansehen',
+    'menu.trimInApp': 'In der App schneiden',
     'set.memWarn': 'Der Puffer belegt {mem} von {total} RAM — das ist viel',
     'set.memWarnFix': 'Auf Festplatte auslagern',
     'set.pauseOnBattery': 'Pause im Akkubetrieb',

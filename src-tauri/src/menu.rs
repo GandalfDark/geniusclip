@@ -102,6 +102,8 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.hide();
     }
+    // The page stops the player and stats polling while hidden.
+    let _ = app.emit_to(LABEL, "menu://hidden", ());
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     let handle = app.clone();
     std::thread::spawn(move || {

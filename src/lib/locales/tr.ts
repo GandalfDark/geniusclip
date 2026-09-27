@@ -179,6 +179,8 @@ const locale: Locale = {
   'menu.close': 'Kapat — Esc',
   'menu.shot': 'Görüntü',
   'menu.settings': 'Ayarlar',
+  'menu.play': 'İzle',
+  'menu.trimInApp': 'Uygulamada kırp',
   'set.memWarn': 'Arabellek {total} belleğin {mem} kadarını kaplayacak — bu çok fazla',
   'set.memWarnFix': 'Diskte tut',
   'set.pauseOnBattery': 'Pilde duraklat',
