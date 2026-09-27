@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use windows::core::Interface;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -221,13 +222,17 @@ impl Engine {
         me
     }
 
-    /// Restarts a crashed pipeline (GPU reset, driver update…) after a pause.
+    /// Restarts a crashed pipeline (GPU reset, driver update…) after a pause,
+    /// and keeps retrying while replay wants capture but it failed to start
+    /// (monitor not listed yet after unlock, init timeout…).
     fn spawn_supervisor(&self) -> JoinHandle<()> {
         let (state, shared, events, alive) = (self.state.clone(), self.shared.clone(), self.events.clone(), self.alive.clone());
         std::thread::Builder::new()
             .name("gc-supervisor".into())
             .spawn(move || {
-                let mut last_restart = Instant::now() - Duration::from_secs(60);
+                let mut last_start = Instant::now() - Duration::from_secs(60);
+                // Starting keeps failing; logged once until it works again.
+                let mut failing = false;
                 while alive.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(500));
                     let mut st = state.lock();
@@ -235,7 +240,8 @@ impl Engine {
                         break;
                     }
                     let dead = st.pipeline.as_ref().is_some_and(|p| !p.is_alive());
-                    if dead && last_restart.elapsed() > Duration::from_secs(3) {
+                    let died = dead && last_start.elapsed() > Duration::from_secs(3);
+                    if died {
                         let err = shared.failed.lock().take().unwrap_or_else(|| "capture stopped".into());
                         log::warn!("pipeline died: {err}; restarting");
                         events(EngineEvent::Error { message: err.clone() });
@@ -243,13 +249,37 @@ impl Engine {
                         if let Some(p) = st.pipeline.take() {
                             p.shutdown();
                         }
-                        last_restart = Instant::now();
-                        let want = (st.replay_enabled && !st.paused) || shared.recorder.lock().is_some();
-                        if want {
-                            if let Err(e) = start_pipeline(&mut st, &shared) {
+                        // The recording cannot go on in a new pipeline: save it.
+                        finish_recording(&shared, &events);
+                    }
+                    let want = st.replay_enabled && !st.paused;
+                    if st.pipeline.is_some() || !want {
+                        failing = false;
+                    }
+                    let retry = want && st.pipeline.is_none() && (died || last_start.elapsed() > Duration::from_secs(5));
+                    if retry {
+                        match start_pipeline(&mut st, &shared, &events) {
+                            Ok(()) => {
+                                if failing {
+                                    log::info!("capture started");
+                                }
+                                failing = false;
+                                // A crash's reason stays visible; an earlier start error is stale now.
+                                if !died {
+                                    st.last_error = None;
+                                }
+                            }
+                            Err(e) => {
+                                if !failing {
+                                    log::warn!("capture failed to start, retrying every 5 s: {e:#}");
+                                }
+                                failing = true;
                                 st.last_error = Some(format!("{e:#}"));
                             }
                         }
+                        last_start = Instant::now();
+                    }
+                    if died || retry {
                         drop(st);
                         events(EngineEvent::Status(Engine::status_of(&state, &shared)));
                     }
@@ -273,11 +303,16 @@ impl Engine {
             return Ok(());
         }
         st.cfg = cfg;
-        let res = if st.pipeline.is_some() {
-            if let Some(p) = st.pipeline.take() {
-                p.shutdown();
+        let res = if let Some(p) = st.pipeline.take() {
+            p.shutdown();
+            // A recording ends with its pipeline (see `start_pipeline`), so
+            // capture only restarts if replay still needs it.
+            finish_recording(&self.shared, &self.events);
+            if st.replay_enabled && !st.paused {
+                start_pipeline(&mut st, &self.shared, &self.events)
+            } else {
+                Ok(())
             }
-            start_pipeline(&mut st, &self.shared)
         } else {
             Ok(())
         };
@@ -313,7 +348,7 @@ impl Engine {
             Ok(())
         } else if st.replay_enabled && st.pipeline.is_none() {
             log::info!("capture resumed");
-            start_pipeline(&mut st, &self.shared)
+            start_pipeline(&mut st, &self.shared, &self.events)
         } else {
             Ok(())
         };
@@ -329,7 +364,7 @@ impl Engine {
         self.shared.replay_on.store(on, Ordering::Relaxed);
         let res = if on {
             if st.pipeline.is_none() && !st.paused {
-                start_pipeline(&mut st, &self.shared)
+                start_pipeline(&mut st, &self.shared, &self.events)
             } else {
                 Ok(())
             }
@@ -443,8 +478,15 @@ impl Engine {
         if self.shared.recorder.lock().is_some() {
             bail!("already recording");
         }
+        // A pipeline that just died is about to be restarted, which would end
+        // the recording at once: replace it now instead.
+        if st.pipeline.as_ref().is_some_and(|p| !p.is_alive()) {
+            if let Some(p) = st.pipeline.take() {
+                p.shutdown();
+            }
+        }
         if st.pipeline.is_none() {
-            let r = start_pipeline(&mut st, &self.shared);
+            let r = start_pipeline(&mut st, &self.shared, &self.events);
             self.after_change(&mut st, r)?;
         }
         let streams = st.pipeline.as_ref().unwrap().streams.clone();
@@ -458,21 +500,18 @@ impl Engine {
     }
 
     pub fn stop_recording(&self) -> Result<()> {
-        let rec = self.shared.recorder.lock().take();
-        let Some((rec, _)) = rec else { bail!("not recording") };
+        if !finish_recording(&self.shared, &self.events) {
+            bail!("not recording");
+        }
         {
+            // Capture keeps running only for an active (not paused) replay.
             let mut st = self.state.lock();
-            if !st.replay_enabled {
+            if !st.replay_enabled || st.paused {
                 if let Some(p) = st.pipeline.take() {
                     p.shutdown();
                 }
             }
         }
-        let events = self.events.clone();
-        std::thread::Builder::new().name("gc-rec-finish".into()).spawn(move || match rec.stop() {
-            Ok(path) => events(EngineEvent::RecordingSaved { path }),
-            Err(e) => events(EngineEvent::RecordingFailed { error: format!("{e:#}") }),
-        })?;
         self.emit_status();
         Ok(())
     }
@@ -551,7 +590,26 @@ impl Drop for Engine {
     }
 }
 
-fn start_pipeline(st: &mut State, shared: &Arc<Shared>) -> Result<()> {
+/// Ends the live recording, if any; the file is finished in the background,
+/// then `RecordingSaved` or `RecordingFailed` follows. False if none ran.
+fn finish_recording(shared: &Shared, events: &EventSink) -> bool {
+    let Some((rec, _)) = shared.recorder.lock().take() else { return false };
+    let events = events.clone();
+    let spawned = std::thread::Builder::new().name("gc-rec-finish".into()).spawn(move || match rec.stop() {
+        Ok(path) => events(EngineEvent::RecordingSaved { path }),
+        Err(e) => events(EngineEvent::RecordingFailed { error: format!("{e:#}") }),
+    });
+    // Unlikely; dropping the recorder still finishes the file.
+    if let Err(e) = spawned {
+        log::error!("finish recording: {e}");
+    }
+    true
+}
+
+fn start_pipeline(st: &mut State, shared: &Arc<Shared>, events: &EventSink) -> Result<()> {
+    // Packet times restart at the new pipeline's t0 and its streams may
+    // differ, so a recording from the previous one cannot continue.
+    finish_recording(shared, events);
     let cfg = st.cfg.clone();
     let t0 = clock::now_us();
     let stop = Arc::new(AtomicBool::new(false));
@@ -754,6 +812,7 @@ fn video_thread(
     let dev2 = device.clone();
     let mut make_tex = move |w, h| create_texture(&dev2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, bind);
     let mut desktop: Option<ID3D11Texture2D> = None;
+    let mut desktop_raw = None;
     let mut composed: Option<ID3D11Texture2D> = None;
     let mut input: Option<ID3D11Texture2D> = None;
     // The labelled copy of the last frame while holding.
@@ -815,6 +874,13 @@ fn video_thread(
                 }
                 Poll::Idle | Poll::Lost => {}
             }
+            // A restarted duplication copies into a new desktop texture; the
+            // converter's cached view would keep the old one alive (VRAM).
+            let raw = desktop.as_ref().map(|t| t.as_raw());
+            if raw != desktop_raw {
+                desktop_raw = raw;
+                conv.reset_inputs();
+            }
         }
         mark(0, &mut lap, &mut prof);
 
@@ -854,21 +920,29 @@ fn video_thread(
 
         mark(1, &mut lap, &mut prof);
         if let Some(inp) = held.as_ref().or(input.as_ref()) {
-            let (frame, surf, slice) = pool.acquire()?;
-            conv.convert(inp, &surf, slice).context("convert")?;
-            mark(2, &mut lap, &mut prof);
-            let force = shared.force_key.load(Ordering::Relaxed);
-            match enc_tx.try_send((frame, tick, force)) {
-                Ok(()) => {
-                    if force {
-                        shared.force_key.store(false, Ordering::Relaxed);
+            // Only this thread sends, so a full queue stays full until the
+            // encoder takes a frame: this one would be dropped, skip its GPU work.
+            let sent = if enc_tx.is_full() {
+                false
+            } else {
+                let (frame, surf, slice) = pool.acquire()?;
+                conv.convert(inp, &surf, slice).context("convert")?;
+                mark(2, &mut lap, &mut prof);
+                let force = shared.force_key.load(Ordering::Relaxed);
+                match enc_tx.try_send((frame, tick, force)) {
+                    Ok(()) => {
+                        if force {
+                            shared.force_key.store(false, Ordering::Relaxed);
+                        }
+                        true
                     }
+                    Err(crossbeam_channel::TrySendError::Full(_)) => false,
+                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
                 }
-                Err(crossbeam_channel::TrySendError::Full(_)) => {
-                    queue_drops += 1;
-                    shared.dropped.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
+            };
+            if !sent {
+                queue_drops += 1;
+                shared.dropped.fetch_add(1, Ordering::Relaxed);
             }
             mark(3, &mut lap, &mut prof);
             prof_n += 1;

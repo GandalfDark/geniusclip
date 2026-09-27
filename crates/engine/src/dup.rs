@@ -8,9 +8,14 @@ use crate::cursor::{convert_shape, CursorState};
 use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 use windows::core::Interface;
+use windows::Win32::Foundation::E_ACCESSDENIED;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::*;
+
+/// Duplication failing for this long means the output itself is gone
+/// (unplugged, Win+P): `poll` then fails so capture starts over.
+const GIVE_UP_AFTER: Duration = Duration::from_secs(5);
 
 pub struct Duplicator {
     device: ID3D11Device,
@@ -19,6 +24,8 @@ pub struct Duplicator {
     pub width: u32,
     pub height: u32,
     next_retry: Instant,
+    /// When duplication started failing (None while it works).
+    lost_since: Option<Instant>,
     shape_buf: Vec<u8>,
 }
 
@@ -43,6 +50,7 @@ impl Duplicator {
             width: (r.right - r.left) as u32,
             height: (r.bottom - r.top) as u32,
             next_retry: Instant::now(),
+            lost_since: None,
             shape_buf: Vec::new(),
         };
         if let Err(e) = me.start() {
@@ -84,8 +92,12 @@ impl Duplicator {
             }
             if let Err(e) = self.start() {
                 log::debug!("duplication retry failed: {e:#}");
-                self.next_retry = Instant::now() + Duration::from_millis(500);
-                return Ok(Poll::Lost);
+                // The secure desktop (UAC prompt, lock screen) denies access
+                // for as long as it is shown: that is not a lost output.
+                if e.downcast_ref::<windows::core::Error>().is_some_and(|w| w.code() == E_ACCESSDENIED) {
+                    self.lost_since = None;
+                }
+                return self.lost(e, Duration::from_millis(500));
             }
             *dst = None;
         }
@@ -95,13 +107,14 @@ impl Duplicator {
         let mut res: Option<IDXGIResource> = None;
         match unsafe { dup.AcquireNextFrame(0, &mut info, &mut res) } {
             Ok(()) => {}
-            Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(Poll::Idle),
+            Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => {
+                self.lost_since = None;
+                return Ok(Poll::Idle);
+            }
             Err(e) => {
                 // ACCESS_LOST (mode switch, fullscreen transition, UAC) or similar: recreate.
                 log::info!("duplication lost: {e}");
-                self.dup = None;
-                self.next_retry = Instant::now() + Duration::from_millis(100);
-                return Ok(Poll::Lost);
+                return self.lost(e.into(), Duration::from_millis(100));
             }
         }
 
@@ -156,6 +169,28 @@ impl Duplicator {
         unsafe {
             let _ = dup.ReleaseFrame();
         }
-        result
+        match result {
+            Ok(p) => {
+                self.lost_since = None;
+                Ok(p)
+            }
+            // Pointer shape or frame copy failed: recover like a lost
+            // duplication rather than ending capture (and the replay buffer).
+            Err(e) => {
+                log::warn!("desktop frame failed: {e:#}");
+                self.lost(e, Duration::from_millis(100))
+            }
+        }
+    }
+
+    /// Drops the duplication so the next poll after `retry` recreates it;
+    /// fails once it has been failing for `GIVE_UP_AFTER`.
+    fn lost(&mut self, e: anyhow::Error, retry: Duration) -> Result<Poll> {
+        self.dup = None;
+        self.next_retry = Instant::now() + retry;
+        if self.lost_since.get_or_insert_with(Instant::now).elapsed() > GIVE_UP_AFTER {
+            return Err(e.context("desktop duplication keeps failing"));
+        }
+        Ok(Poll::Lost)
     }
 }

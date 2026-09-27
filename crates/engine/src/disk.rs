@@ -13,12 +13,19 @@ use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
 const FILE_ATTRIBUTE_NOT_CONTENT_INDEXED: u32 = 0x0000_2000;
 
 /// A new segment is started after this many bytes (≈ 15 s at 32 Mbit/s).
 const SEGMENT_BYTES: u64 = 64 << 20;
+/// After a write error the disk is tried again this much later.
+const RETRY_AFTER: Duration = Duration::from_secs(60);
+
+/// Segment numbers are unique per process, not per store: segments of an
+/// earlier pipeline can still be open (a clip being saved from them).
+static NEXT_SEGMENT: AtomicU64 = AtomicU64::new(0);
 
 pub struct Segment {
     file: File,
@@ -70,9 +77,9 @@ impl Segment {
 pub struct DiskStore {
     dir: PathBuf,
     current: Option<Arc<Segment>>,
-    next: u64,
-    /// Set after a write error (e.g. disk full): packets then stay in RAM.
-    failed: bool,
+    /// Set after a write error (e.g. disk full): packets stay in RAM until
+    /// then, so the buffer keeps working without filling the disk further.
+    retry_at: Option<Instant>,
 }
 
 impl DiskStore {
@@ -92,28 +99,33 @@ impl DiskStore {
                 }
             }
         }
-        DiskStore { dir, current: None, next: 0, failed: false }
+        DiskStore { dir, current: None, retry_at: None }
     }
 
     /// Moves the packet's payload to disk. On failure the packet is returned
     /// unchanged, so the buffer keeps working from memory.
     pub fn store(&mut self, p: Arc<Packet>) -> Arc<Packet> {
-        if self.failed {
+        if self.retry_at.is_some_and(|t| Instant::now() < t) {
             return p;
         }
         let Payload::Mem(bytes) = &p.data else { return p };
         match self.append(bytes) {
-            Ok((seg, offset)) => Arc::new(Packet {
-                data: Payload::Disk { seg, offset, len: bytes.len() as u32 },
-                pts: p.pts,
-                dts: p.dts,
-                duration: p.duration,
-                key: p.key,
-                time_us: p.time_us,
-            }),
+            Ok((seg, offset)) => {
+                if self.retry_at.take().is_some() {
+                    log::info!("disk buffer writes work again");
+                }
+                Arc::new(Packet {
+                    data: Payload::Disk { seg, offset, len: bytes.len() as u32 },
+                    pts: p.pts,
+                    dts: p.dts,
+                    duration: p.duration,
+                    key: p.key,
+                    time_us: p.time_us,
+                })
+            }
             Err(e) => {
-                log::error!("disk buffer write failed, keeping the buffer in memory: {e}");
-                self.failed = true;
+                log::error!("disk buffer write failed, keeping new packets in memory for a minute: {e}");
+                self.retry_at = Some(Instant::now() + RETRY_AFTER);
                 self.current = None;
                 p
             }
@@ -122,8 +134,8 @@ impl DiskStore {
 
     fn append(&mut self, data: &[u8]) -> io::Result<(Arc<Segment>, u64)> {
         if self.current.as_ref().is_none_or(|s| s.len() >= SEGMENT_BYTES) {
-            let name = format!("{}-{}.buf", std::process::id(), self.next);
-            self.next += 1;
+            let n = NEXT_SEGMENT.fetch_add(1, Ordering::Relaxed);
+            let name = format!("{}-{n}.buf", std::process::id());
             self.current = Some(Arc::new(Segment::create(&self.dir.join(name))?));
         }
         let seg = self.current.clone().unwrap();
@@ -134,6 +146,6 @@ impl DiskStore {
     /// Drops the open segment (it is deleted once its packets are gone).
     pub fn reset(&mut self) {
         self.current = None;
-        self.failed = false;
+        self.retry_at = None;
     }
 }

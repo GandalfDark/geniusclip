@@ -49,18 +49,21 @@ pub struct AudioDevice {
     pub bluetooth: bool,
 }
 
-pub(crate) struct ComInit;
+/// Balances only its own successful init: on a thread that is already STA
+/// (the UI thread) CoInitializeEx fails with RPC_E_CHANGED_MODE, and an
+/// extra CoUninitialize would tear down that thread's COM.
+pub(crate) struct ComInit(bool);
 impl ComInit {
     pub(crate) fn new() -> Self {
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        }
-        ComInit
+        // S_OK or S_FALSE (already initialized) both need a CoUninitialize.
+        ComInit(unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok())
     }
 }
 impl Drop for ComInit {
     fn drop(&mut self) {
-        unsafe { CoUninitialize() };
+        if self.0 {
+            unsafe { CoUninitialize() };
+        }
     }
 }
 

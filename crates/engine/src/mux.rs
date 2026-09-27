@@ -2,7 +2,7 @@
 
 use crate::buffer::ClipData;
 use crate::ffutil::*;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ffmpeg_sys_next as ff;
 use std::ffi::c_int;
@@ -20,6 +20,10 @@ pub struct Muxer {
     tmp: PathBuf,
     dst: PathBuf,
     header_written: bool,
+    /// Live recording: stays playable without the trailer.
+    fragmented: bool,
+    /// At least one packet reached the muxer.
+    written: bool,
     pkt: AvPacket,
 }
 
@@ -36,7 +40,16 @@ impl Muxer {
                 ff::avformat_alloc_output_context2(&mut oc, ptr::null(), cstr("mp4").as_ptr(), fname.as_ptr()),
                 "avformat_alloc_output_context2",
             )?;
-            let mut me = Muxer { oc, src_tb: Vec::new(), tmp: tmp.clone(), dst: dst.to_path_buf(), header_written: false, pkt: AvPacket::new() };
+            let mut me = Muxer {
+                oc,
+                src_tb: Vec::new(),
+                tmp: tmp.clone(),
+                dst: dst.to_path_buf(),
+                header_written: false,
+                fragmented,
+                written: false,
+                pkt: AvPacket::new(),
+            };
             let mut first_audio = true;
             for s in streams {
                 let st = ff::avformat_new_stream(oc, ptr::null());
@@ -91,12 +104,17 @@ impl Muxer {
             ff::av_packet_unref(pkt);
             check(r, "av_interleaved_write_frame")?;
         }
+        self.written = true;
         Ok(())
     }
 
     pub fn finish(mut self) -> Result<PathBuf> {
-        unsafe {
-            check(ff::av_write_trailer(self.oc), "av_write_trailer")?;
+        if let Err(e) = unsafe { check(ff::av_write_trailer(self.oc), "av_write_trailer") } {
+            // A recording's fragments play without the trailer: keep them.
+            if !(self.fragmented && self.written) {
+                return Err(e);
+            }
+            log::warn!("recording saved without trailer: {e:#}");
         }
         self.close();
         std::fs::rename(&self.tmp, &self.dst).context("rename clip")?;
@@ -119,9 +137,14 @@ impl Muxer {
 impl Drop for Muxer {
     fn drop(&mut self) {
         if !self.oc.is_null() {
-            // Abandoned (error path): remove the partial file.
+            // Abandoned (error path): remove a partial clip, but never a
+            // recording that has footage (fragmented MP4 plays as is).
             self.close();
-            let _ = std::fs::remove_file(&self.tmp);
+            if self.fragmented && self.written {
+                let _ = std::fs::rename(&self.tmp, &self.dst);
+            } else {
+                let _ = std::fs::remove_file(&self.tmp);
+            }
         }
     }
 }
@@ -194,6 +217,7 @@ impl Drop for Recorder {
 fn record_loop(mut muxer: Muxer, rx: Receiver<Msg>, video: Option<usize>) -> Result<PathBuf> {
     let mut origin: Option<i64> = None;
     let mut written = 0usize;
+    let mut failure = None;
     while let Ok(msg) = rx.recv() {
         match msg {
             Msg::Stop => break,
@@ -209,13 +233,19 @@ fn record_loop(mut muxer: Muxer, rx: Receiver<Msg>, video: Option<usize>) -> Res
                 if p.time_us < o {
                     continue;
                 }
-                muxer.write(si, &p, o)?;
+                // A write error (disk full…) ends the recording; what is
+                // already written is kept and the file is finished now.
+                if let Err(e) = muxer.write(si, &p, o) {
+                    log::error!("recording stopped: {e:#}");
+                    failure = Some(e);
+                    break;
+                }
                 written += 1;
             }
         }
     }
     if written == 0 {
-        bail!("nothing was recorded");
+        return Err(failure.unwrap_or_else(|| anyhow!("nothing was recorded")));
     }
     muxer.finish()
 }
