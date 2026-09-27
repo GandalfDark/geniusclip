@@ -12,8 +12,22 @@ const numberFmt = (lang: Lang, digits: number) =>
   memo(`n:${lang}:${digits}`, () => new Intl.NumberFormat(lang, { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 const timeFmt = (lang: Lang) => memo(`t:${lang}`, () => new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit' }));
 const dayFmt = (lang: Lang) => memo(`d:${lang}`, () => new Intl.DateTimeFormat(lang, { day: '2-digit', month: '2-digit' }));
-const relFmt = (lang: Lang, style: 'long' | 'short') =>
-  memo(`r:${lang}:${style}`, () => new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style }));
+type RelUnit = 'second' | 'minute' | 'hour' | 'day';
+type Rel = { format(value: number, unit: RelUnit): string };
+// WebView2's ICU has no Kazakh relative-time data and falls back to English
+// ("today", "5 min ago"), so Kazakh gets its own few phrases.
+const kkRel: Rel = {
+  format(v, unit) {
+    const n = Math.abs(v);
+    if (unit === 'day') return v === 0 ? 'бүгін' : v === -1 ? 'кеше' : `${n} күн бұрын`;
+    if (unit === 'second') return 'қазір';
+    return unit === 'minute' ? `${n} мин бұрын` : `${n} сағ бұрын`;
+  },
+};
+const relFmt = (lang: Lang, style: 'long' | 'short'): Rel =>
+  lang === 'kk' && !Intl.RelativeTimeFormat.supportedLocalesOf('kk').length
+    ? kkRel
+    : memo(`r:${lang}:${style}`, () => new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style }));
 
 const UNITS = ['unit.b', 'unit.kb', 'unit.mb', 'unit.gb', 'unit.tb'] as const;
 

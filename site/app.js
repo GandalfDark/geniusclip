@@ -1,9 +1,10 @@
-// GeniusClip download page: language, screenshots, live version info and
+// GeniusClip download page: language, screenshots, version, star count and
 // the release history from GitHub. No framework, no build step.
 (() => {
   'use strict';
 
-  const REPO = 'GandalfDark/geniusclip-releases';
+  const APP_REPO = 'GandalfDark/geniusclip';
+  const RELEASES_REPO = 'GandalfDark/geniusclip-releases';
   const LANGS = {
     ru: 'Русский',
     en: 'English',
@@ -20,11 +21,8 @@
     ja: '日本語',
     ko: '한국어',
   };
-  // Screenshots exist in Russian and English.
-  const SHOT_LANG = (l) => (['ru', 'uk', 'kk'].includes(l) ? 'ru' : 'en');
 
   const root = document.documentElement;
-  root.classList.add('js');
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
@@ -69,6 +67,50 @@
     return 'en';
   }
 
+  // ------------------------------------------------------------ screenshots
+
+  // One set per interface language; English if a file is missing.
+  function showShots(l) {
+    for (const img of $$('img[data-shot]')) {
+      const want = `img/screens/${l}-${img.dataset.shot}.webp`;
+      if (img.getAttribute('src') === want) continue;
+      img.onerror = () => {
+        img.onerror = null;
+        img.src = `img/screens/en-${img.dataset.shot}.webp`;
+      };
+      img.src = want;
+    }
+    for (const a of $$('[data-shot-link]')) a.href = `img/screens/${l}-${a.dataset.shotLink}.webp`;
+  }
+
+  // ------------------------------------------------------------------ text
+
+  // "Alt+F8" in a translation becomes <kbd>Alt</kbd>+<kbd>F8</kbd>.
+  const KEYS = /((?:Alt|Ctrl|Strg|Shift)(?:\s?\+\s?(?:Alt|Ctrl|Strg|Shift|F\d{1,2}|[A-Z0-9]))+)(?![\w])/g;
+  function setText(el, text) {
+    if (!KEYS.test(text)) {
+      el.textContent = text;
+      return;
+    }
+    KEYS.lastIndex = 0;
+    el.textContent = '';
+    text.split(KEYS).forEach((part, i) => {
+      if (i % 2 === 0) {
+        if (part) el.append(part);
+        return;
+      }
+      const combo = document.createElement('span');
+      combo.className = 'keys';
+      part.split(/\s?\+\s?/).forEach((key, j) => {
+        if (j) combo.append('+');
+        const kbd = document.createElement('kbd');
+        kbd.textContent = key;
+        combo.append(kbd);
+      });
+      el.append(combo);
+    });
+  }
+
   async function setLang(l) {
     try {
       const res = await fetch(`i18n/${l}.json`);
@@ -81,14 +123,16 @@
     root.lang = lang;
     document.title = t('meta.title');
     $('meta[name="description"]')?.setAttribute('content', t('meta.description'));
-    for (const el of $$('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+    for (const el of $$('[data-i18n]')) setText(el, t(el.dataset.i18n));
+    for (const el of $$('[data-i18n-alt]')) el.alt = t(el.dataset.i18nAlt);
+    for (const el of $$('[data-i18n-label]')) el.setAttribute('aria-label', t(el.dataset.i18nLabel));
     $('.lang-name').textContent = LANGS[lang];
+    $('.lang-code').textContent = lang.split('-')[0].toUpperCase();
+    $('.lang-btn').setAttribute('aria-label', `${t('lang.label')}: ${LANGS[lang]}`);
     $$('.lang-menu li').forEach((li) => li.setAttribute('aria-selected', String(li.dataset.lang === lang)));
-    for (const img of $$('.shots img')) img.src = `img/screens/${SHOT_LANG(lang)}-${img.dataset.shot}.webp`;
-    const active = $('.tabs [aria-selected="true"]');
-    $('.shot-caption').textContent = t(`screens.${active.dataset.shot}Text`);
-    requestAnimationFrame(movePill);
+    showShots(lang);
     renderMeta();
+    renderStars();
     renderReleases();
   }
 
@@ -97,7 +141,7 @@
   const btn = $('.lang-btn');
   const menu = $('.lang-menu');
   menu.innerHTML = Object.entries(LANGS)
-    .map(([code, name]) => `<li role="option" tabindex="0" data-lang="${code}" lang="${code}">${name}</li>`)
+    .map(([code, name]) => `<li role="option" tabindex="-1" data-lang="${code}" lang="${code}">${name}</li>`)
     .join('');
   const openMenu = (open) => {
     menu.hidden = !open;
@@ -113,6 +157,7 @@
     if (!li) return;
     store.set('lang', li.dataset.lang);
     openMenu(false);
+    btn.focus();
     setLang(li.dataset.lang);
   });
   menu.addEventListener('keydown', (e) => {
@@ -120,7 +165,10 @@
     const i = items.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') items[Math.min(i + 1, items.length - 1)].focus();
     else if (e.key === 'ArrowUp') items[Math.max(i - 1, 0)].focus();
-    else if (e.key === 'Enter') document.activeElement.click();
+    else if (e.key === 'Home') items[0].focus();
+    else if (e.key === 'End') items[items.length - 1].focus();
+    else if (e.key === 'Enter' || e.key === ' ') document.activeElement.click();
+    else if (e.key === 'Tab') openMenu(false);
     else return;
     e.preventDefault();
   });
@@ -132,26 +180,7 @@
     }
   });
 
-  // ------------------------------------------------------------ screenshots
-
-  const tabs = $('.tabs');
-  function movePill() {
-    const active = $('[aria-selected="true"]', tabs);
-    const pill = $('.tab-pill', tabs);
-    pill.style.width = `${active.offsetWidth}px`;
-    pill.style.transform = `translateX(${active.offsetLeft}px)`;
-  }
-  tabs.addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    $$('button', tabs).forEach((x) => x.setAttribute('aria-selected', String(x === b)));
-    $$('.shots img').forEach((img) => img.classList.toggle('active', img.dataset.shot === b.dataset.shot));
-    $('.shot-caption').textContent = t(`screens.${b.dataset.shot}Text`);
-    movePill();
-  });
-  addEventListener('resize', movePill);
-
-  // --------------------------------------------------- version and history
+  // ------------------------------------------------------------- GitHub API
 
   const gh = (path) => {
     const key = `gh:${path}`;
@@ -159,7 +188,7 @@
       const hit = JSON.parse(sessionStorage.getItem(key) || 'null');
       if (hit && Date.now() - hit.at < 10 * 60 * 1000) return Promise.resolve(hit.data);
     } catch {}
-    return fetch(`https://api.github.com/repos/${REPO}/${path}`)
+    return fetch(`https://api.github.com/repos/${path}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data) => {
         try {
@@ -168,19 +197,36 @@
         return data;
       });
   };
-  const releases = gh('releases?per_page=5').catch(() => []);
+  const releases = gh(`${RELEASES_REPO}/releases?per_page=5`).catch(() => null);
+  const repo = gh(APP_REPO).catch(() => null);
+
+  const num = (n, opts) => new Intl.NumberFormat(lang, opts).format(n);
 
   async function renderMeta() {
-    const list = await releases;
+    const list = (await releases) || [];
     const latest = list.find((r) => !r.draft && !r.prerelease);
     const asset = latest?.assets?.find((a) => a.name === 'GeniusClip-Setup.exe');
-    if (!latest || !asset) return;
-    const mb = new Intl.NumberFormat(lang, { maximumFractionDigits: 0 }).format(asset.size / 1048576);
-    $('.dl-version').textContent = ` · ${latest.tag_name} · ${mb} ${t('unit.mb')}`;
+    if (!latest) return;
+    const ver = $('.m-version');
+    ver.textContent = latest.tag_name;
+    ver.hidden = false;
+    if (!asset) return;
+    const size = $('.m-size');
+    size.textContent = `${num(asset.size / 1048576, { maximumFractionDigits: 0 })} ${t('unit.mb')}`;
+    size.hidden = false;
   }
 
-  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  /** Release notes: plain lines and "- " bullets. */
+  async function renderStars() {
+    const r = await repo;
+    const n = r?.stargazers_count;
+    if (typeof n !== 'number') return;
+    $('.stars-n').textContent = num(n, { notation: 'compact', maximumFractionDigits: 1 });
+    $('.stars').hidden = false;
+    $('.gh').setAttribute('aria-label', `GitHub, ${t('gh.stars')}: ${n}`);
+  }
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  /** Release notes as written: plain lines and "- " bullets. */
   function notesHtml(body) {
     const out = [];
     let list = [];
@@ -201,42 +247,36 @@
   }
 
   async function renderReleases() {
-    const list = (await releases).filter((r) => !r.draft);
-    if (!list.length) return;
-    const date = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'long', year: 'numeric' });
-    $('.releases').innerHTML = list
-      .map(
-        (r) => `<li>
-          <div class="rel-head"><span class="rel-version">${esc(r.tag_name)}</span><span class="rel-date">${date.format(new Date(r.published_at))}</span></div>
-          <div class="rel-notes">${notesHtml(r.body)}</div>
-        </li>`,
-      )
+    const all = await releases;
+    const ol = $('.releases');
+    if (!all) {
+      ol.innerHTML = `<li class="rel-empty">${esc(t('news.failed'))}</li>`;
+      return;
+    }
+    const list = all.filter((r) => !r.draft).slice(0, 5);
+    if (!list.length) {
+      ol.innerHTML = `<li class="rel-empty">${esc(t('news.empty'))}</li>`;
+      return;
+    }
+    let date = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+    // Browsers without month names for a language print "2026 M09 27".
+    if (/M\d/.test(date.format(new Date(2026, 8, 27)))) {
+      date = new Intl.DateTimeFormat('ru', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    ol.innerHTML = list
+      .map((r) => {
+        // Notes are written in English (older ones in Russian).
+        const notesLang = /[А-Яа-яЁё]/.test(r.body || '') ? 'ru' : 'en';
+        return `<li>
+          <div class="rel-head">
+            <span class="rel-version"><a href="${esc(r.html_url)}">${esc(r.tag_name)}</a></span>
+            <time class="rel-date" datetime="${esc(r.published_at)}">${date.format(new Date(r.published_at))}</time>
+          </div>
+          <div class="rel-notes" lang="${notesLang}">${notesHtml(r.body)}</div>
+        </li>`;
+      })
       .join('');
   }
-
-  // ---------------------------------------------------------- replay tape
-
-  // Abstract "game frames": sky, horizon glow and ground, in game-like palettes.
-  const palettes = [
-    ['#3b1d6e', '#ff6b9d', '#1a1030'],
-    ['#0e3a5c', '#22d3ee', '#0a1f2e'],
-    ['#5c2a0e', '#fbbf24', '#2a1608'],
-    ['#123d2b', '#34d399', '#0a2018'],
-    ['#2b1a5c', '#a78bfa', '#140e2e'],
-    ['#5c1a1a', '#fb7185', '#2a0c0c'],
-    ['#1d2a5c', '#60a5fa', '#0c142e'],
-    ['#4a3a0e', '#facc15', '#221a06'],
-  ];
-  const frames = $('.frames');
-  const tile = (i) => {
-    const [sky, glow, ground] = palettes[i % palettes.length];
-    const h = 38 + ((i * 17) % 26);
-    return `<i style="background:
-      radial-gradient(60px 26px at ${20 + ((i * 29) % 70)}% ${h}%, ${glow}cc, transparent 70%),
-      linear-gradient(180deg, ${sky} 0%, ${sky} ${h - 6}%, ${glow}55 ${h}%, ${ground} ${h + 4}%, ${ground} 100%)"></i>`;
-  };
-  const set = Array.from({ length: 14 }, (_, i) => tile(i)).join('');
-  frames.innerHTML = set + set;
 
   // ---------------------------------------------------------- odds and ends
 
@@ -246,32 +286,15 @@
   if (!onWindows) {
     $('.mobile-note').hidden = false;
     $('.copy-link').addEventListener('click', async (e) => {
+      const b = e.currentTarget;
       try {
         await navigator.clipboard.writeText(location.href.split('#')[0]);
-        e.currentTarget.textContent = t('dl.copied');
+        b.textContent = t('dl.copied');
       } catch {}
     });
   }
 
-  const nav = $('.nav');
-  const onScroll = () => nav.classList.toggle('scrolled', scrollY > 8);
-  addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
-
-  // Reveal on scroll, cascading within a group.
-  const io = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        const siblings = [...e.target.parentElement.children].filter((x) => x.classList.contains('reveal'));
-        e.target.style.transitionDelay = `${Math.min(siblings.indexOf(e.target), 6) * 60}ms`;
-        e.target.classList.add('in');
-        io.unobserve(e.target);
-      }
-    },
-    { rootMargin: '0px 0px -8% 0px' },
-  );
-  $$('.reveal').forEach((el) => io.observe(el));
-
-  setLang(initialLang());
+  const first = initialLang();
+  showShots(first);
+  setLang(first);
 })();

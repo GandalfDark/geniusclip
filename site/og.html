@@ -9,67 +9,71 @@
       width: 1200px;
       height: 630px;
       overflow: hidden;
-      background:
-        radial-gradient(700px 420px at 78% -40px, rgba(149, 128, 255, 0.35), transparent 70%),
-        radial-gradient(500px 300px at 10% 110%, rgba(215, 124, 224, 0.16), transparent 70%),
-        #0b0b0d;
+      position: relative;
+      background: #f6f5f2;
+      color: #1b1a17;
     }
-    .card {
+    .brand-row {
       position: absolute;
-      inset: 0;
-      padding: 76px 84px;
-      display: flex;
-      flex-direction: column;
-    }
-    .top {
-      display: flex;
-      align-items: center;
-      gap: 22px;
-    }
-    .top img {
-      width: 92px;
-      height: 92px;
-      border-radius: 22px;
-      filter: drop-shadow(0 14px 34px rgba(149, 128, 255, 0.55));
-    }
-    .name {
-      font-size: 54px;
-      font-weight: 750;
-      letter-spacing: -0.03em;
-    }
-    .title {
-      margin-top: 54px;
-      font-size: 70px;
-      line-height: 1.04;
-      font-weight: 760;
-      letter-spacing: -0.04em;
-    }
-    .title .grad {
-      display: block;
-      animation: none;
-    }
-    .foot {
-      margin-top: auto;
+      left: 72px;
+      top: 64px;
       display: flex;
       align-items: center;
       gap: 14px;
-      font-size: 26px;
-      color: var(--text-2);
+      font-size: 30px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
     }
-    .foot kbd {
-      animation: none;
-      height: 46px;
-      min-width: 58px;
-      font-size: 22px;
-      border-radius: 12px;
+    .title {
+      position: absolute;
+      left: 72px;
+      top: 150px;
+      margin: 0;
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: 60px;
+      line-height: 1.14;
+      letter-spacing: -0.012em;
+    }
+    .title span {
+      display: block;
+    }
+    .title .muted {
+      color: #7a756b;
+    }
+    .foot-line {
+      position: absolute;
+      left: 72px;
+      bottom: 64px;
+      margin: 0;
+      font-size: 24px;
+      color: #4f4b44;
+    }
+    .foot-line kbd {
+      font-size: 20px;
+      border-color: #cfcbc2;
+      background: #fdfcfa;
+      color: #1b1a17;
+    }
+    .shot {
+      position: absolute;
+      left: 640px;
+      top: 372px;
+      width: 600px;
+      border: 1px solid #cfcbc2;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 18px 40px -20px rgb(40 34 20 / 0.35);
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="top"><img src="img/logo.png" alt="" /><span class="name">GeniusClip</span></div>
-    <div class="title">Нажми одну клавишу.<span class="grad">Момент уже твой.</span></div>
-    <div class="foot"><kbd>Alt</kbd>+<kbd>F8</kbd><span style="margin-left: 14px">Бесплатно для Windows 10 и 11</span></div>
-  </div>
+  <div class="brand-row"><img src="img/logo.png" alt="" width="48" height="48" />GeniusClip</div>
+  <h1 class="title">
+    <span>Игра уже записана.</span>
+    <span class="muted">Осталось решить, что оставить.</span>
+  </h1>
+  <p class="foot-line"><span class="keys"><kbd>Alt</kbd>+<kbd>F8</kbd></span> · Бесплатно для Windows · GPL-3.0</p>
+  <div class="shot"><img src="img/screens/ru-home.webp" alt="" width="1200" height="780" /></div>
 </body>
 </html>
