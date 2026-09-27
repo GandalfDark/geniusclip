@@ -198,6 +198,8 @@ fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .visible(false)
         .disable_drag_drop_handler()
         .build()?;
+    // Moved to the recorded monitor on every open, which may have another scale.
+    crate::dpi::watch(&win);
     // Clicking into another window (or Alt+Tab) closes the menu. Focus also
     // bounces while the WebView starts and when a game grabs it back right
     // after the menu shows: only a real switch to another app counts.

@@ -2,6 +2,7 @@ mod actions;
 mod brand;
 mod commands;
 mod disk;
+mod dpi;
 mod hotkeys;
 mod i18n;
 mod library;
@@ -64,6 +65,8 @@ pub fn show_main_at(app: &AppHandle, route: Option<&str>) {
         .build();
     match res {
         Ok(w) => {
+            // Created on one monitor, shown on another: keep the page sharp.
+            dpi::watch(&w);
             brand::apply(app);
             // Never keep playing the microphone back once the window is gone.
             let h = app.clone();
