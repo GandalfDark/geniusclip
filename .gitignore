@@ -20,3 +20,6 @@ vite.config.ts.timestamp-*
 # Local test media for the browser preview (served in dev only)
 /dev-assets/
 /third_party/ffmpeg-*
+
+# Claude Code local state (worktrees, preview config)
+/.claude/
