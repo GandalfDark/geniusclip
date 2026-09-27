@@ -5,6 +5,9 @@
 //!   pipeline would keep restarting.
 //! - on battery, if the user chose so (laptops).
 //! Capture resumes when all of that is over.
+//!
+//! The same hidden window also hears display changes, which drop the cached
+//! monitor list (see `monitors`).
 
 use crate::state::AppState;
 use parking_lot::Mutex;
@@ -59,6 +62,8 @@ pub fn is_paused() -> bool {
 fn apply() {
     let Some(app) = APP.get() else { return };
     let app = app.clone();
+    // Game tracking stops while paused and starts again after.
+    crate::wake_ticker();
     // Stopping/starting capture takes a moment; keep the message loop free.
     // The state is read inside the serialized section, so of several quick
     // events (lock, then unlock) the last one to run applies the latest
@@ -91,6 +96,13 @@ extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
                 }
                 LRESULT(1)
             }
+            // Broadcast to every top-level window, hidden ones included, when
+            // a display is added, removed or changes mode: the cached monitor
+            // list is stale.
+            WM_DISPLAYCHANGE => {
+                crate::monitors::invalidate();
+                DefWindowProcW(h, m, wp, lp)
+            }
             WM_WTSSESSION_CHANGE => {
                 match wp.0 {
                     WTS_SESSION_LOCK => {
@@ -117,7 +129,8 @@ pub fn start(app: &AppHandle) {
         let class = w!("GeniusClipPower");
         let wc = WNDCLASSW { lpfnWndProc: Some(wndproc), hInstance: hinst.into(), lpszClassName: class, ..Default::default() };
         RegisterClassW(&wc);
-        // A hidden top-level window (never shown) receives both notifications.
+        // A hidden top-level window (never shown) receives these notifications
+        // and display changes (a message-only window would miss broadcasts).
         let Ok(hwnd) = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("GeniusClip power"), WS_POPUP, 0, 0, 0, 0, None, None, Some(hinst.into()), None) else {
             log::warn!("power notifications unavailable");
             return;

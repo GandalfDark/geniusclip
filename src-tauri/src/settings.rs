@@ -116,19 +116,69 @@ pub fn path(app: &AppHandle) -> PathBuf {
 impl Settings {
     pub fn load(app: &AppHandle) -> Settings {
         let p = path(app);
-        let mut s = match std::fs::read(&p) {
-            Ok(b) => Settings::parse(&b).unwrap_or_else(|e| {
+        let file = std::fs::read(&p);
+        // Only a file that isn't there: one that can't be read right now
+        // (locked by a scanner) must not be overwritten below.
+        let new_install = match &file {
+            Ok(b) => is_new_install(b),
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        };
+        let mut s = match &file {
+            Ok(b) => Settings::parse(b).unwrap_or_else(|e| {
                 // One bad value (e.g. an enum variant from a newer version)
                 // must not reset everything, clip folders included: keep a
                 // copy of the file and every value that still fits.
                 log::warn!("settings.json invalid: {e}; keeping the values that still parse");
                 let _ = std::fs::copy(&p, p.with_file_name("settings.bak.json"));
-                Settings::salvage(&b)
+                Settings::salvage(b)
             }),
             Err(_) => Settings::default(),
         };
         s.fill_defaults(app);
+        if new_install && !ran_before(app, &s) {
+            s.fit_hardware();
+            // Saved right away: from now on these are the user's settings
+            // (and the next start is no longer a first one).
+            if let Err(e) = s.save(app) {
+                log::warn!("settings.json: {e:#}");
+            }
+        }
         s
+    }
+
+    /// First start only: capture defaults this PC can keep up with. The
+    /// app's defaults (native resolution, high quality, 5 minutes) suit a
+    /// gaming PC; on a weak GPU they cost the game frames, and a long buffer
+    /// in RAM crowds out a game on 8 GB.
+    fn fit_hardware(&mut self) {
+        let mons = crate::monitors::list();
+        let Some(m) = crate::monitors::pick(&mons, self.engine.monitor.as_deref()) else {
+            log::info!("first start: no monitor found; default capture settings");
+            return;
+        };
+        let hw = Hardware {
+            vendor_id: m.vendor_id,
+            vram_mb: dedicated_vram_mb(&m.adapter, m.vendor_id),
+            hw_encoder: has_hw_encoder(m.vendor_id),
+            width: m.width,
+            height: m.height,
+            ram_mb: crate::commands::ram_total_mb(),
+        };
+        let weak = hw.apply(self);
+        log::info!(
+            "first start: {} ({:04x}, {} MB VRAM, {} encoder), {}x{}, {} MB RAM -> {:?}, {:?} quality, {} s replay{}",
+            m.adapter,
+            hw.vendor_id,
+            hw.vram_mb.map_or("?".into(), |v| v.to_string()),
+            if hw.hw_encoder { "hardware" } else { "Media Foundation" },
+            hw.width,
+            hw.height,
+            hw.ram_mb,
+            self.engine.resolution,
+            self.engine.quality,
+            self.replay_seconds,
+            if weak { " (weak GPU)" } else { "" },
+        );
     }
 
     /// An existing settings file. Users updating from a version without the
@@ -241,9 +291,141 @@ fn from_older_version(bytes: &[u8]) -> bool {
     }
 }
 
+/// A settings file the app hasn't written yet: only the few values the
+/// installer writes (the app always writes `engine`, see `from_older_version`).
+/// An unreadable file counts as an existing user's.
+fn is_new_install(file: &[u8]) -> bool {
+    match serde_json::from_slice::<serde_json::Value>(file) {
+        Ok(serde_json::Value::Object(m)) => !m.contains_key("engine"),
+        _ => false,
+    }
+}
+
+/// Signs of an earlier start: older versions saved settings only once one
+/// was changed, so a user who never did has no `engine` either, and must
+/// keep the defaults they have been recording with. Every start creates the
+/// clips folder, and the first window the WebView2 profile.
+fn ran_before(app: &AppHandle, s: &Settings) -> bool {
+    s.clips_dir.is_dir() || app.path().app_local_data_dir().is_ok_and(|d| d.join("EBWebView").is_dir())
+}
+
+// PCI vendor ids (as in `MonitorInfo::vendor_id`).
+const VENDOR_NVIDIA: u32 = 0x10DE;
+const VENDOR_AMD: u32 = 0x1002;
+const VENDOR_INTEL: u32 = 0x8086;
+
+/// What the first-start defaults depend on (the capture monitor's GPU).
+struct Hardware {
+    vendor_id: u32,
+    /// Dedicated video memory; None when it couldn't be read.
+    vram_mb: Option<u64>,
+    /// NVENC or AMF is installed for this GPU; else FFmpeg falls back to
+    /// Media Foundation, which encodes slowly or on the CPU.
+    hw_encoder: bool,
+    width: u32,
+    height: u32,
+    ram_mb: u64,
+}
+
+impl Hardware {
+    /// A GPU that struggles to encode full-size video next to a game:
+    /// integrated Intel graphics (Media Foundation only), an AMD APU or
+    /// entry card with under 2 GB of its own memory, or no NVENC/AMF.
+    fn weak_gpu(&self) -> bool {
+        self.vendor_id == VENDOR_INTEL || (self.vendor_id == VENDOR_AMD && self.vram_mb.is_some_and(|v| v < 2048)) || !self.hw_encoder
+    }
+
+    /// Sets the first-start defaults; returns whether the GPU counts as weak.
+    fn apply(&self, s: &mut Settings) -> bool {
+        use geniusclip_engine::{Quality, Resolution};
+        // By the short side, so a rotated screen counts like a landscape one.
+        let short = self.width.min(self.height);
+        let weak = self.weak_gpu();
+        if weak {
+            if short > 1080 {
+                s.engine.resolution = Resolution::P1080;
+            }
+            s.engine.quality = Quality::Medium;
+        } else if short >= 2160 {
+            s.engine.resolution = Resolution::P1440;
+        }
+        // 8 GB modules show up as a little less (memory reserved by the
+        // firmware or an integrated GPU).
+        if self.ram_mb > 0 && self.ram_mb <= 8 * 1024 {
+            s.replay_seconds = 120;
+        }
+        weak
+    }
+}
+
+/// Dedicated memory of the adapter driving the capture monitor.
+fn dedicated_vram_mb(adapter: &str, vendor_id: u32) -> Option<u64> {
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
+    let factory = unsafe { CreateDXGIFactory1::<IDXGIFactory1>() }.ok()?;
+    (0..)
+        .map_while(|i| unsafe { factory.EnumAdapters1(i) }.ok())
+        .filter_map(|a| unsafe { a.GetDesc1() }.ok())
+        .find(|d| {
+            let len = d.Description.iter().position(|&c| c == 0).unwrap_or(d.Description.len());
+            d.VendorId == vendor_id && String::from_utf16_lossy(&d.Description[..len]) == adapter
+        })
+        .map(|d| d.DedicatedVideoMemory as u64 >> 20)
+}
+
+/// The vendor's encoder runtime that FFmpeg loads (the engine tries NVENC
+/// on NVIDIA, AMF on AMD, else Media Foundation), installed with the driver.
+fn has_hw_encoder(vendor_id: u32) -> bool {
+    use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+    let dll = match vendor_id {
+        VENDOR_NVIDIA => "nvEncodeAPI64.dll",
+        VENDOR_AMD => "amfrt64.dll",
+        _ => return false,
+    };
+    let mut buf = [0u16; 260];
+    let len = unsafe { GetSystemDirectoryW(Some(&mut buf)) } as usize;
+    len > 0 && len < buf.len() && std::path::Path::new(&String::from_utf16_lossy(&buf[..len])).join(dll).is_file()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_start_defaults_follow_the_hardware() {
+        use geniusclip_engine::{Quality, Resolution};
+        let pick = |vendor_id, vram_mb, hw_encoder, (width, height), ram_mb| {
+            let mut s = Settings::default();
+            let weak = Hardware { vendor_id, vram_mb, hw_encoder, width, height, ram_mb }.apply(&mut s);
+            (weak, s.engine.resolution, s.engine.quality, s.replay_seconds)
+        };
+        let def = Settings::default();
+        let (res, q, secs) = (def.engine.resolution, def.engine.quality, def.replay_seconds);
+        // A gaming PC keeps the defaults.
+        assert_eq!(pick(VENDOR_NVIDIA, Some(8192), true, (2560, 1440), 32768), (false, res, q, secs));
+        // 4K with any strong GPU records 1440p.
+        assert_eq!(pick(VENDOR_NVIDIA, Some(8192), true, (3840, 2160), 32768), (false, Resolution::P1440, q, secs));
+        // Integrated Intel: 1080p (when larger) at medium; 8 GB: two minutes.
+        assert_eq!(pick(VENDOR_INTEL, Some(128), false, (3840, 2160), 8000), (true, Resolution::P1080, Quality::Medium, 120));
+        assert_eq!(pick(VENDOR_INTEL, Some(128), false, (1920, 1080), 16384), (true, res, Quality::Medium, secs));
+        // AMD: weak with little VRAM or without AMF; unknown VRAM isn't held against it.
+        assert_eq!(pick(VENDOR_AMD, Some(512), true, (2560, 1440), 16384), (true, Resolution::P1080, Quality::Medium, secs));
+        assert_eq!(pick(VENDOR_AMD, None, true, (2560, 1440), 16384), (false, res, q, secs));
+        assert_eq!(pick(VENDOR_AMD, Some(8192), false, (1920, 1080), 16384), (true, res, Quality::Medium, secs));
+        // A rotated 1080p screen is not "larger than 1080p".
+        assert_eq!(pick(VENDOR_INTEL, None, false, (1080, 1920), 16384).1, res);
+        // RAM unknown: no change.
+        assert_eq!(pick(VENDOR_NVIDIA, Some(8192), true, (1920, 1080), 0).3, secs);
+    }
+
+    #[test]
+    fn only_a_new_install_is_a_first_start() {
+        // Written by the installer.
+        assert!(is_new_install(br#"{"autostart": false, "language": "de"}"#));
+        // Written by the app, any version.
+        assert!(!is_new_install(br#"{"engine": {}, "replaySeconds": 120}"#));
+        assert!(!is_new_install(&serde_json::to_vec(&Settings::default()).unwrap()));
+        assert!(!is_new_install(b"not json"));
+    }
 
     #[test]
     fn onboarding_starts_hidden_only_after_an_update() {

@@ -166,15 +166,9 @@ pub fn toast(app: &AppHandle, toast: Toast) {
         _ => accent(&s.accent),
     };
 
-    let mons = geniusclip_engine::list_monitors().unwrap_or_default();
-    let m = s
-        .engine
-        .monitor
-        .as_deref()
-        .and_then(|id| mons.iter().find(|m| m.id == id))
-        .or_else(|| mons.iter().find(|m| m.primary))
-        .or(mons.first());
-    let mon = m
+    // Cached: toasts show up in game, where enumerating displays can hitch it.
+    let mons = crate::monitors::list();
+    let mon = crate::monitors::pick(&mons, s.engine.monitor.as_deref())
         .map(|m| RECT { left: m.x, top: m.y, right: m.x + m.width as i32, bottom: m.y + m.height as i32 })
         .unwrap_or(RECT { left: 0, top: 0, right: 1920, bottom: 1080 });
 

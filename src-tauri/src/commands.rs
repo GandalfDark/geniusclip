@@ -98,7 +98,7 @@ pub struct Snapshot {
     whats_new: Option<WhatsNew>,
 }
 
-fn ram_total_mb() -> u64 {
+pub(crate) fn ram_total_mb() -> u64 {
     use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     let mut m = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
     unsafe { GlobalMemoryStatusEx(&mut m) }.map(|_| m.ullTotalPhys / 1_048_576).unwrap_or(0)
@@ -115,7 +115,8 @@ pub async fn get_snapshot(app: AppHandle) -> CmdResult<Snapshot> {
             has_battery: crate::power::has_battery(),
             settings,
             status: st.engine.status(),
-            monitors: geniusclip_engine::list_monitors().unwrap_or_default(),
+            // Fresh for the settings page (outside games); also refreshes the cache.
+            monitors: crate::monitors::refresh(),
             audio_outputs: geniusclip_engine::list_audio_devices(false).unwrap_or_default(),
             audio_inputs: geniusclip_engine::list_audio_devices(true).unwrap_or_default(),
             version: app.package_info().version.to_string(),
@@ -151,14 +152,9 @@ pub async fn estimate(settings: Settings) -> CmdResult<Estimate> {
 }
 
 pub(crate) fn estimate_for(settings: &Settings) -> Estimate {
-    let mons = geniusclip_engine::list_monitors().unwrap_or_default();
-    let m = settings
-        .engine
-        .monitor
-        .as_deref()
-        .and_then(|id| mons.iter().find(|m| m.id == id))
-        .or_else(|| mons.iter().find(|m| m.primary))
-        .or(mons.first());
+    // Cached: this also runs after every save (the low-disk check), in game.
+    let mons = crate::monitors::list();
+    let m = crate::monitors::pick(&mons, settings.engine.monitor.as_deref());
     let (sw, sh) = m.map(|m| (m.width, m.height)).unwrap_or((1920, 1080));
     let (w, h) = geniusclip_engine::output_size(&settings.engine, sw, sh);
     let bps = geniusclip_engine::target_bitrate(&settings.engine, w, h, settings.engine.fps);
@@ -212,6 +208,11 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
         (old, new.save(app))
     };
 
+    if old.engine.monitor != new.engine.monitor {
+        // Picked from a list the page just enumerated: look again rather than
+        // trust a cache that may predate a display change.
+        crate::monitors::invalidate();
+    }
     if old.engine != new.engine || old.replay_seconds != new.replay_seconds {
         let h = app.clone();
         // Pipeline restarts take a moment; answer the UI right away. The
@@ -605,7 +606,9 @@ pub async fn menu_screenshot(app: AppHandle) {
     let wait = |ms| tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_millis(ms)));
     crate::menu::hold(&app, false);
     let _ = wait(120).await;
-    crate::actions::screenshot(&app);
+    // Off the async workers (there are only a few): it may wait for the engine.
+    let h = app.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::actions::screenshot(&h)).await;
     let _ = wait(100).await;
     if crate::menu::is_open() {
         crate::menu::hold(&app, true);
@@ -633,8 +636,13 @@ static PENDING_OPEN: parking_lot::Mutex<Option<PathBuf>> = parking_lot::Mutex::n
 #[tauri::command]
 pub async fn open_in_app(app: AppHandle, route: String, path: Option<PathBuf>) {
     *PENDING_OPEN.lock() = path;
-    crate::menu::hide(&app, false);
-    crate::show_main_at(&app, Some(&route));
+    // On a blocking thread: both wait for the UI thread, which would tie up
+    // one of the few async workers meanwhile.
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        crate::menu::hide(&app, false);
+        crate::show_main_at(&app, Some(&route));
+    })
+    .await;
 }
 
 #[tauri::command]

@@ -331,6 +331,7 @@
     gap: 16px;
   }
   .dot {
+    position: relative;
     width: 10px;
     height: 10px;
     margin-top: 11px;
@@ -341,7 +342,19 @@
   .dot.live {
     background: var(--rec);
     box-shadow: 0 0 0 5px color-mix(in srgb, var(--rec) 16%, transparent);
+  }
+  /* The pulse ring only changes transform and opacity, which the compositor
+     animates without repainting the page every frame (a box-shadow pulse
+     did, for as long as Home was open). */
+  .dot.live::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--rec) 45%, transparent);
     animation: pulse 2.2s ease-out infinite;
+    will-change: transform, opacity;
+    pointer-events: none;
   }
   .dot.wait {
     background: var(--warn);
@@ -351,11 +364,13 @@
   }
   @keyframes pulse {
     0% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 50%, transparent);
+      transform: scale(0.5);
+      opacity: 0.9;
     }
     70%,
     100% {
-      box-shadow: 0 0 0 10px transparent;
+      transform: scale(1.5);
+      opacity: 0;
     }
   }
   .txt {

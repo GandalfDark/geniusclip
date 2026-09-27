@@ -39,3 +39,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 trash = "5"
 # Problem reports (already in the tree through the updater; deflate only).
 zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# The versions Tauri already uses: a smaller async runtime, and WebView2
+# calls (suspending the hidden in-game menu) on the webview Tauri hands out.
+tokio = { version = "1", features = ["rt-multi-thread"] }
+webview2-com = "0.38"
+windows-core-webview2 = { package = "windows-core", version = "0.61" }

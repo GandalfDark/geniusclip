@@ -14,7 +14,8 @@ use tauri::{AppHandle, Manager};
 /// A fullscreen app on the monitor being recorded (the game), if any.
 fn fullscreen_on_capture_monitor(app: &AppHandle) -> Option<AppInfo> {
     let want = app.state::<AppState>().settings.read().engine.monitor.clone();
-    let mons = geniusclip_engine::list_monitors().ok()?;
+    // Cached: enumerating displays while a game runs can make it stutter.
+    let mons = crate::monitors::list();
     let m = want.as_deref().and_then(|id| mons.iter().find(|m| m.id == id)).or_else(|| mons.iter().find(|m| m.primary))?;
     game::fullscreen_app(m.x, m.y, m.width, m.height)
 }
@@ -145,6 +146,8 @@ pub fn set_replay(app: &AppHandle, on: bool) {
         s.replay_enabled = on;
         let _ = s.save(app);
     }
+    // Game tracking runs only with replay on.
+    crate::wake_ticker();
     if let Err(e) = apply_replay(app) {
         fail(app, e);
     }
@@ -229,14 +232,67 @@ fn warn_if_disk_low(app: &AppHandle) {
     });
 }
 
+/// Whether `track_foreground` has anything to do: only clips from the replay
+/// buffer use the last game, so there is none while replay is off or paused.
+pub fn tracking_foreground(app: &AppHandle) -> bool {
+    app.state::<AppState>().settings.read().replay_enabled && !crate::power::is_paused()
+}
+
+/// What decides `track_foreground`'s answer, all of it cheap to read: the
+/// foreground window (its rect too: a game going fullscreen on the recorded
+/// monitor changes the answer), and the monitor it looks at.
+#[derive(PartialEq)]
+struct TrackKey {
+    hwnd: isize,
+    pid: u32,
+    rect: (i32, i32, i32, i32),
+    monitors: u64,
+    monitor: Option<String>,
+}
+
+fn track_key(app: &AppHandle) -> TrackKey {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
+    let hwnd = unsafe { GetForegroundWindow() };
+    let mut pid = 0u32;
+    let mut r = RECT::default();
+    unsafe {
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let _ = GetWindowRect(hwnd, &mut r);
+    }
+    TrackKey {
+        hwnd: hwnd.0 as isize,
+        pid,
+        rect: (r.left, r.top, r.right, r.bottom),
+        monitors: crate::monitors::generation(),
+        monitor: app.state::<AppState>().settings.read().engine.monitor.clone(),
+    }
+}
+
+/// The last `track_foreground` lookup and what it was made for.
+static TRACKED: Mutex<Option<(TrackKey, Option<AppInfo>)>> = Mutex::new(None);
+
 /// Called every second: remembers the last game in focus.
 pub fn track_foreground(app: &AppHandle) {
-    // Only clips from the replay buffer use it; skip the monitor and window
-    // queries while there is no buffer to name.
-    if !app.state::<AppState>().settings.read().replay_enabled || crate::power::is_paused() {
+    if !tracking_foreground(app) {
         return;
     }
-    if let Some(a) = fullscreen_on_capture_monitor(app).or_else(|| game::foreground_app().filter(|a| !a.is_desktop)) {
+    // Walking every window, opening the game's process and reading its
+    // version info each second is wasted work while the same window stays in
+    // front: the lookup is redone only when the foreground window changes.
+    let key = track_key(app);
+    let found = {
+        let mut tracked = TRACKED.lock();
+        match tracked.as_ref() {
+            Some((k, found)) if *k == key => found.clone(),
+            _ => {
+                let found = fullscreen_on_capture_monitor(app).or_else(|| game::foreground_app().filter(|a| !a.is_desktop));
+                *tracked = Some((key, found.clone()));
+                found
+            }
+        }
+    };
+    if let Some(a) = found {
         *app.state::<AppState>().last_game.lock() = Some((a, Instant::now()));
     }
 }

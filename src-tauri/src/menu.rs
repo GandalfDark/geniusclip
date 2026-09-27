@@ -36,6 +36,8 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 static LOCK: Mutex<()> = Mutex::new(());
 /// The hidden menu's WebView (~100 MB) is freed after this long unused.
 const UNLOAD_AFTER: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// Until then it is suspended (`set_asleep`), this long after being hidden.
+const SLEEP_AFTER: Duration = Duration::from_secs(1);
 /// The pending unload: when, and the generation of the hide that asked for
 /// it. One timer thread serves every hide (a newer hide replaces it).
 static UNLOAD: Mutex<Option<(Instant, u64)>> = Mutex::new(None);
@@ -135,6 +137,9 @@ fn open(app: &AppHandle) {
         let _ = GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTOPRIMARY), &mut info);
         info.rcMonitor
     };
+    // Wake the page first: queued on the UI thread ahead of the show and of
+    // menu://open, so the event never waits in a suspended renderer.
+    set_asleep(&win, false);
     let _ = win.set_position(PhysicalPosition::new(r.left, r.top));
     let _ = win.set_size(PhysicalSize::new((r.right - r.left) as u32, (r.bottom - r.top) as u32));
     let _ = win.show();
@@ -240,9 +245,21 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
     let h = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(80));
+        {
+            let _guard = LOCK.lock();
+            if current() {
+                hold(&h, false);
+            }
+        }
+        // Then, once the page has handled menu://hidden (and the reply to
+        // menu_close), put it to sleep until the next open or the unload.
+        // Not while it is still starting: its first open depends on it.
+        std::thread::sleep(SLEEP_AFTER);
         let _guard = LOCK.lock();
-        if current() {
-            hold(&h, false);
+        if current() && READY.load(Ordering::Relaxed) && !UNLOADING.load(Ordering::SeqCst) {
+            if let Some(w) = h.get_webview_window(LABEL) {
+                set_asleep(&w, true);
+            }
         }
     });
     schedule_unload(app, generation);
@@ -252,6 +269,57 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
         let _ = app.run_on_main_thread(move || unsafe {
             let _ = SetForegroundWindow(HWND(prev as _));
         });
+    }
+}
+
+/// Suspends the hidden menu's WebView (`asleep`) or wakes it before showing.
+///
+/// Suspended, the page runs no timers, animations or rendering and its
+/// renderer's memory can be reused by the game; the low memory target trims
+/// what stays resident. Best effort: older WebView2 runtimes lack these
+/// interfaces, and a failed call leaves the page running as before. Runs on
+/// the UI thread (WebView2's), after anything already queued for the window.
+fn set_asleep(w: &WebviewWindow, asleep: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    };
+    use windows_core_webview2::Interface;
+    let res = w.with_webview(move |pw| unsafe {
+        let controller = pw.controller();
+        let Ok(webview) = controller.CoreWebView2() else { return };
+        let v3 = webview.cast::<ICoreWebView2_3>().ok();
+        let v19 = webview.cast::<ICoreWebView2_19>().ok();
+        if asleep {
+            // The window is already hidden, but WebView2 still counts itself
+            // visible, and TrySuspend refuses a visible WebView.
+            let _ = controller.SetIsVisible(false);
+            if let Some(v19) = &v19 {
+                let _ = v19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+            }
+            if let Some(v3) = &v3 {
+                let done = webview2_com::TrySuspendCompletedHandler::create(Box::new(|res, suspended| {
+                    // Refused while e.g. media plays: it just stays awake.
+                    if res.is_err() || !suspended {
+                        log::debug!("menu webview not suspended: {res:?}");
+                    }
+                    Ok(())
+                }));
+                if let Err(e) = v3.TrySuspend(&done) {
+                    log::debug!("menu webview suspend: {e}");
+                }
+            }
+        } else {
+            if let Some(v3) = &v3 {
+                let _ = v3.Resume();
+            }
+            if let Some(v19) = &v19 {
+                let _ = v19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
+            }
+            let _ = controller.SetIsVisible(true);
+        }
+    });
+    if let Err(e) = res {
+        log::debug!("menu webview: {e}");
     }
 }
 

@@ -6,6 +6,7 @@ mod hotkeys;
 mod i18n;
 mod library;
 mod menu;
+mod monitors;
 mod overlay;
 mod power;
 mod report;
@@ -20,10 +21,11 @@ mod updates;
 use geniusclip_engine::{Engine, EngineEvent};
 use library::Library;
 use overlay::Toast;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, MutexGuard, RwLock};
 use settings::Settings;
 use state::AppState;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
@@ -80,6 +82,62 @@ pub fn show_main_at(app: &AppHandle, route: Option<&str>) {
             });
         }
         Err(e) => log::error!("cannot create main window: {e}"),
+    }
+    // It wants status updates.
+    wake_ticker();
+}
+
+/// The once-a-second loop in `run` sleeps on this while it has nothing to do.
+static TICK: Condvar = Condvar::new();
+static TICK_LOCK: Mutex<()> = Mutex::new(());
+
+/// Something `ticking` depends on changed (replay switch, pause state, main
+/// window): the loop re-checks whether to run.
+pub fn wake_ticker() {
+    let _guard = TICK_LOCK.lock();
+    TICK.notify_all();
+}
+
+/// The loop is needed while the main window shows status or there is a
+/// replay buffer whose game to track; otherwise it doesn't wake the CPU.
+fn ticking(app: &AppHandle) -> bool {
+    app.get_webview_window(MAIN).is_some() || actions::tracking_foreground(app)
+}
+
+fn tick_loop(app: AppHandle) {
+    let mut guard = TICK_LOCK.lock();
+    loop {
+        // Checked under the lock `wake_ticker` notifies under: no lost wake-ups.
+        if !ticking(&app) {
+            TICK.wait(&mut guard);
+            continue;
+        }
+        TICK.wait_for(&mut guard, Duration::from_secs(1));
+        MutexGuard::unlocked(&mut guard, || {
+            actions::track_foreground(&app);
+            if app.get_webview_window(MAIN).is_some() {
+                let status = app.state::<AppState>().engine.status();
+                let _ = app.emit_to(MAIN, "engine://status", &status);
+            }
+        });
+    }
+}
+
+/// The async runtime behind commands and plugins. Tauri's default starts a
+/// worker per CPU thread (24 on a big CPU), each with its own stack and
+/// wake-ups, for a handful of short commands; blocking work runs on the
+/// separate `spawn_blocking` pool, which this keeps.
+static RUNTIME: OnceLock<tauri::async_runtime::TokioRuntime> = OnceLock::new();
+
+fn init_async_runtime() {
+    let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).clamp(2, 4);
+    match tokio::runtime::Builder::new_multi_thread().worker_threads(workers).thread_name("gc-async").enable_all().build() {
+        Ok(rt) => {
+            let rt = RUNTIME.get_or_init(|| rt);
+            tauri::async_runtime::set(rt.handle().clone());
+        }
+        // Tauri then creates its default runtime on first use.
+        Err(e) => eprintln!("async runtime: {e}"),
     }
 }
 
@@ -176,6 +234,8 @@ fn on_engine_event(app: &AppHandle, e: EngineEvent) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything touches the async runtime (it can only be set once).
+    init_async_runtime();
     tauri::Builder::default()
         // Must be the first plugin: a second launch just focuses the running app.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
@@ -230,17 +290,12 @@ pub fn run() {
                 tray::refresh(&h);
             });
 
-            // Once a second: remember the focused game (skipped while there
-            // is no replay buffer), push status to the UI.
+            // Once a second: remember the focused game, push status to the
+            // UI. Parked while there is neither (see `ticking`).
             let h = handle.clone();
-            std::thread::spawn(move || loop {
-                std::thread::sleep(Duration::from_secs(1));
-                actions::track_foreground(&h);
-                if h.get_webview_window(MAIN).is_some() {
-                    let status = h.state::<AppState>().engine.status();
-                    let _ = h.emit_to(MAIN, "engine://status", &status);
-                }
-            });
+            if let Err(e) = std::thread::Builder::new().name("gc-tick".into()).spawn(move || tick_loop(h)) {
+                log::error!("status thread: {e}");
+            }
 
             // Started with Windows: stay in the tray. Unless this start comes
             // from an update the user installed, which relaunches with the
