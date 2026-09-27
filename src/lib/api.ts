@@ -26,6 +26,7 @@ export const api = {
   copyMedia: (paths: string[]) => invoke<void>('copy_media', { paths }),
   micTest: (on: boolean) => invoke<void>('mic_test', { on }),
   menuClose: () => invoke<void>('menu_close'),
+  menuScreenshot: () => invoke<void>('menu_screenshot'),
   systemStats: () => invoke<SystemStats>('system_stats'),
   /** Main window on a page, optionally opening a clip in the viewer. */
   openInApp: (route: string, path: string | null = null) => invoke<void>('open_in_app', { route, path }),

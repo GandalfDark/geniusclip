@@ -342,6 +342,20 @@ pub fn menu_close(app: AppHandle) {
     crate::menu::hide(&app, true);
 }
 
+/// Screenshot from the in-game menu: the page has made itself invisible, so
+/// capture briefly resumes to take the game as it is now, then holds again.
+#[tauri::command]
+pub async fn menu_screenshot(app: AppHandle) {
+    let wait = |ms| tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_millis(ms)));
+    app.state::<AppState>().engine.set_hold(false);
+    let _ = wait(120).await;
+    crate::actions::screenshot(&app);
+    let _ = wait(100).await;
+    if crate::menu::is_open() {
+        app.state::<AppState>().engine.set_hold(true);
+    }
+}
+
 #[tauri::command]
 pub fn system_stats() -> crate::stats::Stats {
     crate::stats::snapshot()

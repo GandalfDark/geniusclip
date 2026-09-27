@@ -233,6 +233,7 @@ pub fn run() {
             commands::copy_media,
             commands::mic_test,
             commands::menu_close,
+            commands::menu_screenshot,
             commands::system_stats,
             commands::open_in_app,
             commands::take_pending_open,

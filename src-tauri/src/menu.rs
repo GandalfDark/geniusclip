@@ -3,17 +3,20 @@
 //! page (src/routes/menu) animates in on `menu://open` and asks to be hidden
 //! with the `menu_close` command after its closing animation.
 //!
-//! The window is excluded from screen capture, so clips and screenshots taken
-//! while it is open show the game only.
+//! While the menu is open, video capture holds the last game frame (see
+//! `Engine::set_hold`): the menu covers the whole screen, and a WebView window
+//! excluded from capture comes out black in Desktop Duplication. The menu's
+//! screenshot button briefly turns the page invisible and captures for real.
 
 use crate::overlay::{self, Toast};
+use crate::state::AppState;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
 use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN};
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow, SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
 
 pub const LABEL: &str = "menu";
 
@@ -24,6 +27,10 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 const UNLOAD_AFTER: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// The window that was in front (the game), to give focus back on close.
 static PREV: Mutex<isize> = Mutex::new(0);
+
+pub fn is_open() -> bool {
+    OPEN.load(Ordering::Relaxed)
+}
 
 pub fn toggle(app: &AppHandle) {
     if OPEN.load(Ordering::Relaxed) {
@@ -43,6 +50,10 @@ fn open(app: &AppHandle) {
     }
     let fg = unsafe { GetForegroundWindow() };
     *PREV.lock() = fg.0 as isize;
+    // Freeze the video on the game before the menu shows up (the capture
+    // loop checks once per frame).
+    app.state::<AppState>().engine.set_hold(true);
+    std::thread::sleep(std::time::Duration::from_millis(40));
     let win = match app.get_webview_window(LABEL) {
         Some(w) => w,
         None => match create(app) {
@@ -79,11 +90,6 @@ fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .visible(false)
         .disable_drag_drop_handler()
         .build()?;
-    if let Ok(h) = win.hwnd() {
-        unsafe {
-            let _ = SetWindowDisplayAffinity(HWND(h.0 as _), WDA_EXCLUDEFROMCAPTURE);
-        }
-    }
     // Clicking into another window (or Alt+Tab) closes the menu.
     let handle = app.clone();
     win.on_window_event(move |e| {
@@ -104,6 +110,14 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
     }
     // The page stops the player and stats polling while hidden.
     let _ = app.emit_to(LABEL, "menu://hidden", ());
+    // Resume capture once the window is off the screen.
+    let h = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        if !OPEN.load(Ordering::Relaxed) {
+            h.state::<AppState>().engine.set_hold(false);
+        }
+    });
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     let handle = app.clone();
     std::thread::spawn(move || {

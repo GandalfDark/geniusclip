@@ -117,6 +117,8 @@ struct Shared {
     fps_x100: AtomicU64,
     dropped: AtomicU64,
     dropped_recent: AtomicU64,
+    /// Repeat the last desktop frame instead of capturing (see `set_hold`).
+    hold: AtomicBool,
     failed: Mutex<Option<String>>,
 }
 
@@ -208,6 +210,7 @@ impl Engine {
             fps_x100: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             dropped_recent: AtomicU64::new(0),
+            hold: AtomicBool::new(false),
             failed: Mutex::new(None),
         });
         let alive = Arc::new(AtomicBool::new(true));
@@ -470,6 +473,13 @@ impl Engine {
         })?;
         self.emit_status();
         Ok(())
+    }
+
+    /// While on, video keeps repeating the last captured frame. The in-game
+    /// menu covers the whole screen, so its time in a clip shows the game as
+    /// it was when the menu opened instead of the menu.
+    pub fn set_hold(&self, on: bool) {
+        self.shared.hold.store(on, Ordering::Relaxed);
     }
 
     /// Captures the current desktop to a PNG in the background.
@@ -771,16 +781,20 @@ fn video_thread(
         timer.wait_until(tick_time(tick));
         lap = Instant::now();
 
-        match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
-            Poll::Changed { desktop: d } => {
-                if d && (conv.in_w != dup.width || conv.in_h != dup.height) {
-                    log::info!("desktop resized to {}x{}", dup.width, dup.height);
-                    conv = Converter::new(&device, &ctx, dup.width, dup.height, enc_w, enc_h, fps)?;
-                    composed = None;
+        // Holding needs a frame to repeat; without one, capture as usual.
+        let hold = shared.hold.load(Ordering::Relaxed) && desktop.is_some();
+        if !hold {
+            match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
+                Poll::Changed { desktop: d } => {
+                    if d && (conv.in_w != dup.width || conv.in_h != dup.height) {
+                        log::info!("desktop resized to {}x{}", dup.width, dup.height);
+                        conv = Converter::new(&device, &ctx, dup.width, dup.height, enc_w, enc_h, fps)?;
+                        composed = None;
+                    }
+                    dirty = true;
                 }
-                dirty = true;
+                Poll::Idle | Poll::Lost => {}
             }
-            Poll::Idle | Poll::Lost => {}
         }
         mark(0, &mut lap, &mut prof);
 

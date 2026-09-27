@@ -112,9 +112,16 @@
     }
   });
 
+  // While the menu is open capture holds the last game frame; for a
+  // screenshot the page turns invisible for a moment so the game is taken
+  // as it is now.
+  let snapping = $state(false);
   async function screenshot() {
-    // The menu is excluded from capture, so it never shows up in the shot.
-    await api.screenshot();
+    if (snapping) return;
+    snapping = true;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await api.menuScreenshot().catch(() => {});
+    snapping = false;
     shotFlash = true;
     setTimeout(() => (shotFlash = false), 1200);
   }
@@ -177,7 +184,7 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && back()} />
 
-<div class="menu" class:shown>
+<div class="menu" class:shown class:snapping>
   <div class="dim" onclick={back} role="presentation"></div>
   {#if s && st}
     <aside class="panel">
@@ -308,6 +315,9 @@
     position: fixed;
     inset: 0;
     overflow: hidden;
+  }
+  .menu.snapping {
+    visibility: hidden;
   }
   .dim {
     position: absolute;
