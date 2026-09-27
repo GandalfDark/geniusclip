@@ -19,6 +19,7 @@ mod disk;
 pub mod media;
 mod monitor;
 pub mod remix;
+pub mod finalize;
 mod mux;
 mod venc;
 

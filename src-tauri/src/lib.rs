@@ -10,6 +10,7 @@ mod menu;
 mod monitors;
 mod overlay;
 mod power;
+mod recordings;
 mod report;
 mod settings;
 mod share;
@@ -308,6 +309,7 @@ pub fn run() {
                 show_main(&handle);
             }
             updates::spawn_periodic(handle.clone());
+            recordings::spawn(handle.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

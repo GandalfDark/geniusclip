@@ -2,6 +2,7 @@
 
 use crate::buffer::ClipData;
 use crate::ffutil::*;
+use crate::finalize;
 use anyhow::{anyhow, bail, Context, Result};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ffmpeg_sys_next as ff;
@@ -9,6 +10,7 @@ use std::ffi::c_int;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 const fn mktag(a: u8, b: u8, c: u8, d: u8) -> u32 {
     a as u32 | (b as u32) << 8 | (c as u32) << 16 | (d as u32) << 24
@@ -25,7 +27,18 @@ pub struct Muxer {
     /// At least one packet reached the muxer.
     written: bool,
     pkt: AvPacket,
+    /// A recording's sample table, read from its fragments as they are written.
+    live: Option<Live>,
 }
+
+struct Live {
+    index: finalize::Index,
+    reader: std::fs::File,
+    read_at: Instant,
+}
+
+/// How often a recording's new fragments are indexed.
+const INDEX_EVERY: Duration = Duration::from_secs(2);
 
 unsafe impl Send for Muxer {}
 
@@ -49,6 +62,7 @@ impl Muxer {
                 fragmented,
                 written: false,
                 pkt: AvPacket::new(),
+                live: None,
             };
             let mut first_audio = true;
             for s in streams {
@@ -78,6 +92,12 @@ impl Muxer {
             ff::av_dict_free(&mut opts);
             check(r, "avformat_write_header")?;
             me.header_written = true;
+            if fragmented {
+                match std::fs::File::open(&tmp) {
+                    Ok(reader) => me.live = Some(Live { index: finalize::Index::new(), reader, read_at: Instant::now() }),
+                    Err(e) => log::warn!("recording index: {e}; the recording stays fragmented"),
+                }
+            }
             Ok(me)
         }
     }
@@ -122,6 +142,19 @@ impl Muxer {
         Ok(())
     }
 
+    /// Indexes the fragments written since the last call, every few seconds.
+    pub fn index_step(&mut self) {
+        let Some(live) = &mut self.live else { return };
+        if live.read_at.elapsed() < INDEX_EVERY {
+            return;
+        }
+        live.read_at = Instant::now();
+        if let Err(e) = live.index.advance(&mut live.reader) {
+            log::warn!("recording index: {e:#}; the recording stays fragmented");
+            self.live = None;
+        }
+    }
+
     pub fn finish(mut self) -> Result<PathBuf> {
         if let Err(e) = unsafe { check(ff::av_write_trailer(self.oc), "av_write_trailer") } {
             // A recording's fragments play without the trailer: keep them.
@@ -131,6 +164,14 @@ impl Muxer {
             log::warn!("recording saved without trailer: {e:#}");
         }
         self.close();
+        if let Some(live) = self.live.take() {
+            // Fragmented, it still plays: only slower to open.
+            let started = Instant::now();
+            match finish_recording(live, &self.tmp) {
+                Ok(()) => log::info!("recording indexed in {:.0?}", started.elapsed()),
+                Err(e) => log::warn!("recording left fragmented: {e:#}"),
+            }
+        }
         std::fs::rename(&self.tmp, &self.dst).context("rename clip")?;
         Ok(self.dst.clone())
     }
@@ -148,8 +189,18 @@ impl Muxer {
     }
 }
 
+/// Makes a finished fragmented recording a regular MP4 (see `finalize`).
+fn finish_recording(live: Live, path: &Path) -> Result<()> {
+    let Live { mut index, reader, .. } = live;
+    drop(reader);
+    let mut f = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    index.advance(&mut f)?;
+    index.finish(&mut f)
+}
+
 impl Drop for Muxer {
     fn drop(&mut self) {
+        self.live = None;
         if !self.oc.is_null() {
             // Abandoned (error path): remove a partial clip, but never a
             // recording that has footage (fragmented MP4 plays as is).
@@ -266,6 +317,7 @@ fn record_loop(mut muxer: Muxer, rx: Receiver<Msg>, video: Option<usize>) -> Res
                     break;
                 }
                 written += 1;
+                muxer.index_step();
             }
         }
     }
