@@ -12,7 +12,9 @@
   import { app } from '$lib/app.svelte';
   import type { MediaEntry, MediaKind } from '$lib/types';
 
-  let kind = $state<'all' | MediaKind>('all');
+  /** Which files the grid shows: all, one kind, or the starred ones. */
+  type Tab = 'all' | MediaKind | 'fav';
+  let kind = $state<Tab>('all');
   let game = $state('');
   let query = $state('');
   let viewing = $state<MediaEntry | null>(null);
@@ -57,17 +59,19 @@
     const t = setTimeout(() => (search = q), 150);
     return () => clearTimeout(t);
   });
-  const count = (k: 'all' | MediaKind) => (k === 'all' ? app.media.length : app.media.filter((m) => m.kind === k).length);
+  const inTab = (m: MediaEntry, k: Tab) => k === 'all' || (k === 'fav' ? m.favorite : m.kind === k);
+  const count = (k: Tab) => (k === 'all' ? app.media.length : app.media.filter((m) => inTab(m, k)).length);
   const tabs = [
     { value: 'all', key: 'gallery.all' },
     { value: 'clip', key: 'gallery.clips' },
     { value: 'recording', key: 'gallery.recordings' },
     { value: 'screenshot', key: 'gallery.screenshots' },
+    { value: 'fav', key: 'gallery.favorites' },
   ] as const;
   let list = $derived(
     app.media.filter(
       (m) =>
-        (kind === 'all' || m.kind === kind) &&
+        inTab(m, kind) &&
         (!game || m.game === game) &&
         (!search || (m.name + ' ' + m.game).toLowerCase().includes(search)),
     ),
@@ -81,8 +85,8 @@
   <div class="top">
     <nav class="tabs">
       {#each tabs as tab}
-        <button class:active={kind === tab.value} onclick={() => (kind = tab.value)}>
-          {app.t(tab.key)}<span class="n mono">{count(tab.value)}</span>
+        <button class:active={kind === tab.value} class:fav={tab.value === 'fav'} onclick={() => (kind = tab.value)}>
+          {#if tab.value === 'fav'}<Icon name="starFill" size={13} />{/if}{app.t(tab.key)}<span class="n mono">{count(tab.value)}</span>
         </button>
       {/each}
     </nav>
@@ -111,7 +115,7 @@
       {/each}
     </div>
   {:else if app.mediaLoaded}
-    <p class="muted empty">{app.t('gallery.empty')}</p>
+    <p class="muted empty">{kind === 'fav' && !count('fav') ? app.t('gallery.favEmpty') : app.t('gallery.empty')}</p>
   {/if}
 </div>
 
@@ -166,6 +170,17 @@
   }
   .tabs button.active::after {
     transform: none;
+  }
+  .tabs button.fav {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tabs button.fav.active :global(.ic) {
+    color: var(--fav);
+  }
+  .tabs button.fav .n {
+    margin-left: 1px;
   }
   .n {
     margin-left: 6px;

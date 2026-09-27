@@ -31,8 +31,11 @@ serde_json.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 anyhow.workspace = true
-windows.workspace = true
+# Plus the registry, for the Windows version and CPU name in problem reports.
+windows = { workspace = true, features = ["Win32_System_Registry"] }
 # NVML (GPU temperature), loaded only when an NVIDIA driver is present.
 libloading = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 trash = "5"
+# Problem reports (already in the tree through the updater; deflate only).
+zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"] }

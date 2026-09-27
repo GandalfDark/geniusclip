@@ -32,6 +32,9 @@
     speaker: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><g class="m1"><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4"/></g>',
     speakerOff: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="var(--danger)"/>',
     update: '<g class="m1"><path d="M12 4.5v10M8 10.5l4 4 4-4"/></g><path d="M5 15.5v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/>',
+    star: '<g class="m1"><path d="M12 4l2.41 5.28 5.77.66-4.28 3.93 1.16 5.69L12 16.7l-5.06 2.86 1.16-5.69-4.28-3.93 5.77-.66z"/></g>',
+    starFill: '<g class="m1"><path d="M12 4l2.41 5.28 5.77.66-4.28 3.93 1.16 5.69L12 16.7l-5.06 2.86 1.16-5.69-4.28-3.93 5.77-.66z" fill="currentColor"/></g>',
+    sparkle: '<g class="m1"><path d="M11 5c.6 4 2.9 6.4 7 7-4.1.6-6.4 3-7 7-.6-4-2.9-6.4-7-7 4.1-.6 6.4-3 7-7z"/></g><path d="M18.5 3.5v3M17 5h3"/>',
   } as const;
   export type IconName = keyof typeof ICONS;
 </script>
@@ -141,6 +144,12 @@
   }
   :global(:is(a, button, label):hover) .ic-search :global(.m1) {
     transform: rotate(-12deg) scale(1.06);
+  }
+  :global(:is(a, button, label):hover) :is(.ic-star, .ic-starFill) :global(.m1) {
+    transform: rotate(-14deg) scale(1.12);
+  }
+  :global(:is(a, button, label):hover) .ic-sparkle :global(.m1) {
+    animation: ic-focus 0.6s var(--ease);
   }
   /* The check draws itself whenever it appears. */
   .ic-check :global(.draw) {

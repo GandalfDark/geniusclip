@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "Tutaj menu się nie otworzy",
   "ov.menu-unavailable.sub": "Przełącz grę w tryb okna bez ramek",
   "menu.hold-title": "Otwarto menu GeniusClip",
-  "menu.hold-hint": "Wideo ruszy po zamknięciu menu"
+  "menu.hold-hint": "Wideo ruszy po zamknięciu menu",
+  "ov.disk-low": "Mało miejsca na dysku",
+  "ov.disk-low.sub": "Zostało {free} na {drive}",
+  "unit.gb": "GB",
+  "unit.mb": "MB"
 }

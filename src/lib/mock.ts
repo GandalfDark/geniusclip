@@ -1,6 +1,10 @@
 // Browser-only preview: fakes the Tauri backend so the UI can be designed
 // and reviewed in a normal browser (`npm run dev`, open localhost:1420).
 // Never loaded inside the real app.
+//
+// URL options: ?lang=en picks the UI language; ?clean hides the one-off
+// cards (what's new, first steps, low disk) for website screenshots.
+// In the console, __gcMock.openMenu() ticks the "open the menu" step.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { MediaEntry, Settings } from "./types";
 
@@ -48,6 +52,7 @@ const media: MediaEntry[] = Array.from({ length: 14 }, (_, i) => {
           : [300, 42, 75, 300, 118][i % 5],
     width: 2560,
     height: 1440,
+    favorite: i === 2 || i === 6 || i === 9,
   };
 });
 
@@ -62,6 +67,7 @@ media.unshift({
   duration: 24,
   width: 2560,
   height: 1440,
+  favorite: true,
 });
 
 let settings: Settings = {
@@ -106,7 +112,26 @@ let settings: Settings = {
   overlay: { enabled: true, corner: "top-right", sound: true },
   autoUpdate: true,
   pauseOnBattery: false,
+  onboarding: { clipSaved: false, menuOpened: false, dismissed: false },
 };
+
+let whatsNew: { version: string; notes: string } | null = {
+  version: "0.1.1",
+  notes: [
+    "New",
+    "- Star clips on their thumbnail or in the viewer; the gallery has a Favorites tab",
+    "- A first-steps card on Home for new players",
+    "- Home warns when the clips drive is almost full",
+    "- Settings → System collects a problem report for the developer",
+    "Fixes",
+    "- Steadier thumbnails in long galleries",
+  ].join("\n"),
+};
+/** Free space on the clips drive: low (under 5 GB) unless ?clean. */
+let freeMb = 3_300;
+const LOW_MB = 5_120;
+
+const changed = () => emit("settings://changed", structuredClone(settings));
 
 let buffer = 247;
 let recording = false;
@@ -138,8 +163,20 @@ let micTimer: ReturnType<typeof setInterval> | undefined;
 export function installMock() {
   (window as any).__GC_MOCK__ = true;
   // Screenshots for the website: /?lang=en picks the UI language.
-  const lang = new URLSearchParams(location.search).get("lang");
+  const params = new URLSearchParams(location.search);
+  const lang = params.get("lang");
   if (lang) settings.language = lang;
+  if (params.has("clean")) {
+    whatsNew = null;
+    freeMb = 412_000;
+    settings.onboarding.dismissed = true;
+  }
+  (window as any).__gcMock = {
+    openMenu() {
+      settings.onboarding.menuOpened = true;
+      changed();
+    },
+  };
   mockWindows("main");
   mockIPC(
     async (cmd, args: any) => {
@@ -191,6 +228,7 @@ export function installMock() {
             version: "0.1.1",
             hotkeyErrors: [],
             update: null,
+            whatsNew,
             lang: navigator.language.startsWith("ru") ? "ru" : "en",
           };
         case "get_status":
@@ -237,9 +275,15 @@ export function installMock() {
             duration: 10 + (i % 50),
             width: 2560,
             height: 1440,
+            favorite: false,
           };
           setTimeout(() => {
             media.unshift(entry);
+            freeMb -= 46;
+            if (!settings.onboarding.clipSaved) {
+              settings.onboarding.clipSaved = true;
+              changed();
+            }
             emit("engine://event", {
               type: "clipSaved",
               path: entry.path,
@@ -256,6 +300,22 @@ export function installMock() {
           emit("library://changed", { path: args.path, removed: true });
           return null;
         }
+        case "set_favorite": {
+          const m = media.find((x) => x.path === args.path);
+          if (!m) throw "err.not-found";
+          m.favorite = args.on;
+          await new Promise((r) => setTimeout(r, 120));
+          emit("library://changed", { path: m.path, entry: { ...m }, removed: false });
+          return { ...m };
+        }
+        case "disk_space":
+          return { drive: "D:", freeMb, totalMb: 953_000, lowMb: LOW_MB, low: freeMb < LOW_MB };
+        case "dismiss_whats_new":
+          whatsNew = null;
+          return null;
+        case "make_report":
+          await new Promise((r) => setTimeout(r, 1400));
+          return "C:\\Users\\Player\\Desktop\\GeniusClip-report-2026-09-27.zip";
         case "toggle_recording":
           recording = !recording;
           recStart = Date.now();

@@ -3,7 +3,7 @@
 use crate::library::{Entry, Kind};
 use crate::settings::Settings;
 use crate::state::AppState;
-use crate::updates::UpdateInfo;
+use crate::updates::{UpdateInfo, WhatsNew};
 use geniusclip_engine::{media, AudioDevice, EngineStatus, MonitorEvent, MonitorInfo};
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -94,6 +94,8 @@ pub struct Snapshot {
     /// Installed memory, for the buffer-size warning.
     ram_total_mb: u64,
     has_battery: bool,
+    /// Notes of the update that was just installed, until dismissed.
+    whats_new: Option<WhatsNew>,
 }
 
 fn ram_total_mb() -> u64 {
@@ -119,6 +121,7 @@ pub async fn get_snapshot(app: AppHandle) -> CmdResult<Snapshot> {
             version: app.package_info().version.to_string(),
             hotkey_errors: st.hotkey_errors.lock().clone(),
             update: st.update.lock().clone(),
+            whats_new: crate::updates::whats_new(&app),
         };
         snapshot
     })
@@ -137,7 +140,8 @@ pub struct Estimate {
     width: u32,
     height: u32,
     bitrate_kbps: u32,
-    buffer_mb: u32,
+    /// Also the size of a clip of the whole replay buffer.
+    pub buffer_mb: u32,
 }
 
 /// Expected output size, bitrate and replay buffer memory for a config.
@@ -146,7 +150,7 @@ pub async fn estimate(settings: Settings) -> CmdResult<Estimate> {
     blocking(move || estimate_for(&settings)).await
 }
 
-fn estimate_for(settings: &Settings) -> Estimate {
+pub(crate) fn estimate_for(settings: &Settings) -> Estimate {
     let mons = geniusclip_engine::list_monitors().unwrap_or_default();
     let m = settings
         .engine
@@ -187,7 +191,14 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
             code::FOLDER_UNAVAILABLE.to_string()
         })?;
     }
-    *st.settings.write() = new.clone();
+    {
+        let mut cur = st.settings.write();
+        // "First steps" reached meanwhile (a clip saved while the UI held
+        // older settings) stay reached: the UI never clears them.
+        new.onboarding.clip_saved |= cur.onboarding.clip_saved;
+        new.onboarding.menu_opened |= cur.onboarding.menu_opened;
+        *cur = new.clone();
+    }
     // Reported only after the side effects below: the new values are live
     // either way, and the next update compares against them, so skipping
     // the side effects here would lose them for good (resending the same
@@ -405,6 +416,8 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
             let meta = st.library.scan(&settings).into_iter().find(|e| e.path == path);
             meta.map(|e| (e.kind, e.game)).unwrap_or((Kind::Clip, String::new()))
         });
+        // A trim that replaces the original keeps its star; a copy starts without.
+        let favorite = replace && st.library.is_favorite(&path);
         let trimmed = match gains.filter(|g| g.iter().any(|&x| (x - 1.0).abs() > 0.005)) {
             Some(g) => geniusclip_engine::remix::trim_with_gains(&path, &out, start, end, &g),
             None => media::trim(&path, &out, start, end),
@@ -438,13 +451,78 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
         } else {
             out
         };
-        st.library.expect(&final_path, kind, &game);
+        st.library.expect_as(&final_path, kind, &game, favorite);
         let entry = st.library.add(&final_path);
         crate::emit_library_changed(&app, &final_path, entry.as_ref(), false);
         Ok(entry)
     })
     .await
     .map_err(err)?
+}
+
+/// Stars or unstars a clip or screenshot.
+#[tauri::command]
+pub async fn set_favorite(app: AppHandle, path: PathBuf, on: bool) -> CmdResult<Entry> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        check_media_path(&st, &path)?;
+        let entry = st
+            .library
+            .set_favorite(&path, on)
+            .or_else(|| {
+                // Not indexed yet, or changed on disk: index it first, on a
+                // copy of the settings (not under their lock).
+                let settings = st.settings.read().clone();
+                st.library.scan(&settings);
+                st.library.set_favorite(&path, on)
+            })
+            .ok_or_else(|| code::NOT_FOUND.to_string())?;
+        crate::emit_library_changed(&app, &path, Some(&entry), false);
+        Ok(entry)
+    })
+    .await?
+}
+
+/// Free space on the drive holding the clips folder.
+#[tauri::command]
+pub async fn disk_space(app: AppHandle) -> CmdResult<crate::disk::DiskSpace> {
+    blocking(move || {
+        let settings = app.state::<AppState>().settings.read().clone();
+        crate::disk::space(&settings).map_err(err)
+    })
+    .await?
+}
+
+/// Hides the "what's new" notes of the installed update for good.
+#[tauri::command]
+pub fn dismiss_whats_new(app: AppHandle) -> CmdResult<()> {
+    crate::updates::dismiss_whats_new(&app).map_err(err)
+}
+
+/// Zips logs, settings and a system summary to the Desktop for a bug
+/// report, shows it in Explorer and returns its path.
+#[tauri::command]
+pub async fn make_report(app: AppHandle) -> CmdResult<String> {
+    let path = blocking({
+        let app = app.clone();
+        move || crate::report::create(&app)
+    })
+    .await?
+    .map_err(|e| {
+        log::warn!("problem report: {e:#}");
+        match io_cause(&e).and_then(io_code) {
+            Some(code::DISK_FULL) => code::DISK_FULL.to_string(),
+            _ => err(e),
+        }
+    })?;
+    // Explorer is driven through COM: on the UI thread, like `reveal_path`.
+    let shown = path.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Err(e) = tauri_plugin_opener::reveal_item_in_dir(&shown) {
+            log::warn!("reveal report: {e}");
+        }
+    });
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { startDrag } from '@crabnebula/tauri-plugin-drag';
+  import Icon from './Icon.svelte';
   import { api, fileUrl } from '$lib/api';
   import { app } from '$lib/app.svelte';
   import { bytes, date, duration } from '$lib/format';
@@ -15,6 +16,13 @@
   // Every library refresh hands over new entry objects; only a new path
   // should reload the thumbnail (otherwise all cards blink).
   let path = $derived(entry.path);
+  let fav = $derived(!!entry.favorite);
+  // The star bounces when it's switched on by a click (not when it just shows up).
+  let bounce = $state(false);
+  function toggleFavorite() {
+    bounce = !fav;
+    app.setFavorite(entry, !fav);
+  }
 
   $effect(() => {
     const p = path;
@@ -38,34 +46,54 @@
   });
 </script>
 
-<!-- Drag the card into Telegram/Explorer to attach the file itself. -->
-<button
-  class="m"
-  class:fresh
-  bind:this={el}
-  data-path={entry.path}
-  draggable="true"
-  ondragstart={(e) => {
-    e.preventDefault();
-    if (thumbPath) startDrag({ item: [entry.path], icon: thumbPath }).catch(() => {});
-  }}
-  onclick={() => onopen(entry, frame.getBoundingClientRect(), loaded ? thumb : null)}
->
-  <div class="thumb" bind:this={frame}>
-    {#if thumb}<img src={thumb} alt="" draggable="false" class:loaded onload={() => (loaded = true)} />{/if}
-    {#if entry.kind === 'recording'}<span class="tag rec mono">REC</span>{/if}
-    {#if entry.kind === 'screenshot'}
-      <span class="tag mono">PNG</span>
-    {:else}
-      <span class="tc mono">{duration(entry.duration)}</span>
-    {/if}
-  </div>
-  <div class="title">{entry.game || entry.name}</div>
-  <div class="sub mono">{date(entry.modified, app.lang)} · {bytes(entry.size, app.lang)}</div>
-</button>
+<!-- The star is a sibling of the card's button (buttons can't nest); it sits
+     over the thumbnail's top-left corner. -->
+<div class="card">
+  <!-- Drag the card into Telegram/Explorer to attach the file itself. -->
+  <button
+    class="m"
+    class:fresh
+    bind:this={el}
+    data-path={entry.path}
+    draggable="true"
+    ondragstart={(e) => {
+      e.preventDefault();
+      if (thumbPath) startDrag({ item: [entry.path], icon: thumbPath }).catch(() => {});
+    }}
+    onclick={() => onopen(entry, frame.getBoundingClientRect(), loaded ? thumb : null)}
+  >
+    <div class="thumb" bind:this={frame}>
+      {#if thumb}<img src={thumb} alt="" draggable="false" class:loaded onload={() => (loaded = true)} />{/if}
+      {#if entry.kind === 'recording'}<span class="tag rec mono">REC</span>{/if}
+      {#if entry.kind === 'screenshot'}
+        <span class="tag mono">PNG</span>
+      {:else}
+        <span class="tc mono">{duration(entry.duration)}</span>
+      {/if}
+    </div>
+    <div class="title">{entry.game || entry.name}</div>
+    <div class="sub mono">{date(entry.modified, app.lang)} · {bytes(entry.size, app.lang)}</div>
+  </button>
+  <button
+    class="star"
+    class:on={fav}
+    class:bounce={bounce && fav}
+    aria-pressed={fav}
+    aria-label={app.t(fav ? 'fav.remove' : 'fav.add')}
+    title={app.t(fav ? 'fav.remove' : 'fav.add')}
+    onclick={toggleFavorite}
+  >
+    <Icon name={fav ? 'starFill' : 'star'} size={15} stroke={1.8} />
+  </button>
+</div>
 
 <style>
+  .card {
+    position: relative;
+    min-width: 0;
+  }
   .m {
+    width: 100%;
     display: flex;
     flex-direction: column;
     text-align: left;
@@ -81,7 +109,7 @@
     outline-offset: -1px;
     transition: outline-color var(--dur-fast) var(--ease);
   }
-  .m:hover .thumb,
+  .card:hover .thumb,
   .m.fresh .thumb {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
@@ -112,7 +140,7 @@
     opacity: 1;
     transform: none;
   }
-  .m:hover img.loaded {
+  .card:hover img.loaded {
     transform: scale(1.03);
   }
   .tc,
@@ -129,8 +157,9 @@
     right: 6px;
     bottom: 6px;
   }
+  /* Top-left belongs to the star. */
   .tag {
-    left: 6px;
+    right: 6px;
     top: 6px;
   }
   .tag.rec {
@@ -148,5 +177,45 @@
     margin-top: 1px;
     font-size: 11px;
     color: var(--text-3);
+  }
+  /* Shown on hover (or keyboard focus); always shown, in gold, once starred. */
+  .star {
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    background: rgba(0, 0, 0, 0.6);
+    color: #ececef;
+    opacity: 0;
+    transform: scale(0.85);
+    transition:
+      opacity var(--dur-fast) var(--ease),
+      transform var(--dur-fast) var(--ease),
+      background var(--dur-fast) var(--ease),
+      color var(--dur-fast) var(--ease);
+  }
+  .card:hover .star,
+  .star:focus-visible,
+  .star.on {
+    opacity: 1;
+    transform: none;
+  }
+  .star:hover {
+    background: rgba(0, 0, 0, 0.82);
+  }
+  .star.on {
+    color: var(--fav);
+  }
+  .star.bounce {
+    animation: star-pop 0.4s var(--ease);
+  }
+  @keyframes star-pop {
+    40% {
+      transform: scale(1.25);
+    }
   }
 </style>

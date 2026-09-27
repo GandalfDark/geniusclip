@@ -2,7 +2,7 @@
 //! as GitHub releases).
 
 use crate::state::AppState;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
@@ -15,6 +15,14 @@ pub struct UpdateInfo {
     pub current_version: String,
     pub notes: Option<String>,
     pub date: Option<String>,
+}
+
+/// The notes of an installed update, shown once the new version runs.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WhatsNew {
+    pub version: String,
+    pub notes: String,
 }
 
 pub async fn check(app: &AppHandle) -> anyhow::Result<Option<UpdateInfo>> {
@@ -59,6 +67,7 @@ pub async fn install(app: &AppHandle) -> anyhow::Result<()> {
     // The installer (or the restart below) relaunches with this process's
     // arguments; see `take_show_after_update`.
     mark_show_after_update(app);
+    save_whats_new(app, &WhatsNew { version: update.version.clone(), notes: update.body.clone().unwrap_or_default() });
     app.state::<AppState>().engine.shutdown();
     if let Err(e) = update.install(bytes) {
         // Capture is already shut down and can't be started again in this
@@ -98,6 +107,43 @@ pub fn take_show_after_update(app: &AppHandle) -> bool {
     SystemTime::now().duration_since(written).is_ok_and(|age| age < MARKER_FRESH)
 }
 
+fn whats_new_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("whats-new.json"))
+}
+
+fn save_whats_new(app: &AppHandle, notes: &WhatsNew) {
+    let Some(p) = whats_new_file(app) else { return };
+    let res = p
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|_| serde_json::to_vec(notes).map_err(std::io::Error::from))
+        .and_then(|b| std::fs::write(&p, b));
+    if let Err(e) = res {
+        log::warn!("whats-new.json: {e}");
+    }
+}
+
+/// The notes saved before the running version was installed. Notes of any
+/// other version (an install that failed and restarted the old one) are
+/// ignored rather than deleted: the old version may still be on its way
+/// out while the installer runs.
+pub fn whats_new(app: &AppHandle) -> Option<WhatsNew> {
+    let notes: WhatsNew = serde_json::from_slice(&std::fs::read(whats_new_file(app)?).ok()?).ok()?;
+    same_version(&notes.version, &app.package_info().version.to_string()).then_some(notes)
+}
+
+fn same_version(a: &str, b: &str) -> bool {
+    a.trim().trim_start_matches('v') == b.trim().trim_start_matches('v')
+}
+
+pub fn dismiss_whats_new(app: &AppHandle) -> std::io::Result<()> {
+    let Some(p) = whats_new_file(app) else { return Ok(()) };
+    match std::fs::remove_file(p) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        res => res,
+    }
+}
+
 pub fn spawn_periodic(app: AppHandle) {
     // A plain sleeping thread: sleeping in spawn_blocking held a thread of
     // the async runtime's blocking pool for six hours at a time.
@@ -114,5 +160,19 @@ pub fn spawn_periodic(app: AppHandle) {
     });
     if let Err(e) = res {
         log::warn!("update checks: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_compare_without_a_v_prefix() {
+        assert!(same_version("v0.1.4", "0.1.4"));
+        assert!(same_version("0.1.4", "0.1.4"));
+        assert!(!same_version("0.1.4", "0.1.3"));
+        let json = serde_json::to_string(&WhatsNew { version: "0.1.4".into(), notes: "- Faster".into() }).unwrap();
+        assert_eq!(json, r#"{"version":"0.1.4","notes":"- Faster"}"#);
     }
 }

@@ -29,6 +29,9 @@ struct Record {
     duration: f64,
     width: u32,
     height: u32,
+    /// Absent in indexes from older versions.
+    #[serde(default)]
+    favorite: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,14 +47,18 @@ pub struct Entry {
     pub duration: f64,
     pub width: u32,
     pub height: u32,
+    pub favorite: bool,
 }
+
+/// What a file that is being written will be: kind, game, favorite.
+type Pending = (Kind, String, bool);
 
 pub struct Library {
     index_path: PathBuf,
     thumbs_dir: PathBuf,
     records: Mutex<HashMap<PathBuf, Record>>,
     /// Metadata for files that are being written right now.
-    pending: Mutex<HashMap<PathBuf, (Kind, String)>>,
+    pending: Mutex<HashMap<PathBuf, Pending>>,
     /// One library.json writer at a time.
     persisting: Mutex<()>,
     thumb_jobs: Limiter,
@@ -143,13 +150,20 @@ impl Library {
 
     /// Remembers what a file that is about to be written is.
     pub fn expect(&self, path: &Path, kind: Kind, game: &str) {
-        self.pending.lock().insert(path.to_path_buf(), (kind, game.to_string()));
+        self.expect_as(path, kind, game, false);
+    }
+
+    /// `expect`, for a file that replaces a favorite (a trim that replaces
+    /// the original keeps its star).
+    pub fn expect_as(&self, path: &Path, kind: Kind, game: &str, favorite: bool) {
+        self.pending.lock().insert(path.to_path_buf(), (kind, game.to_string(), favorite));
     }
 
     /// Records a finished file; returns its entry.
     pub fn add(&self, path: &Path) -> Option<Entry> {
-        let (kind, game) = self.pending.lock().remove(path).unwrap_or_else(|| (guess_kind(path), String::new()));
-        let rec = self.make_record(path, kind, &game)?;
+        let (kind, game, favorite) = self.pending.lock().remove(path).unwrap_or_else(|| (guess_kind(path), String::new(), false));
+        let mut rec = self.make_record(path, kind, &game)?;
+        rec.favorite = favorite;
         self.records.lock().insert(path.to_path_buf(), rec.clone());
         self.persist();
         Some(entry(path, &rec))
@@ -162,7 +176,7 @@ impl Library {
         } else {
             (0.0, 0, 0)
         };
-        Some(Record { kind, game: game.to_string(), size, modified, duration, width, height })
+        Some(Record { kind, game: game.to_string(), size, modified, duration, width, height, favorite: false })
     }
 
     /// Lists all clips/recordings/screenshots, newest first.
@@ -188,15 +202,19 @@ impl Library {
                     old => {
                         let kind = old.map(|r| r.kind).unwrap_or_else(|| guess_kind(&path));
                         let game = old.map(|r| r.game.clone()).filter(|g| !g.is_empty()).unwrap_or(folder_game);
-                        stale.push((path, kind, game));
+                        // A file changed on disk (edited elsewhere) keeps its star.
+                        let favorite = old.is_some_and(|r| r.favorite);
+                        stale.push((path, kind, game, favorite));
                     }
                 }
             }
         }
         // Probing opens every new video with FFmpeg: not under the lock,
         // which saving a clip (add) needs too.
-        let fresh: Vec<(PathBuf, Record)> =
-            stale.into_iter().filter_map(|(p, kind, game)| self.make_record(&p, kind, &game).map(|r| (p, r))).collect();
+        let fresh: Vec<(PathBuf, Record)> = stale
+            .into_iter()
+            .filter_map(|(p, kind, game, favorite)| self.make_record(&p, kind, &game).map(|r| (p, Record { favorite, ..r })))
+            .collect();
         let known: Vec<PathBuf> = self.records.lock().keys().cloned().collect();
         let gone: Vec<PathBuf> = known.into_iter().filter(|p| !p.exists()).collect();
         let mut changed = !fresh.is_empty();
@@ -230,6 +248,24 @@ impl Library {
     /// What the index knows about a file (kind, game), without a folder scan.
     pub fn info(&self, path: &Path) -> Option<(Kind, String)> {
         self.records.lock().get(path).map(|r| (r.kind, r.game.clone()))
+    }
+
+    pub fn is_favorite(&self, path: &Path) -> bool {
+        self.records.lock().get(path).is_some_and(|r| r.favorite)
+    }
+
+    /// Stars or unstars an indexed file; returns its new listing. None when
+    /// the index is not up to date for the file (scan first).
+    pub fn set_favorite(&self, path: &Path, on: bool) -> Option<Entry> {
+        let (size, modified) = file_stamp(path)?;
+        let entry = {
+            let mut recs = self.records.lock();
+            let r = recs.get_mut(path).filter(|r| r.size == size && r.modified == modified)?;
+            r.favorite = on;
+            entry(path, r)
+        };
+        self.persist();
+        Some(entry)
     }
 
     /// The listing of an indexed file, if the index is up to date for it.
@@ -441,6 +477,7 @@ fn entry(path: &Path, r: &Record) -> Entry {
         duration: r.duration,
         width: r.width,
         height: r.height,
+        favorite: r.favorite,
     }
 }
 
@@ -516,6 +553,53 @@ mod tests {
         assert_eq!(peaks, vec![vec![0.5]]);
         let used = std::fs::metadata(d.join(PEAKS_FILE)).unwrap().modified().unwrap();
         assert!(used.elapsed().unwrap() < Duration::from_secs(60));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn favorites_survive_reloads_renames_rescans_and_replacing() {
+        let root = scratch("fav");
+        let (data, cache) = (root.join("data"), root.join("cache"));
+        let shot = root.join("a.png");
+        std::fs::write(&shot, b"x").unwrap();
+        let lib = Library::new(&data, &cache);
+        lib.expect(&shot, Kind::Screenshot, "Game");
+        assert!(!lib.add(&shot).unwrap().favorite);
+        assert!(lib.set_favorite(&shot, true).unwrap().favorite);
+        // Renamed, then loaded again from library.json.
+        let renamed = root.join("b.png");
+        std::fs::rename(&shot, &renamed).unwrap();
+        lib.rename(&shot, &renamed);
+        let lib = Library::new(&data, &cache);
+        assert!(lib.entry(&renamed).unwrap().favorite);
+        // Changed on disk: the rescan keeps the star.
+        std::fs::write(&renamed, b"xyz").unwrap();
+        let settings = Settings { clips_dir: root.clone(), screenshots_dir: root.clone(), ..Default::default() };
+        let listed = lib.scan(&settings);
+        assert!(listed.iter().find(|e| e.path == renamed).unwrap().favorite);
+        // Replaced by a trimmed version.
+        let keep = lib.is_favorite(&renamed);
+        lib.forget(&renamed);
+        lib.expect_as(&renamed, Kind::Screenshot, "Game", keep);
+        assert!(lib.add(&renamed).unwrap().favorite);
+        // A file not indexed yet can't be starred without a scan.
+        let other = root.join("c.png");
+        std::fs::write(&other, b"x").unwrap();
+        assert!(lib.set_favorite(&other, true).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn indexes_from_before_favorites_still_load() {
+        let root = scratch("oldindex");
+        std::fs::write(
+            root.join("library.json"),
+            r#"[["C:\\x.png",{"kind":"screenshot","game":"","size":1,"modified":0,"duration":0.0,"width":0,"height":0}]]"#,
+        )
+        .unwrap();
+        let lib = Library::new(&root, &root);
+        assert_eq!(lib.records.lock().len(), 1);
+        assert!(!lib.is_favorite(Path::new("C:\\x.png")));
         let _ = std::fs::remove_dir_all(&root);
     }
 

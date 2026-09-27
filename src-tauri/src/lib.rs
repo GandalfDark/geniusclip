@@ -1,12 +1,14 @@
 mod actions;
 mod brand;
 mod commands;
+mod disk;
 mod hotkeys;
 mod i18n;
 mod library;
 mod menu;
 mod overlay;
 mod power;
+mod report;
 mod settings;
 mod share;
 mod sound;
@@ -135,14 +137,20 @@ pub fn emit_library_changed(app: &AppHandle, path: &Path, entry: Option<&library
     let _ = app.emit("library://changed", LibraryChange { path, entry, removed });
 }
 
-fn media_saved(app: &AppHandle, path: &Path, kind: &str, seconds: f64) {
+fn media_saved(app: &AppHandle, path: &Path, kind: library::Kind, seconds: f64) {
     let st = app.state::<AppState>();
     let entry = st.library.add(path);
     let game = entry.as_ref().map(|e| e.game.clone()).unwrap_or_default();
     let seconds = entry.as_ref().map(|e| e.duration).filter(|d| *d > 0.0).unwrap_or(seconds);
-    overlay::toast(app, Toast { kind: kind.into(), game, seconds, ..Default::default() });
+    let toast = match kind {
+        library::Kind::Clip => "clip",
+        library::Kind::Recording => "recording",
+        library::Kind::Screenshot => "screenshot",
+    };
+    overlay::toast(app, Toast { kind: toast.into(), game, seconds, ..Default::default() });
     emit_library_changed(app, path, entry.as_ref(), false);
     tray::refresh(app);
+    actions::after_save(app, kind);
 }
 
 fn on_engine_event(app: &AppHandle, e: EngineEvent) {
@@ -150,9 +158,9 @@ fn on_engine_event(app: &AppHandle, e: EngineEvent) {
         return;
     }
     match &e {
-        EngineEvent::ClipSaved { path, seconds } => media_saved(app, path, "clip", *seconds),
-        EngineEvent::RecordingSaved { path } => media_saved(app, path, "recording", 0.0),
-        EngineEvent::ScreenshotSaved { path } => media_saved(app, path, "screenshot", 0.0),
+        EngineEvent::ClipSaved { path, seconds } => media_saved(app, path, library::Kind::Clip, *seconds),
+        EngineEvent::RecordingSaved { path } => media_saved(app, path, library::Kind::Recording, 0.0),
+        EngineEvent::ScreenshotSaved { path } => media_saved(app, path, library::Kind::Screenshot, 0.0),
         EngineEvent::RecordingStarted { .. } => overlay::toast(app, Toast::simple("recording-start")),
         EngineEvent::ClipFailed { error } | EngineEvent::RecordingFailed { error } | EngineEvent::ScreenshotFailed { error } => {
             overlay::toast(app, Toast::error(error))
@@ -275,6 +283,10 @@ pub fn run() {
             commands::take_pending_open,
             commands::quit_app,
             commands::set_hotkeys_suspended,
+            commands::set_favorite,
+            commands::disk_space,
+            commands::dismiss_whats_new,
+            commands::make_report,
         ])
         .build(tauri::generate_context!())
         .expect("error while building GeniusClip")

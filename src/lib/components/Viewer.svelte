@@ -115,6 +115,9 @@
   let track: HTMLElement | null = $state(null);
 
   let isVideo = $derived(entry.kind !== 'screenshot');
+  // `entry` is the object the viewer was opened with; the star follows the
+  // library's current listing of it.
+  let fav = $derived(!!(app.media.find((m) => m.path === entry.path) ?? entry).favorite);
   let index = $derived(list.findIndex((e) => e.path === entry.path));
 
   $effect(() => {
@@ -549,6 +552,15 @@
         {/key}
       </button>
       <span class="sep"></span>
+      <button
+        class="btn ghost icon star"
+        class:starred={fav}
+        aria-pressed={fav}
+        title={app.t(fav ? 'fav.remove' : 'fav.add')}
+        onclick={() => app.setFavorite(entry, !fav)}
+      >
+        <Icon name={fav ? 'starFill' : 'star'} size={18} />
+      </button>
       <button class="btn ghost icon" title={app.t('gallery.rename')} disabled={busy} onclick={startRename}><Icon name="rename" size={18} /></button>
       <button class="btn ghost icon" title={app.t('gallery.reveal')} onclick={() => api.revealPath(entry.path)}><Icon name="folder" size={18} /></button>
       <button class="btn ghost icon" title={app.t('gallery.open')} onclick={() => api.openPath(entry.path)}><Icon name="open" size={18} /></button>
@@ -750,6 +762,9 @@
   .send.done {
     border-color: var(--accent);
     color: var(--accent);
+  }
+  .star.starred {
+    color: var(--fav);
   }
   .sep {
     width: 1px;

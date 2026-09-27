@@ -1,5 +1,5 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import type { Estimate, MediaEntry, Settings, Snapshot, EngineStatus, UpdateInfo, SystemStats } from './types';
+import type { DiskSpace, Estimate, MediaEntry, Settings, Snapshot, EngineStatus, UpdateInfo, SystemStats } from './types';
 
 export const api = {
   snapshot: () => invoke<Snapshot>('get_snapshot'),
@@ -28,6 +28,13 @@ export const api = {
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
   copyMedia: (paths: string[]) => invoke<void>('copy_media', { paths }),
+  /** Resolves to the file's updated listing. */
+  setFavorite: (path: string, on: boolean) => invoke<MediaEntry>('set_favorite', { path, on }),
+  /** Free space on the clips folder's drive. */
+  diskSpace: () => invoke<DiskSpace>('disk_space'),
+  dismissWhatsNew: () => invoke<void>('dismiss_whats_new'),
+  /** Zips the log onto the Desktop (and shows it in Explorer); resolves to its path. */
+  makeReport: () => invoke<string>('make_report'),
   micTest: (on: boolean) => invoke<void>('mic_test', { on }),
   menuClose: () => invoke<void>('menu_close'),
   menuScreenshot: () => invoke<void>('menu_screenshot'),

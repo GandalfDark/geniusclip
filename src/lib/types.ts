@@ -58,6 +58,14 @@ export interface Settings {
   overlay: { enabled: boolean; corner: string; sound: boolean };
   autoUpdate: boolean;
   pauseOnBattery: boolean;
+  /** First-steps card on Home; the backend ticks the steps as they happen. */
+  onboarding: Onboarding;
+}
+
+export interface Onboarding {
+  clipSaved: boolean;
+  menuOpened: boolean;
+  dismissed: boolean;
 }
 
 export interface EngineStatus {
@@ -119,6 +127,25 @@ export interface Snapshot {
   lang: string;
   ramTotalMb: number;
   hasBattery: boolean;
+  /** Set on the first start after an update, until dismissed. */
+  whatsNew: WhatsNew | null;
+}
+
+export interface WhatsNew {
+  version: string;
+  /** Release notes: lines starting with "- " are bullet points. */
+  notes: string;
+}
+
+/** Free space on the clips folder's drive. */
+export interface DiskSpace {
+  /** "C:" */
+  drive: string;
+  freeMb: number;
+  totalMb: number;
+  /** Below this much free space `low` is set. */
+  lowMb: number;
+  low: boolean;
 }
 
 export type MediaKind = 'clip' | 'recording' | 'screenshot';
@@ -133,6 +160,7 @@ export interface MediaEntry {
   duration: number;
   width: number;
   height: number;
+  favorite: boolean;
 }
 
 export interface Estimate {

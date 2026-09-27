@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "ここではメニューを開けません",
   "ov.menu-unavailable.sub": "ゲームをボーダーレスウィンドウに切り替えてください",
   "menu.hold-title": "GeniusClip のメニューを表示中",
-  "menu.hold-hint": "メニューを閉じると動画が再開します"
+  "menu.hold-hint": "メニューを閉じると動画が再開します",
+  "ov.disk-low": "ディスクの空き容量が不足",
+  "ov.disk-low.sub": "{drive} の残り {free}",
+  "unit.gb": "GB",
+  "unit.mb": "MB"
 }

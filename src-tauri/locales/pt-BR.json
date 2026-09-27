@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "O menu não abre aqui",
   "ov.menu-unavailable.sub": "Coloque o jogo no modo janela sem bordas",
   "menu.hold-title": "Menu do GeniusClip aberto",
-  "menu.hold-hint": "O vídeo continua quando o menu fechar"
+  "menu.hold-hint": "O vídeo continua quando o menu fechar",
+  "ov.disk-low": "Pouco espaço em disco",
+  "ov.disk-low.sub": "Restam {free} em {drive}",
+  "unit.gb": "GB",
+  "unit.mb": "MB"
 }

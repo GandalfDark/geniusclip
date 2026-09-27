@@ -76,3 +76,21 @@ export function hotkeyParts(accel: string): string[] {
       .replace(/^Super$/, 'Win'),
   );
 }
+
+export type NotesBlock = { text: string } | { items: string[] };
+
+/** Release notes as paragraphs and bullet lists: lines starting with "- "
+ *  (or "* ", "• ") are list items; Markdown heading marks and bold are dropped. */
+export function releaseNotes(notes: string): NotesBlock[] {
+  const out: NotesBlock[] = [];
+  for (const raw of notes.split(/\r?\n/)) {
+    const line = raw.trim().replace(/\*\*|`/g, '');
+    if (!line) continue;
+    const item = /^[-*•]\s+(.*)$/.exec(line);
+    const last = out[out.length - 1];
+    if (!item) out.push({ text: line.replace(/^#+\s*/, '') });
+    else if (last && 'items' in last) last.items.push(item[1]);
+    else out.push({ items: [item[1]] });
+  }
+  return out;
+}

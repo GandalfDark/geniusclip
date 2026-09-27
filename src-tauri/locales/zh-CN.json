@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "无法在此处打开菜单",
   "ov.menu-unavailable.sub": "请将游戏切换为无边框窗口模式",
   "menu.hold-title": "GeniusClip 菜单已打开",
-  "menu.hold-hint": "关闭菜单后视频将继续"
+  "menu.hold-hint": "关闭菜单后视频将继续",
+  "ov.disk-low": "磁盘空间不足",
+  "ov.disk-low.sub": "{drive} 仅剩 {free}",
+  "unit.gb": "GB",
+  "unit.mb": "MB"
 }

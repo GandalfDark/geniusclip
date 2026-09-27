@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "Menu indisponible ici",
   "ov.menu-unavailable.sub": "Passez le jeu en mode fenêtré sans bordure",
   "menu.hold-title": "Menu GeniusClip ouvert",
-  "menu.hold-hint": "La vidéo reprend à la fermeture du menu"
+  "menu.hold-hint": "La vidéo reprend à la fermeture du menu",
+  "ov.disk-low": "Espace disque faible",
+  "ov.disk-low.sub": "Plus que {free} sur {drive}",
+  "unit.gb": "Go",
+  "unit.mb": "Mo"
 }

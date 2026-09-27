@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "Menü burada açılamıyor",
   "ov.menu-unavailable.sub": "Oyunu kenarlıksız pencere moduna al",
   "menu.hold-title": "GeniusClip menüsü açık",
-  "menu.hold-hint": "Menü kapanınca video devam eder"
+  "menu.hold-hint": "Menü kapanınca video devam eder",
+  "ov.disk-low": "Disk alanı azaldı",
+  "ov.disk-low.sub": "{drive} sürücüsünde {free} kaldı",
+  "unit.gb": "GB",
+  "unit.mb": "MB"
 }

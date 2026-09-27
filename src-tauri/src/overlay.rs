@@ -30,17 +30,22 @@ const ENTER_MS: f32 = 220.0;
 const LEAVE_AT_MS: f32 = 2800.0;
 const LEAVE_MS: f32 = 240.0;
 const TOTAL_MS: u128 = 3060;
+/// How long a toast stays on screen; a newer one replaces it right away.
+pub const SHOWN_FOR: std::time::Duration = std::time::Duration::from_millis(TOTAL_MS as u64);
 
 const REC_RED: u32 = 0xff4f4f;
 const MUTED: u32 = 0x686872;
+const WARNING: u32 = 0xffb020;
 
 #[derive(Clone, Default)]
 pub struct Toast {
-    /// clip | recording | recording-start | screenshot | replay-on | replay-off | replay-off-hint | error
+    /// clip | recording | recording-start | screenshot | replay-on | replay-off | replay-off-hint | disk-low | error
     pub kind: String,
     pub game: String,
     pub seconds: f64,
     pub message: String,
+    /// disk-low: free MB and the drive.
+    pub disk: Option<(u64, String)>,
 }
 
 impl Toast {
@@ -49,6 +54,9 @@ impl Toast {
     }
     pub fn error(msg: &str) -> Toast {
         Toast { kind: "error".into(), message: msg.into(), ..Default::default() }
+    }
+    pub fn disk_low(free_mb: u64, drive: &str) -> Toast {
+        Toast { kind: "disk-low".into(), disk: Some((free_mb, drive.into())), ..Default::default() }
     }
 }
 
@@ -136,6 +144,10 @@ pub fn toast(app: &AppHandle, toast: Toast) {
         "already-saved" => t(lang, "ov.already-saved.sub").to_string(),
         "copied" => t(lang, "ov.copied.sub").to_string(),
         "menu-unavailable" => t(lang, "ov.menu-unavailable.sub").to_string(),
+        "disk-low" => {
+            let (free, drive) = toast.disk.clone().unwrap_or_default();
+            t(lang, "ov.disk-low.sub").replace("{free}", &crate::disk::fmt_size(lang, free)).replace("{drive}", &drive)
+        }
         _ => {
             let mut parts = Vec::new();
             if toast.seconds > 0.0 {
@@ -150,6 +162,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     let bar = match toast.kind.as_str() {
         "error" | "recording-start" => REC_RED,
         "replay-off" | "replay-off-hint" | "already-saved" => MUTED,
+        "disk-low" => WARNING,
         _ => accent(&s.accent),
     };
 

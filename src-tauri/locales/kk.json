@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "Мәзір мұнда ашылмайды",
   "ov.menu-unavailable.sub": "Ойында жақтаусыз терезе режимін қосыңыз",
   "menu.hold-title": "GeniusClip мәзірі ашық",
-  "menu.hold-hint": "Мәзір жабылғанда бейне жалғасады"
+  "menu.hold-hint": "Мәзір жабылғанда бейне жалғасады",
+  "ov.disk-low": "Дискіде орын аз",
+  "ov.disk-low.sub": "{drive} дискісінде {free} қалды",
+  "unit.gb": "ГБ",
+  "unit.mb": "МБ"
 }

@@ -185,6 +185,50 @@ pub fn toggle_recording(app: &AppHandle) {
     crate::tray::refresh(app);
 }
 
+/// After a clip, recording or screenshot has been written: "first steps"
+/// progress, and a warning when the clips drive is running out of space.
+pub fn after_save(app: &AppHandle, kind: Kind) {
+    if kind == Kind::Clip {
+        Settings::mark_onboarding(app, |o| &mut o.clip_saved);
+    }
+    warn_if_disk_low(app);
+}
+
+/// When the low-space toast was last shown; it comes at most this often.
+static DISK_WARNED: Mutex<Option<Instant>> = Mutex::new(None);
+const DISK_WARN_EVERY: Duration = Duration::from_secs(10 * 60);
+
+fn warn_if_disk_low(app: &AppHandle) {
+    if DISK_WARNED.lock().is_some_and(|t| t.elapsed() < DISK_WARN_EVERY) {
+        return;
+    }
+    let h = app.clone();
+    // Off the engine's thread (the estimate enumerates monitors), and once
+    // the "saved" toast has played: a new toast would cut it short.
+    std::thread::spawn(move || {
+        std::thread::sleep(overlay::SHOWN_FOR + Duration::from_millis(200));
+        let settings = h.state::<AppState>().settings.read().clone();
+        let space = match crate::disk::space(&settings) {
+            Ok(s) if s.low => s,
+            Ok(_) => return,
+            Err(e) => {
+                log::info!("disk space: {e:#}");
+                return;
+            }
+        };
+        {
+            // Several saves in a row each get here: one toast.
+            let mut warned = DISK_WARNED.lock();
+            if warned.is_some_and(|t| t.elapsed() < DISK_WARN_EVERY) {
+                return;
+            }
+            *warned = Some(Instant::now());
+        }
+        log::warn!("low disk space: {} MB free on {} (warning below {} MB)", space.free_mb, space.drive, space.low_mb);
+        overlay::toast(&h, Toast::disk_low(space.free_mb, &space.drive));
+    });
+}
+
 /// Called every second: remembers the last game in focus.
 pub fn track_foreground(app: &AppHandle) {
     // Only clips from the replay buffer use it; skip the monitor and window

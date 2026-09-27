@@ -139,6 +139,7 @@ fn open(app: &AppHandle) {
     OPEN.store(true, Ordering::Relaxed);
     GENERATION.fetch_add(1, Ordering::Relaxed);
     let _ = app.emit_to(LABEL, "menu://open", ());
+    crate::settings::Settings::mark_onboarding(app, |o| &mut o.menu_opened);
 }
 
 fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {

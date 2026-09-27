@@ -49,5 +49,9 @@
   "ov.menu-unavailable": "Меню здесь не откроется",
   "ov.menu-unavailable.sub": "Включите в игре оконный режим без рамки",
   "menu.hold-title": "Открыто меню GeniusClip",
-  "menu.hold-hint": "Видео продолжится, когда меню закроется"
+  "menu.hold-hint": "Видео продолжится, когда меню закроется",
+  "ov.disk-low": "Мало места на диске",
+  "ov.disk-low.sub": "Осталось {free} на {drive}",
+  "unit.gb": "ГБ",
+  "unit.mb": "МБ"
 }

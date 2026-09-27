@@ -25,11 +25,11 @@ const page = await browser.newPage();
 await page.setViewport({ width: 1200, height: 780, deviceScaleFactor: 1.5 });
 
 for (const lang of ['ru', 'en']) {
-  await page.goto(`${APP}/?lang=${lang}`, { waitUntil: 'networkidle0' });
+  await page.goto(`${APP}/?lang=${lang}&clean`, { waitUntil: 'networkidle0' });
   await sleep(1800);
   await page.screenshot({ path: `${TMP}/${lang}-home.png` });
 
-  await page.goto(`${APP}/gallery?lang=${lang}`, { waitUntil: 'networkidle0' });
+  await page.goto(`${APP}/gallery?lang=${lang}&clean`, { waitUntil: 'networkidle0' });
   await sleep(1800);
   await page.screenshot({ path: `${TMP}/${lang}-gallery.png` });
 

@@ -48,6 +48,18 @@ impl Default for OverlaySettings {
     }
 }
 
+/// "First steps" checklist on the home page.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Onboarding {
+    /// A clip was saved (set by the backend).
+    pub clip_saved: bool,
+    /// The in-game menu was opened (set by the backend).
+    pub menu_opened: bool,
+    /// Hidden by the user (set by the UI).
+    pub dismissed: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -71,6 +83,7 @@ pub struct Settings {
     pub auto_update: bool,
     /// Laptops: no replay while running on battery.
     pub pause_on_battery: bool,
+    pub onboarding: Onboarding,
 }
 
 impl Default for Settings {
@@ -91,11 +104,12 @@ impl Default for Settings {
             overlay: OverlaySettings::default(),
             auto_update: true,
             pause_on_battery: false,
+            onboarding: Onboarding::default(),
         }
     }
 }
 
-fn path(app: &AppHandle) -> PathBuf {
+pub fn path(app: &AppHandle) -> PathBuf {
     app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".")).join("settings.json")
 }
 
@@ -103,7 +117,7 @@ impl Settings {
     pub fn load(app: &AppHandle) -> Settings {
         let p = path(app);
         let mut s = match std::fs::read(&p) {
-            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
+            Ok(b) => Settings::parse(&b).unwrap_or_else(|e| {
                 // One bad value (e.g. an enum variant from a newer version)
                 // must not reset everything, clip folders included: keep a
                 // copy of the file and every value that still fits.
@@ -115,6 +129,14 @@ impl Settings {
         };
         s.fill_defaults(app);
         s
+    }
+
+    /// An existing settings file. Users updating from a version without the
+    /// "first steps" checklist already know the app: theirs starts hidden.
+    fn parse(bytes: &[u8]) -> serde_json::Result<Settings> {
+        let mut s: Settings = serde_json::from_slice(bytes)?;
+        s.onboarding.dismissed |= from_older_version(bytes);
+        Ok(s)
     }
 
     /// Defaults overlaid with each top-level value (and each engine, hotkey
@@ -131,8 +153,10 @@ impl Settings {
                 *slot(merged, path) = old;
             }
         }
-        let Ok(Value::Object(file)) = serde_json::from_slice::<Value>(bytes) else { return Settings::default() };
-        let Ok(mut merged) = serde_json::to_value(Settings::default()) else { return Settings::default() };
+        // See `parse`.
+        let existing = Settings { onboarding: Onboarding { dismissed: from_older_version(bytes), ..Default::default() }, ..Default::default() };
+        let Ok(Value::Object(file)) = serde_json::from_slice::<Value>(bytes) else { return existing };
+        let Ok(mut merged) = serde_json::to_value(&existing) else { return existing };
         for (key, value) in file {
             match value {
                 Value::Object(fields) if merged.get(&key).is_some_and(Value::is_object) => {
@@ -143,7 +167,7 @@ impl Settings {
                 v => try_set(&mut merged, &[key.as_str()], v),
             }
         }
-        serde_json::from_value(merged).unwrap_or_default()
+        serde_json::from_value(merged).unwrap_or(existing)
     }
 
     /// Settings coming from the UI: empty folders fall back to the defaults,
@@ -182,8 +206,65 @@ impl Settings {
         Ok(())
     }
 
+    /// Records a "first steps" milestone reached in the app; saves and tells
+    /// the windows if it is new. Monotonic: `update_settings` never clears it.
+    pub fn mark_onboarding(app: &AppHandle, step: fn(&mut Onboarding) -> &mut bool) {
+        let st = app.state::<crate::state::AppState>();
+        {
+            let mut s = st.settings.write();
+            let flag = step(&mut s.onboarding);
+            if *flag {
+                return;
+            }
+            *flag = true;
+            if let Err(e) = s.save(app) {
+                log::warn!("settings.json: {e:#}");
+            }
+        }
+        crate::emit_settings(app);
+    }
+
     /// Effective UI language ("ru" or "en").
     pub fn lang(&self) -> &'static str {
         crate::i18n::LANGS.iter().find(|l| **l == self.language).copied().unwrap_or_else(crate::i18n::system_lang)
+    }
+}
+
+/// The file was written by a version of the app without `onboarding`. The
+/// app always writes every setting (`engine` included), while the installer
+/// of a new install writes only its own few (autostart, language): such a
+/// file is a new user's. Anything unreadable counts as an older file.
+fn from_older_version(bytes: &[u8]) -> bool {
+    match serde_json::from_slice::<serde_json::Value>(bytes) {
+        Ok(serde_json::Value::Object(m)) => m.contains_key("engine") && !m.get("onboarding").is_some_and(|o| o.is_object()),
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn onboarding_starts_hidden_only_after_an_update() {
+        assert_eq!(Settings::default().onboarding, Onboarding::default());
+        // Written by an older version of the app.
+        let old = Settings::parse(br#"{"engine": {}, "replaySeconds": 120}"#).unwrap();
+        assert!(old.onboarding.dismissed && !old.onboarding.clip_saved);
+        assert_eq!(old.replay_seconds, 120);
+        // Written by the installer of a new install.
+        let fresh = Settings::parse(br#"{"autostart": false, "language": "de"}"#).unwrap();
+        assert_eq!((fresh.onboarding.dismissed, fresh.autostart), (false, false));
+        let new = Settings::parse(br#"{"engine": {}, "onboarding": {"clipSaved": true}}"#).unwrap();
+        assert_eq!(new.onboarding, Onboarding { clip_saved: true, menu_opened: false, dismissed: false });
+        // A default Settings written out reads back the same.
+        let round = Settings::parse(&serde_json::to_vec(&Settings::default()).unwrap()).unwrap();
+        assert_eq!(round, Settings::default());
+        // Salvaged files follow the same rule; unreadable ones count as older.
+        assert!(Settings::salvage(br#"{"engine": {}, "replaySeconds": "bad"}"#).onboarding.dismissed);
+        assert!(!Settings::salvage(br#"{"replaySeconds": "bad"}"#).onboarding.dismissed);
+        assert!(Settings::salvage(b"not json").onboarding.dismissed);
+        let kept = Settings::salvage(br#"{"engine": {}, "replaySeconds": "bad", "onboarding": {"menuOpened": true}}"#);
+        assert_eq!(kept.onboarding, Onboarding { clip_saved: false, menu_opened: true, dismissed: false });
     }
 }

@@ -55,6 +55,8 @@ class AppStore {
   /** Listings requested and not answered yet. */
   #listing = 0;
   #noticeId = 0;
+  /** Favorite requests made per path, so an older answer can't win. */
+  #favSeq: Record<string, number> = {};
 
   get settings(): Settings | null {
     return this.snapshot?.settings ?? null;
@@ -87,7 +89,10 @@ class AppStore {
       const c = e.payload;
       if (c?.removed) return this.#patch(c.path, null);
       const path = c?.entry?.path ?? c?.path;
-      if (path) {
+      // A new or rewritten file is highlighted; one only starred or unstarred is not.
+      const next = c?.entry;
+      const same = !!next && this.media.some((m) => m.path === next.path && m.modified === next.modified && m.size === next.size);
+      if (path && !same) {
         this.fresh[path] = true;
         setTimeout(() => delete this.fresh[path], 2200);
       }
@@ -129,6 +134,36 @@ class AppStore {
     // A listing under way may have been taken before this change and would
     // undo it: a newer one replaces it.
     if (this.#listing) this.refreshMedia();
+  }
+
+  /** Stars a file or takes the star off: shown at once, then replaced by the
+   *  backend's listing (only the newest request's, on quick repeated clicks). */
+  async setFavorite(entry: MediaEntry, on: boolean) {
+    const path = entry.path;
+    const seq = (this.#favSeq[path] = (this.#favSeq[path] ?? 0) + 1);
+    const current = this.media.find((m) => m.path === path);
+    if (current) this.#patch(path, { ...current, favorite: on });
+    try {
+      const updated = await api.setFavorite(path, on);
+      if (this.#favSeq[path] === seq) this.#patch(path, updated);
+    } catch (e) {
+      if (this.#favSeq[path] === seq) {
+        const now = this.media.find((m) => m.path === path);
+        if (now) this.#patch(path, { ...now, favorite: !on });
+      }
+      this.notify(String(e), 'error');
+    }
+  }
+
+  /** Hides the "what's new" card for good. */
+  async dismissWhatsNew() {
+    if (!this.snapshot) return;
+    this.snapshot.whatsNew = null;
+    try {
+      await api.dismissWhatsNew();
+    } catch (e) {
+      this.notify(String(e), 'error');
+    }
   }
 
   async refreshSnapshot() {

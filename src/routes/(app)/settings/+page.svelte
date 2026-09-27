@@ -88,6 +88,20 @@
     }
   }
 
+  // A zip with the log for the developer, saved on the Desktop.
+  let reporting = $state(false);
+  async function makeReport() {
+    reporting = true;
+    try {
+      await api.makeReport();
+      app.notify(app.t('set.reportSaved'), 'ok');
+    } catch (e) {
+      app.notify(String(e), 'error');
+    } finally {
+      reporting = false;
+    }
+  }
+
   async function checkUpdate() {
     checking = true;
     try {
@@ -389,6 +403,13 @@
         <Row label={app.t('set.autoUpdate')}>
           <Switch checked={s.autoUpdate} onchange={(v) => app.change((x) => (x.autoUpdate = v))} />
         </Row>
+        <Row label={app.t('set.report')} hint={app.t('set.reportHint')}>
+          <!-- Both labels share one cell, so the button keeps its width. -->
+          <button class="btn sm report" class:busy={reporting} disabled={reporting} aria-busy={reporting} onclick={makeReport}>
+            <span class="lbl" aria-hidden={reporting}>{app.t('set.reportBtn')}</span>
+            <span class="lbl" aria-hidden={!reporting}><span class="spin"></span>{app.t('set.reportBusy')}</span>
+          </button>
+        </Row>
         <div class="about">
           <Logo size={28} />
           <span class="brand">GeniusClip</span>
@@ -487,6 +508,40 @@
   }
   .memwarn :global(.btn) {
     flex-shrink: 0;
+  }
+  .report {
+    display: inline-grid;
+  }
+  .report .lbl {
+    grid-area: 1 / 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+  .report .lbl + .lbl,
+  .report.busy .lbl:first-child {
+    visibility: hidden;
+  }
+  .report.busy .lbl + .lbl {
+    visibility: visible;
+  }
+  .report.busy:disabled {
+    opacity: 0.75;
+    cursor: progress;
+  }
+  .spin {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.6px solid currentColor;
+    border-right-color: transparent;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .upd {
     font-size: 13px;
