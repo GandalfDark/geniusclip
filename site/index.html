@@ -1,32 +1,68 @@
 <!doctype html>
-<html lang="ru" data-build="dev">
+<html lang="en" data-build="dev">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GeniusClip — бесплатная запись повторов для Windows</title>
-  <meta name="description" content="Бесплатная программа для Windows: держит в памяти последние минуты игры и сохраняет их в клип по Alt+F8. Без аккаунта и рекламы, с открытым кодом (GPL-3.0)." />
-  <meta name="color-scheme" content="light dark" />
-  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#171614" media="(prefers-color-scheme: dark)" />
-  <!-- Link previews (Telegram, Discord): Russian, the main audience. -->
+  <title>GeniusClip — free instant replay for Windows</title>
+  <meta name="description" content="A free Windows app that keeps the last minutes of your game in memory and saves them as a clip with Alt+F8. No account, no ads, open source (GPL-3.0)." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#141417" />
+  <!-- Link previews (Telegram, Discord, search): English, like the app's defaults. -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="GeniusClip" />
-  <meta property="og:title" content="GeniusClip — игра уже записана" />
-  <meta property="og:description" content="Бесплатная программа для Windows: последние минуты игры всегда в памяти, клип сохраняется по Alt+F8. Без аккаунта и рекламы, открытый код." />
+  <meta property="og:title" content="GeniusClip — your game is already recorded" />
+  <meta property="og:description" content="A free Windows app: the last minutes of your game are always in memory, and Alt+F8 saves them as a clip. No account, no ads, open source." />
   <meta property="og:image" content="https://gandalfdark.github.io/img/og.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="GeniusClip: Your game is already recorded. Just decide what to keep." />
   <meta property="og:url" content="https://gandalfdark.github.io/" />
+  <meta property="og:locale" content="en_US" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="GeniusClip — your game is already recorded" />
+  <meta name="twitter:description" content="A free Windows app: the last minutes of your game are always in memory, and Alt+F8 saves them as a clip. No account, no ads, open source." />
+  <meta name="twitter:image" content="https://gandalfdark.github.io/img/og.png" />
   <link rel="icon" type="image/png" href="img/favicon.png" />
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png" />
   <link rel="preload" href="fonts/onest-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="fonts/onest-cyrillic-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="fonts/literata-cyrillic-display-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <script>
+    // The page is written in English; everyone else gets their language from
+    // i18n/*.json. Picking it before the first paint (and holding the page
+    // for that moment) saves them a flash of English. app.js reads data-lang.
+    (function () {
+      var d = document.documentElement;
+      var langs = ['ru', 'en', 'kk', 'uk', 'de', 'fr', 'es', 'pt-BR', 'pl', 'tr', 'it', 'zh-CN', 'ja', 'ko'];
+      var ok = function (l) { return langs.indexOf(l) >= 0; };
+      // Browser language -> supported one (same mapping as the app).
+      var match = function (tag) {
+        var l = String(tag || '').toLowerCase();
+        if (l.indexOf('pt') === 0) return 'pt-BR';
+        if (l.indexOf('zh') === 0) return 'zh-CN';
+        var base = l.split('-')[0];
+        if (ok(base)) return base;
+        if (['be', 'uz', 'ky', 'tg', 'tk', 'az', 'hy', 'ka'].indexOf(base) >= 0) return 'ru';
+        return null;
+      };
+      var l = null;
+      try { l = new URLSearchParams(location.search).get('lang'); } catch (e) {}
+      if (!ok(l)) try { l = localStorage.getItem('lang'); } catch (e) { l = null; }
+      if (!ok(l)) {
+        l = null;
+        var list = navigator.languages || [navigator.language];
+        for (var i = 0; i < list.length && !l; i++) l = match(list[i]);
+      }
+      l = l || 'en';
+      d.setAttribute('data-lang', l);
+      if (l !== 'en') {
+        d.className += ' i18n-wait';
+        setTimeout(function () { d.classList.remove('i18n-wait'); }, 2500);
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <a class="skip" href="#main" data-i18n="a11y.skip">Перейти к содержимому</a>
+  <a class="skip" href="#main" data-i18n="a11y.skip">Skip to content</a>
 
   <header class="top">
     <div class="wrap top-in">
@@ -34,11 +70,11 @@
         <img src="img/logo.png" alt="" width="26" height="26" />
         <span>GeniusClip</span>
       </a>
-      <nav class="nav" aria-label="Разделы" data-i18n-label="nav.label">
-        <a href="#features" data-i18n="nav.features">Возможности</a>
-        <a href="#screens" data-i18n="nav.screens">Скриншоты</a>
-        <a href="#changelog" data-i18n="nav.changelog">Изменения</a>
-        <a href="#faq" data-i18n="nav.faq">Вопросы</a>
+      <nav class="nav" aria-label="Sections" data-i18n-label="nav.label">
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="#screens" data-i18n="nav.screens">Screenshots</a>
+        <a href="#changelog" data-i18n="nav.changelog">Changelog</a>
+        <a href="#faq" data-i18n="nav.faq">FAQ</a>
       </nav>
       <div class="tools">
         <a class="btn btn-quiet gh" href="https://github.com/GandalfDark/geniusclip" aria-label="GitHub">
@@ -50,14 +86,14 @@
           </span>
         </a>
         <div class="lang">
-          <button class="btn btn-quiet lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Язык: Русский">
+          <button class="btn btn-quiet lang-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language: English">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.4 2.6 3.5 5.4 3.5 8.5s-1.1 5.9-3.5 8.5c-2.4-2.6-3.5-5.4-3.5-8.5s1.1-5.9 3.5-8.5z" /></svg>
-            <span class="lang-name">Русский</span>
-            <span class="lang-code" aria-hidden="true">RU</span>
+            <span class="lang-name">English</span>
+            <span class="lang-code" aria-hidden="true">EN</span>
           </button>
           <ul class="lang-menu" role="listbox" hidden></ul>
         </div>
-        <a class="btn btn-quiet top-dl download-link" href="https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/GeniusClip-Setup.exe" data-i18n="nav.download">Скачать</a>
+        <a class="btn btn-quiet top-dl download-link" href="https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/GeniusClip-Setup.exe" data-i18n="nav.download">Download</a>
       </div>
     </div>
   </header>
@@ -66,122 +102,148 @@
     <section class="wrap hero" aria-labelledby="hero-title">
       <div class="hero-text">
         <h1 id="hero-title">
-          <span data-i18n="hero.title1">Игра уже записана.</span>
-          <span class="muted" data-i18n="hero.title2">Осталось решить, что оставить.</span>
+          <span data-i18n="hero.title1">Your game is already recorded.</span>
+          <span class="muted" data-i18n="hero.title2">Just decide what to keep.</span>
         </h1>
-        <p class="lead" data-i18n="hero.lead">GeniusClip — бесплатная программа для Windows. Она держит в памяти последние минуты игры и по Alt+F8 сохраняет их в клип. Без аккаунта и рекламы, с открытым кодом.</p>
+        <p class="lead" data-i18n="hero.lead">GeniusClip is a free app for Windows. It keeps the last minutes of your game in memory and saves them as a clip when you press Alt+F8. No account, no ads, and the code is open.</p>
         <p class="cta">
           <a class="btn btn-main download-link" href="https://github.com/GandalfDark/geniusclip-releases/releases/latest/download/GeniusClip-Setup.exe">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v10M8 10.5l4 4 4-4M5 16.5v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1" /></svg>
-            <span data-i18n="dl.button">Скачать для Windows</span>
+            <span data-i18n="dl.button">Download for Windows</span>
           </a>
         </p>
         <div class="meta dots">
           <p>
             <span class="m-version" hidden></span>
             <span class="m-size" hidden></span>
-            <span data-i18n="dl.os">Windows 10 и 11</span>
+            <span data-i18n="dl.os">Windows 10 and 11</span>
             <span>GPL-3.0</span>
-            <span><a href="https://github.com/GandalfDark/geniusclip" data-i18n="dl.source">Исходный код на GitHub</a></span>
+            <span><a href="https://github.com/GandalfDark/geniusclip" data-i18n="dl.source">Source code on GitHub</a></span>
           </p>
         </div>
         <div class="mobile-note" hidden>
-          <p data-i18n="dl.mobile">GeniusClip работает на компьютерах с Windows. Откройте эту страницу там или скопируйте ссылку.</p>
-          <button class="btn btn-quiet copy-link" type="button" data-i18n="dl.copy">Скопировать ссылку</button>
+          <p data-i18n="dl.mobile">GeniusClip runs on Windows PCs. Open this page there, or copy the link.</p>
+          <button class="btn btn-quiet copy-link" type="button" data-i18n="dl.copy">Copy link</button>
         </div>
       </div>
-      <div class="frame hero-shot">
-        <img data-shot="home" alt="" data-i18n-alt="screens.homeAlt" width="1200" height="780" fetchpriority="high" />
-        <noscript><img src="img/screens/ru-home.webp" alt="" width="1200" height="780" /></noscript>
-      </div>
+      <a class="frame hero-shot" data-shot-link="home" href="img/screens/en-home.webp" aria-haspopup="dialog">
+        <img data-shot="home" alt="GeniusClip main window: replay is on, recent clips below" data-i18n-alt="screens.homeAlt" width="1200" height="780" fetchpriority="high" />
+        <noscript><img src="img/screens/en-home.webp" alt="GeniusClip main window: replay is on, recent clips below" data-i18n-alt="screens.homeAlt" width="1200" height="780" /></noscript>
+      </a>
     </section>
 
     <section id="features" class="wrap section" aria-labelledby="features-title">
-      <h2 id="features-title" data-i18n="features.title">Что умеет</h2>
+      <h2 id="features-title" data-i18n="features.title">What it does</h2>
       <ul class="features">
-        <li><h3 data-i18n="f1.title">Мгновенный повтор</h3><p data-i18n="f1.text"></p></li>
-        <li><h3 data-i18n="f2.title">Кодирует видеокарта</h3><p data-i18n="f2.text"></p></li>
-        <li><h3 data-i18n="f3.title">Меню в игре</h3><p data-i18n="f3.text"></p></li>
-        <li><h3 data-i18n="f4.title">Галерея и обрезка</h3><p data-i18n="f4.text"></p></li>
-        <li><h3 data-i18n="f5.title">Шумоподавление</h3><p data-i18n="f5.text"></p></li>
-        <li><h3 data-i18n="f6.title">Отправка в Telegram</h3><p data-i18n="f6.text"></p></li>
-        <li><h3 data-i18n="f7.title">Избранное</h3><p data-i18n="f7.text"></p></li>
-        <li><h3 data-i18n="f8.title">14 языков</h3><p data-i18n="f8.text"></p></li>
-        <li><h3 data-i18n="f9.title">Обновления</h3><p data-i18n="f9.text"></p></li>
-        <li><h3 data-i18n="f10.title">Бережёт ресурсы</h3><p data-i18n="f10.text"></p></li>
+        <li><h3 data-i18n="f1.title">Instant replay</h3><p data-i18n="f1.text">The last minutes of your game are always in memory. Alt+F8 saves them as a clip, even if you never pressed record.</p></li>
+        <li><h3 data-i18n="f2.title">GPU encoding</h3><p data-i18n="f2.text">Your NVIDIA, AMD or Intel graphics card compresses the video, so your frame rate barely moves.</p></li>
+        <li><h3 data-i18n="f3.title">In-game menu</h3><p data-i18n="f3.text">Alt+X opens a menu over the game. It's a separate window and nothing is injected into the game, so it's safe with anti-cheat.</p></li>
+        <li><h3 data-i18n="f4.title">Gallery and trimming</h3><p data-i18n="f4.text">Clips are sorted by game. Cut what you don't need and set game and mic volume separately.</p></li>
+        <li><h3 data-i18n="f5.title">Noise suppression</h3><p data-i18n="f5.text">Removes keyboard clicks, fan hum and background noise from your mic.</p></li>
+        <li><h3 data-i18n="f6.title">Send to Telegram</h3><p data-i18n="f6.text">“Send” copies the clip; paste it into a chat with Ctrl+V.</p></li>
+        <li><h3 data-i18n="f7.title">Favorites</h3><p data-i18n="f7.text">Star a good clip and find it later on the Favorites tab in the gallery.</p></li>
+        <li><h3 data-i18n="f8.title">14 languages</h3><p data-i18n="f8.text">English, русский, қазақша and 11 more interface languages.</p></li>
+        <li><h3 data-i18n="f9.title">Updates</h3><p data-i18n="f9.text">The app checks GitHub for updates and installs them with one click.</p></li>
+        <li><h3 data-i18n="f10.title">Light on resources</h3><p data-i18n="f10.text">Frames where nothing changed aren't encoded again, which saves work and disk space.</p></li>
       </ul>
     </section>
 
     <section id="screens" class="wrap section" aria-labelledby="screens-title">
-      <h2 id="screens-title" data-i18n="screens.title">Скриншоты</h2>
+      <h2 id="screens-title" data-i18n="screens.title">Screenshots</h2>
       <div class="shots">
         <figure>
-          <a class="frame" data-shot-link="home" href="img/screens/ru-home.webp"><img data-shot="home" src="img/screens/ru-home.webp" alt="" data-i18n-alt="screens.homeAlt" width="1200" height="780" loading="lazy" /></a>
-          <figcaption><b data-i18n="screens.home">Повтор</b> <span data-i18n="screens.homeText"></span></figcaption>
+          <a class="frame" data-shot-link="home" href="img/screens/en-home.webp" aria-haspopup="dialog"><img data-shot="home" src="img/screens/en-home.webp" alt="GeniusClip main window: replay is on, recent clips below" data-i18n-alt="screens.homeAlt" width="1200" height="780" loading="lazy" /></a>
+          <figcaption><b data-i18n="screens.home">Replay</b> <span data-i18n="screens.homeText">The main window: clips, screenshots and recordings are a hotkey away.</span></figcaption>
         </figure>
         <figure>
-          <a class="frame" data-shot-link="gallery" href="img/screens/ru-gallery.webp"><img data-shot="gallery" src="img/screens/ru-gallery.webp" alt="" data-i18n-alt="screens.galleryAlt" width="1200" height="780" loading="lazy" /></a>
-          <figcaption><b data-i18n="screens.gallery">Галерея</b> <span data-i18n="screens.galleryText"></span></figcaption>
+          <a class="frame" data-shot-link="gallery" href="img/screens/en-gallery.webp" aria-haspopup="dialog"><img data-shot="gallery" src="img/screens/en-gallery.webp" alt="GeniusClip gallery: clips, recordings and screenshots sorted by game" data-i18n-alt="screens.galleryAlt" width="1200" height="780" loading="lazy" /></a>
+          <figcaption><b data-i18n="screens.gallery">Gallery</b> <span data-i18n="screens.galleryText">All your clips by game, with search and favorites.</span></figcaption>
         </figure>
         <figure>
-          <a class="frame" data-shot-link="trim" href="img/screens/ru-trim.webp"><img data-shot="trim" src="img/screens/ru-trim.webp" alt="" data-i18n-alt="screens.trimAlt" width="1200" height="780" loading="lazy" /></a>
-          <figcaption><b data-i18n="screens.trim">Обрезка</b> <span data-i18n="screens.trimText"></span></figcaption>
+          <a class="frame" data-shot-link="trim" href="img/screens/en-trim.webp" aria-haspopup="dialog"><img data-shot="trim" src="img/screens/en-trim.webp" alt="Trimming a clip: a selection on the timeline and separate game and mic volume" data-i18n-alt="screens.trimAlt" width="1200" height="780" loading="lazy" /></a>
+          <figcaption><b data-i18n="screens.trim">Trim</b> <span data-i18n="screens.trimText">Cut the clip and set each track's volume — you hear it right away.</span></figcaption>
         </figure>
       </div>
     </section>
 
     <section id="source" class="wrap section" aria-labelledby="source-title">
-      <h2 id="source-title" data-i18n="os.title">Открытый код</h2>
-      <dl class="facts">
+      <h2 id="source-title" data-i18n="os.title">Open source</h2>
+      <dl class="facts panel">
         <div>
-          <dt data-i18n="os.licenseT">Лицензия</dt>
-          <dd><span data-i18n="os.license"></span> <a href="https://github.com/GandalfDark/geniusclip" data-i18n="os.code">Репозиторий на GitHub</a></dd>
+          <dt data-i18n="os.licenseT">License</dt>
+          <dd><span data-i18n="os.license">GeniusClip is free software under the GPL-3.0: you can read the code, build it and change it.</span> <a href="https://github.com/GandalfDark/geniusclip" data-i18n="os.code">Repository on GitHub</a></dd>
         </div>
         <div>
-          <dt data-i18n="os.bugsT">Ошибки и идеи</dt>
-          <dd><span data-i18n="os.bugs"></span> <a href="https://github.com/GandalfDark/geniusclip/issues">GitHub Issues</a></dd>
+          <dt data-i18n="os.bugsT">Bugs and ideas</dt>
+          <dd><span data-i18n="os.bugs">Found a bug or missing a feature? Tell us:</span> <a href="https://github.com/GandalfDark/geniusclip/issues">GitHub Issues</a></dd>
         </div>
         <div>
-          <dt data-i18n="os.privacyT">Приватность</dt>
-          <dd data-i18n="os.privacy"></dd>
+          <dt data-i18n="os.privacyT">Privacy</dt>
+          <dd data-i18n="os.privacy">No accounts, no telemetry. The app only goes online to check GitHub for updates.</dd>
         </div>
         <div>
-          <dt data-i18n="os.signT">Сборки</dt>
-          <dd><span data-i18n="os.sign"></span> <a href="https://github.com/GandalfDark/geniusclip#code-signing-policy" data-i18n="os.signLink">Политика подписи кода</a></dd>
+          <dt data-i18n="os.signT">Builds</dt>
+          <dd><span data-i18n="os.sign">The installer is built from this open code. It isn’t code-signed yet, so Windows may warn you when installing.</span> <a href="https://github.com/GandalfDark/geniusclip#code-signing-policy" data-i18n="os.signLink">Code signing policy</a></dd>
         </div>
       </dl>
     </section>
 
     <section id="changelog" class="wrap section" aria-labelledby="changelog-title">
-      <h2 id="changelog-title" data-i18n="news.title">Изменения</h2>
-      <ol class="releases" aria-live="polite"><li class="rel-empty" data-i18n="news.loading">Загружаем список версий…</li></ol>
-      <p class="more"><a href="https://github.com/GandalfDark/geniusclip-releases/releases" data-i18n="news.all">Все версии на GitHub</a></p>
+      <h2 id="changelog-title" data-i18n="news.title">Changelog</h2>
+      <ol class="releases" aria-live="polite"><li class="rel-empty" data-i18n="news.loading">Loading versions…</li></ol>
+      <p class="more"><a href="https://github.com/GandalfDark/geniusclip-releases/releases" data-i18n="news.all">All releases on GitHub</a></p>
     </section>
 
     <section id="faq" class="wrap section" aria-labelledby="faq-title">
-      <h2 id="faq-title" data-i18n="faq.title">Вопросы и ответы</h2>
-      <div class="faq">
-        <details><summary data-i18n="faq.q1"></summary><p data-i18n="faq.a1"></p></details>
-        <details><summary data-i18n="faq.q2"></summary><p data-i18n="faq.a2"></p></details>
-        <details><summary data-i18n="faq.q3"></summary><p data-i18n="faq.a3"></p></details>
-        <details><summary data-i18n="faq.q4"></summary><p data-i18n="faq.a4"></p></details>
-        <details><summary data-i18n="faq.q5"></summary><p data-i18n="faq.a5"></p></details>
-        <details><summary data-i18n="faq.q6"></summary><p data-i18n="faq.a6"></p></details>
+      <h2 id="faq-title" data-i18n="faq.title">Questions</h2>
+      <div class="faq panel">
+        <details><summary data-i18n="faq.q1">Windows says “Windows protected your PC”. Is that OK?</summary><p data-i18n="faq.a1">Yes. The installer doesn't have a digital signature yet, so Windows doesn't recognize it. Click “More info”, then “Run anyway”.</p></details>
+        <details><summary data-i18n="faq.q2">Can anti-cheat ban me for it?</summary><p data-i18n="faq.a2">No. GeniusClip doesn't inject into games or touch their files — it captures the screen with standard Windows tools, like OBS or Discord.</p></details>
+        <details><summary data-i18n="faq.q3">What PC do I need?</summary><p data-i18n="faq.a3">Windows 10 or 11 (64-bit). Best with a recent NVIDIA, AMD or Intel graphics card — then recording barely loads your system.</p></details>
+        <details><summary data-i18n="faq.q4">Where are my clips?</summary><p data-i18n="faq.a4">In “Videos\GeniusClip”, with a folder per game. You can change the folder in settings.</p></details>
+        <details><summary data-i18n="faq.q5">Is it free?</summary><p data-i18n="faq.a5">Yes. No ads, no sign-up, no subscription.</p></details>
+        <details><summary data-i18n="faq.q6">How do I update?</summary><p data-i18n="faq.a6">You don't have to: the app checks for updates and installs them with one click.</p></details>
       </div>
     </section>
   </main>
 
   <footer class="wrap foot">
     <p class="foot-brand"><img src="img/logo.png" alt="" width="18" height="18" />GeniusClip</p>
-    <nav class="dots" aria-label="Ссылки" data-i18n-label="footer.nav">
+    <nav class="dots" aria-label="Links" data-i18n-label="footer.nav">
       <p>
         <span><a href="https://github.com/GandalfDark/geniusclip">GitHub</a></span>
-        <span><a href="https://github.com/GandalfDark/geniusclip-releases/releases" data-i18n="footer.releases">Релизы</a></span>
-        <span><a href="https://github.com/GandalfDark/geniusclip/blob/main/LICENSE" data-i18n="footer.license">Лицензия GPL-3.0</a></span>
-        <span><span data-i18n="footer.made">Сделал</span> <a href="https://github.com/GandalfDark">GandalfDark</a></span>
+        <span><a href="https://github.com/GandalfDark/geniusclip-releases/releases" data-i18n="footer.releases">Releases</a></span>
+        <span><a href="https://github.com/GandalfDark/geniusclip/blob/main/LICENSE" data-i18n="footer.license">License (GPL-3.0)</a></span>
+        <span><span data-i18n="footer.made">Made by</span> <a href="https://github.com/GandalfDark">GandalfDark</a></span>
       </p>
     </nav>
   </footer>
+
+  <!-- Screenshot viewer, opened from the screenshots above. -->
+  <dialog class="lightbox" aria-labelledby="lb-title">
+    <div class="lb">
+      <div class="lb-top">
+        <span class="lb-count" aria-hidden="true"></span>
+        <button class="btn btn-quiet btn-icon lb-close" type="button" aria-label="Close" data-i18n-label="lb.close" autofocus>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </div>
+      <div class="lb-stage">
+        <img class="lb-img" alt="" width="1200" height="780" />
+      </div>
+      <div class="lb-bar">
+        <p class="lb-caption"><b id="lb-title"></b> <span class="lb-text"></span></p>
+        <div class="lb-nav">
+          <button class="btn btn-quiet btn-icon lb-prev" type="button" aria-label="Previous screenshot" data-i18n-label="lb.prev">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6" /></svg>
+          </button>
+          <button class="btn btn-quiet btn-icon lb-next" type="button" aria-label="Next screenshot" data-i18n-label="lb.next">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6" /></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </dialog>
 
   <script src="app.js" defer></script>
 </body>

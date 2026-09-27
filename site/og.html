@@ -1,17 +1,19 @@
 <!doctype html>
 <!-- Link-preview card (1200×630), rendered to img/og.png by scripts/site-shots.mjs. -->
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <link rel="stylesheet" href="style.css" />
   <style>
+    html {
+      overflow: hidden;
+      scrollbar-gutter: auto;
+    }
     body {
       width: 1200px;
       height: 630px;
       overflow: hidden;
       position: relative;
-      background: #f6f5f2;
-      color: #1b1a17;
     }
     .brand-row {
       position: absolute;
@@ -29,51 +31,39 @@
       left: 72px;
       top: 150px;
       margin: 0;
-      font-family: var(--serif);
-      font-weight: 600;
-      font-size: 60px;
+      font-size: 58px;
       line-height: 1.14;
-      letter-spacing: -0.012em;
-    }
-    .title span {
-      display: block;
-    }
-    .title .muted {
-      color: #7a756b;
+      letter-spacing: -0.025em;
     }
     .foot-line {
       position: absolute;
       left: 72px;
       bottom: 64px;
       margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 14px;
       font-size: 24px;
-      color: #4f4b44;
+      color: var(--text-2);
     }
     .foot-line kbd {
-      font-size: 20px;
-      border-color: #cfcbc2;
-      background: #fdfcfa;
-      color: #1b1a17;
+      font-size: 19px;
     }
     .shot {
       position: absolute;
       left: 640px;
-      top: 372px;
+      top: 360px;
       width: 600px;
-      border: 1px solid #cfcbc2;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 18px 40px -20px rgb(40 34 20 / 0.35);
     }
   </style>
 </head>
 <body>
   <div class="brand-row"><img src="img/logo.png" alt="" width="48" height="48" />GeniusClip</div>
   <h1 class="title">
-    <span>Игра уже записана.</span>
-    <span class="muted">Осталось решить, что оставить.</span>
+    <span>Your game is already recorded.</span>
+    <span class="muted">Just decide what to keep.</span>
   </h1>
-  <p class="foot-line"><span class="keys"><kbd>Alt</kbd>+<kbd>F8</kbd></span> · Бесплатно для Windows · GPL-3.0</p>
-  <div class="shot"><img src="img/screens/ru-home.webp" alt="" width="1200" height="780" /></div>
+  <p class="foot-line"><span class="keys"><kbd>Alt</kbd><kbd>F8</kbd></span><span>Free for Windows · GPL-3.0</span></p>
+  <div class="frame shot"><img src="img/screens/en-home.webp" alt="" width="1200" height="780" /></div>
 </body>
 </html>

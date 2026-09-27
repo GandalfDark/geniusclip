@@ -1,5 +1,5 @@
-// GeniusClip download page: language, screenshots, version, star count and
-// the release history from GitHub. No framework, no build step.
+// GeniusClip download page: language, screenshots and their viewer, version,
+// star count and the release history from GitHub. No framework, no build step.
 (() => {
   'use strict';
 
@@ -26,46 +26,15 @@
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-  let lang = 'ru';
+  let lang = 'en';
   let dict = {};
   const t = (k) => dict[k] ?? k;
-  const store = {
-    get: (k) => {
-      try {
-        return localStorage.getItem(k);
-      } catch {
-        return null;
-      }
-    },
-    set: (k, v) => {
-      try {
-        localStorage.setItem(k, v);
-      } catch {}
-    },
+  // The choice from the menu; read back by the script in <head>.
+  const remember = (l) => {
+    try {
+      localStorage.setItem('lang', l);
+    } catch {}
   };
-
-  /** Browser language → supported one (same mapping as the app). */
-  function match(tag) {
-    const l = String(tag || '').toLowerCase();
-    if (l.startsWith('pt')) return 'pt-BR';
-    if (l.startsWith('zh')) return 'zh-CN';
-    const base = l.split('-')[0];
-    if (base in LANGS) return base;
-    if (['be', 'uz', 'ky', 'tg', 'tk', 'az', 'hy', 'ka'].includes(base)) return 'ru';
-    return null;
-  }
-
-  function initialLang() {
-    const q = new URLSearchParams(location.search).get('lang');
-    if (q && q in LANGS) return q;
-    const saved = store.get('lang');
-    if (saved && saved in LANGS) return saved;
-    for (const l of navigator.languages || [navigator.language]) {
-      const m = match(l);
-      if (m) return m;
-    }
-    return 'en';
-  }
 
   // Files change with every deploy while GitHub Pages lets browsers cache
   // them for 10 minutes: deploy-site.sh stamps the build into <html> and
@@ -107,8 +76,14 @@
       }
       const combo = document.createElement('span');
       combo.className = 'keys';
+      // Separate caps like the app's; the "+" stays for copying and screen readers.
       part.split(/\s?\+\s?/).forEach((key, j) => {
-        if (j) combo.append('+');
+        if (j) {
+          const plus = document.createElement('span');
+          plus.className = 'keys-plus';
+          plus.textContent = '+';
+          combo.append(plus);
+        }
         const kbd = document.createElement('kbd');
         kbd.textContent = key;
         combo.append(kbd);
@@ -124,7 +99,7 @@
       dict = await res.json();
       lang = l;
     } catch {
-      if (l !== 'ru') return setLang('ru');
+      if (l !== 'en') return setLang('en');
     }
     root.lang = lang;
     document.title = t('meta.title');
@@ -137,10 +112,89 @@
     $('.lang-btn').setAttribute('aria-label', `${t('lang.label')}: ${LANGS[lang]}`);
     $$('.lang-menu li').forEach((li) => li.setAttribute('aria-selected', String(li.dataset.lang === lang)));
     showShots(lang);
+    if (lb.open) showShot(shown);
+    root.classList.remove('i18n-wait');
     renderMeta();
     renderStars();
     renderReleases();
   }
+
+  // ------------------------------------------------------ screenshot viewer
+
+  // A modal <dialog>: Esc, the close button, a click outside the picture and
+  // the browser's Back button close it; arrow keys switch shots. Opening
+  // pushes a history entry so Back closes the viewer instead of the site.
+  // Without JS the thumbnails are plain links to the images.
+  const SHOTS = ['home', 'gallery', 'trim'];
+  const lb = $('.lightbox');
+  const lbImg = $('.lb-img', lb);
+  let shown = 0;
+  let opener = null;
+
+  function showShot(i) {
+    shown = (i + SHOTS.length) % SHOTS.length;
+    const id = SHOTS[shown];
+    const thumb = $(`#screens img[data-shot="${id}"]`);
+    lbImg.src = thumb.getAttribute('src');
+    lbImg.alt = t(`screens.${id}Alt`);
+    setText($('#lb-title', lb), t(`screens.${id}`));
+    setText($('.lb-text', lb), t(`screens.${id}Text`));
+    $('.lb-count', lb).textContent = `${shown + 1} / ${SHOTS.length}`;
+  }
+
+  function openViewer(i, fromHistory = false) {
+    showShot(i);
+    if (!fromHistory) history.pushState({ shot: shown }, '');
+    if (lb.open) return;
+    root.classList.add('lb-open');
+    lb.showModal();
+  }
+
+  const closeViewer = () => lb.open && lb.close();
+
+  // Back closes the viewer (Forward reopens it); closing it any other way
+  // drops the history entry that opening pushed.
+  addEventListener('popstate', (e) => {
+    const shot = e.state && e.state.shot;
+    if (shot != null) openViewer(shot, true);
+    else closeViewer();
+  });
+  lb.addEventListener('close', () => {
+    root.classList.remove('lb-open');
+    if (history.state && history.state.shot != null) history.back();
+    opener?.focus();
+  });
+  lb.addEventListener('click', (e) => {
+    if (e.target.closest('.lb-img, .lb-caption, button')) return;
+    closeViewer();
+  });
+  lb.addEventListener('keydown', (e) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    showShot(shown + step);
+    history.replaceState({ shot: shown }, '');
+  });
+  $('.lb-close', lb).addEventListener('click', closeViewer);
+  $('.lb-prev', lb).addEventListener('click', () => {
+    showShot(shown - 1);
+    history.replaceState({ shot: shown }, '');
+  });
+  $('.lb-next', lb).addEventListener('click', () => {
+    showShot(shown + 1);
+    history.replaceState({ shot: shown }, '');
+  });
+  for (const a of $$('[data-shot-link]')) {
+    a.addEventListener('click', (e) => {
+      // Let Ctrl/Shift/middle clicks open the image itself.
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      opener = a;
+      openViewer(SHOTS.indexOf(a.dataset.shotLink));
+    });
+  }
+  // A reload with the viewer's history entry current: start closed.
+  if (history.state && history.state.shot != null) history.replaceState(null, '');
 
   // ---------------------------------------------------------- language menu
 
@@ -161,7 +215,7 @@
   menu.addEventListener('click', (e) => {
     const li = e.target.closest('li');
     if (!li) return;
-    store.set('lang', li.dataset.lang);
+    remember(li.dataset.lang);
     openMenu(false);
     btn.focus();
     setLang(li.dataset.lang);
@@ -267,7 +321,7 @@
     let date = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'long', year: 'numeric' });
     // Browsers without month names for a language print "2026 M09 27".
     if (/M\d/.test(date.format(new Date(2026, 8, 27)))) {
-      date = new Intl.DateTimeFormat('ru', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      date = new Intl.DateTimeFormat(lang, { day: '2-digit', month: '2-digit', year: 'numeric' });
     }
     ol.innerHTML = list
       .map((r) => {
@@ -300,7 +354,8 @@
     });
   }
 
-  const first = initialLang();
+  // Chosen before the first paint by the inline script in <head>.
+  const first = root.dataset.lang in LANGS ? root.dataset.lang : 'en';
   showShots(first);
   setLang(first);
 })();

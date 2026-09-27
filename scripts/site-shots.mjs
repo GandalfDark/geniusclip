@@ -6,6 +6,8 @@
 //   npm run dev                                   (UI preview on :1420)
 //   python -m http.server 8090 --directory site   (the site, for og.html)
 //   node scripts/site-shots.mjs [lang ...]        (default: all 14)
+//   node scripts/site-shots.mjs og                (only the link preview;
+//                                                  no UI preview needed)
 import puppeteer from 'puppeteer-core';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -15,7 +17,8 @@ const APP = 'http://127.0.0.1:1420';
 const SITE = 'http://127.0.0.1:8090';
 const TMP = 'target/shots';
 const ALL = ['ru', 'en', 'kk', 'uk', 'de', 'fr', 'es', 'pt-BR', 'pl', 'tr', 'it', 'zh-CN', 'ja', 'ko'];
-const LANGS = process.argv.length > 2 ? process.argv.slice(2) : ALL;
+const ARGS = process.argv.slice(2);
+const LANGS = ARGS.length ? ARGS.filter((a) => a !== 'og') : ALL;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(TMP, { recursive: true });
 
