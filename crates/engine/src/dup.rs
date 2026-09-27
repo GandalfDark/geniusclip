@@ -10,19 +10,98 @@ use std::time::{Duration, Instant};
 use windows::core::Interface;
 use windows::Win32::Foundation::E_ACCESSDENIED;
 use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
+use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
 
 /// Duplication failing for this long means the output itself is gone
 /// (unplugged, Win+P): `poll` then fails so capture starts over.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(5);
 
+/// Clockwise rotation that turns the duplicated image upright. On a
+/// portrait or flipped display Desktop Duplication hands out the unrotated
+/// scan-out image, while pointer position and shape are upright.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Rotation {
+    #[default]
+    None,
+    Cw90,
+    Cw180,
+    Cw270,
+}
+
+impl Rotation {
+    fn from_dxgi(r: DXGI_MODE_ROTATION) -> Self {
+        match r {
+            DXGI_MODE_ROTATION_ROTATE90 => Rotation::Cw90,
+            DXGI_MODE_ROTATION_ROTATE180 => Rotation::Cw180,
+            DXGI_MODE_ROTATION_ROTATE270 => Rotation::Cw270,
+            _ => Rotation::None,
+        }
+    }
+
+    /// Width and height trade places (portrait).
+    pub fn swaps(self) -> bool {
+        matches!(self, Rotation::Cw90 | Rotation::Cw270)
+    }
+
+    /// The size of a `w`×`h` image after rotation.
+    pub fn apply(self, w: u32, h: u32) -> (u32, u32) {
+        if self.swaps() {
+            (h, w)
+        } else {
+            (w, h)
+        }
+    }
+
+    pub fn inverse(self) -> Self {
+        match self {
+            Rotation::Cw90 => Rotation::Cw270,
+            Rotation::Cw270 => Rotation::Cw90,
+            r => r,
+        }
+    }
+
+    /// Maps the upright rectangle (x, y, w, h) into a duplicated image of
+    /// `tw`×`th` pixels (unrotated), as (x, y, w, h).
+    pub fn to_image(self, x: i32, y: i32, w: i32, h: i32, tw: i32, th: i32) -> (i32, i32, i32, i32) {
+        match self {
+            Rotation::None => (x, y, w, h),
+            Rotation::Cw90 => (y, th - x - w, h, w),
+            Rotation::Cw180 => (tw - x - w, th - y - h, w, h),
+            Rotation::Cw270 => (tw - y - h, x, h, w),
+        }
+    }
+}
+
+/// Rotates a BGRA image (rows `pitch` bytes apart) clockwise; returns the
+/// tightly packed pixels and their size.
+pub fn rotate_bgra(src: &[u8], w: u32, h: u32, pitch: usize, rot: Rotation) -> (Vec<u8>, u32, u32) {
+    let (w, h) = (w as usize, h as usize);
+    let dw = if rot.swaps() { h } else { w };
+    let mut dst = vec![0u8; w * h * 4];
+    for sy in 0..h {
+        for (sx, px) in src[sy * pitch..][..w * 4].chunks_exact(4).enumerate() {
+            let (dx, dy) = match rot {
+                Rotation::None => (sx, sy),
+                Rotation::Cw90 => (h - 1 - sy, sx),
+                Rotation::Cw180 => (w - 1 - sx, h - 1 - sy),
+                Rotation::Cw270 => (sy, w - 1 - sx),
+            };
+            dst[(dy * dw + dx) * 4..][..4].copy_from_slice(px);
+        }
+    }
+    let (dw, dh) = rot.apply(w as u32, h as u32);
+    (dst, dw, dh)
+}
+
 pub struct Duplicator {
     device: ID3D11Device,
     output: IDXGIOutput1,
     dup: Option<IDXGIOutputDuplication>,
+    /// Size of the duplicated (unrotated) image.
     pub width: u32,
     pub height: u32,
+    pub rotation: Rotation,
     next_retry: Instant,
     /// When duplication started failing (None while it works).
     lost_since: Option<Instant>,
@@ -43,12 +122,16 @@ impl Duplicator {
         let output: IDXGIOutput1 = output.cast().context("IDXGIOutput1")?;
         let desc = unsafe { output.GetDesc()? };
         let r = desc.DesktopCoordinates;
+        // Desktop coordinates are upright; the duplicated image is not.
+        let rotation = Rotation::from_dxgi(desc.Rotation);
+        let (width, height) = rotation.apply((r.right - r.left) as u32, (r.bottom - r.top) as u32);
         let mut me = Duplicator {
             device: device.clone(),
             output,
             dup: None,
-            width: (r.right - r.left) as u32,
-            height: (r.bottom - r.top) as u32,
+            width,
+            height,
+            rotation,
             next_retry: Instant::now(),
             lost_since: None,
             shape_buf: Vec::new(),
@@ -69,10 +152,12 @@ impl Duplicator {
         }
         .context("DuplicateOutput")?;
         let desc = unsafe { dup.GetDesc() };
+        // The display mode is in scan-out orientation, like the image.
         self.width = desc.ModeDesc.Width;
         self.height = desc.ModeDesc.Height;
+        self.rotation = Rotation::from_dxgi(desc.Rotation);
         self.dup = Some(dup);
-        log::info!("desktop duplication started {}x{}", self.width, self.height);
+        log::info!("desktop duplication started {}x{} rotation {:?}", self.width, self.height, self.rotation);
         Ok(())
     }
 

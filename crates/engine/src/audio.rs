@@ -37,6 +37,8 @@ pub(crate) const BLOCK: usize = 1024;
 const MIX_LATENCY: i64 = RATE / 8;
 /// Timestamp error tolerated before inserting silence / dropping samples.
 const RESYNC_TOLERANCE: i64 = RATE / 40;
+/// Longest wait for the audio threads when the pipeline stops.
+const JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -353,7 +355,7 @@ unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<Capt
 }
 
 /// `denoise`: when set, chunks go through the denoise thread, which writes
-/// them to the ring itself.
+/// them to the ring itself (unless its queue is full).
 pub(crate) fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceRing>, denoise: Option<Sender<Chunk>>, t0_us: i64, stop: Arc<AtomicBool>) {
     let _com = ComInit::new();
     let label = if kind == SourceKind::Loopback { "system audio" } else { "microphone" };
@@ -429,7 +431,12 @@ pub(crate) fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: 
                             let idx = (ts_us - t0_us) * RATE / 1_000_000 - delay;
                             match &denoise {
                                 Some(tx) => {
-                                    let _ = tx.send((idx, samples.to_vec()));
+                                    // Queue full (denoise thread starved) or gone:
+                                    // unprocessed audio beats none.
+                                    if let Err(e) = tx.try_send((idx, samples.to_vec(), Instant::now())) {
+                                        let (idx, samples, _) = e.into_inner();
+                                        ring.write(idx, &samples);
+                                    }
                                 }
                                 None => ring.write(idx, samples),
                             }
@@ -707,18 +714,31 @@ impl AudioPipeline {
     }
 
     pub fn stop(mut self) {
+        self.join();
+    }
+
+    /// Stops the threads, waiting at most `JOIN_TIMEOUT` in all. The caller
+    /// holds the engine lock (status, settings and the UI wait on it), so a
+    /// WASAPI call stuck in a hung Windows audio service must not block it:
+    /// such a thread is left behind and exits once the call returns.
+    fn join(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        let deadline = Instant::now() + JOIN_TIMEOUT;
         for t in self.threads.drain(..) {
-            let _ = t.join();
+            while !t.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if t.is_finished() {
+                let _ = t.join();
+            } else {
+                log::warn!("{} did not stop within {JOIN_TIMEOUT:?}, leaving it behind", t.thread().name().unwrap_or("audio thread"));
+            }
         }
     }
 }
 
 impl Drop for AudioPipeline {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        for t in self.threads.drain(..) {
-            let _ = t.join();
-        }
+        self.join();
     }
 }

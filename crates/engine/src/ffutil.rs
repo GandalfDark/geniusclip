@@ -1,7 +1,9 @@
 //! Thin helpers over the raw FFmpeg bindings.
 
+use crate::disk::Segment;
 use anyhow::{bail, Result};
 use ffmpeg_sys_next as ff;
+use parking_lot::RwLock;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::Arc;
 
@@ -90,30 +92,48 @@ impl Drop for CodecParams {
     }
 }
 
-/// An encoded packet kept in the replay buffer.
-/// Encoded bytes of a packet: in memory, or in a disk-buffer segment.
-pub enum Payload {
+/// Encoded bytes of a packet. They start in memory; with the disk buffer,
+/// its writer thread moves them to a segment file later (see `disk`), while
+/// the packet may already be shared with a clip being saved or a recording.
+pub struct Payload {
+    len: u32,
+    at: RwLock<Stored>,
+}
+
+enum Stored {
     Mem(Box<[u8]>),
-    Disk { seg: Arc<crate::disk::Segment>, offset: u64, len: u32 },
+    Disk { seg: Arc<Segment>, offset: u64 },
 }
 
 impl Payload {
+    pub fn new(bytes: Box<[u8]>) -> Self {
+        Payload { len: bytes.len() as u32, at: RwLock::new(Stored::Mem(bytes)) }
+    }
+
     pub fn len(&self) -> usize {
-        match self {
-            Payload::Mem(b) => b.len(),
-            Payload::Disk { len, .. } => *len as usize,
-        }
+        self.len as usize
     }
 
     /// Copies the bytes into `dst` (exactly `len()` long).
     pub fn read_into(&self, dst: &mut [u8]) -> std::io::Result<()> {
-        match self {
-            Payload::Mem(b) => {
+        match &*self.at.read() {
+            Stored::Mem(b) => {
                 dst.copy_from_slice(b);
                 Ok(())
             }
-            Payload::Disk { seg, offset, .. } => seg.read_at(*offset, dst),
+            Stored::Disk { seg, offset } => seg.read_at(*offset, dst),
         }
+    }
+
+    /// Hands the bytes to `write`, which returns where it stored them, then
+    /// frees the memory copy. Readers keep working throughout.
+    pub(crate) fn move_to_disk(&self, write: impl FnOnce(&[u8]) -> std::io::Result<(Arc<Segment>, u64)>) -> std::io::Result<()> {
+        let (seg, offset) = match &*self.at.read() {
+            Stored::Mem(b) => write(b)?,
+            Stored::Disk { .. } => return Ok(()),
+        };
+        *self.at.write() = Stored::Disk { seg, offset };
+        Ok(())
     }
 }
 
@@ -137,7 +157,7 @@ impl Packet {
         };
         let pts = if p.pts == ff::AV_NOPTS_VALUE { p.dts } else { p.pts };
         Packet {
-            data: Payload::Mem(data),
+            data: Payload::new(data),
             pts,
             dts: if p.dts == ff::AV_NOPTS_VALUE { pts } else { p.dts },
             duration: p.duration,

@@ -2,6 +2,7 @@
 //! clip's frozen stretch doesn't look like a hung video. Drawn once per hold
 //! with Direct2D straight onto a copy of the last frame.
 
+use crate::dup::Rotation;
 use anyhow::Result;
 use windows::core::{w, Interface};
 use windows::Win32::Graphics::Direct2D::Common::*;
@@ -32,9 +33,20 @@ fn rounded(r: D2D_RECT_F, radius: f32) -> D2D1_ROUNDED_RECT {
     D2D1_ROUNDED_RECT { rect: r, radiusX: radius, radiusY: radius }
 }
 
-/// Dims `tex` (a `w`×`h` BGRA render target) and draws the card centred on it.
-pub(crate) fn draw(tex: &ID3D11Texture2D, w: u32, h: u32, card: &HoldCard) -> Result<()> {
-    let (wf, hf) = (w as f32, h as f32);
+/// Dims `tex` (a `w`×`h` BGRA render target holding the duplicated image,
+/// which `rotation` turns upright) and draws the card centred on it.
+pub(crate) fn draw(tex: &ID3D11Texture2D, w: u32, h: u32, rotation: Rotation, card: &HoldCard) -> Result<()> {
+    // Layout happens on the upright image; a transform maps it onto `tex`.
+    let (uw, uh) = rotation.apply(w, h);
+    let (wf, hf) = (uw as f32, uh as f32);
+    let (tw, th) = (w as f32, h as f32);
+    // Matrix3x2 (M11, M12, M21, M22, M31, M32): upright (x, y) → image pixels.
+    let m: [f32; 6] = match rotation {
+        Rotation::None => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        Rotation::Cw90 => [0.0, -1.0, 1.0, 0.0, 0.0, th],
+        Rotation::Cw180 => [-1.0, 0.0, 0.0, -1.0, tw, th],
+        Rotation::Cw270 => [0.0, 1.0, -1.0, 0.0, tw, 0.0],
+    };
     unsafe {
         let surface: IDXGISurface = tex.cast()?;
         let d2d: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
@@ -72,6 +84,8 @@ pub(crate) fn draw(tex: &ID3D11Texture2D, w: u32, h: u32, card: &HoldCard) -> Re
         let left = (wf - row_w) / 2.0;
 
         rt.BeginDraw();
+        // Same layout as Matrix3x2, which is not otherwise exposed here.
+        rt.SetTransform(m.as_ptr() as *const _);
         let dim = rt.CreateSolidColorBrush(&color(0.024, 0.024, 0.03, 0.55), None)?;
         rt.FillRectangle(&rect(0.0, 0.0, wf, hf), &dim);
 

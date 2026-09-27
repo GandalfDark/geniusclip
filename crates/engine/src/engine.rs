@@ -13,7 +13,7 @@ use crate::config::EngineConfig;
 use crate::convert::Converter;
 use crate::cursor::{CursorRenderer, CursorState};
 use crate::d3d::{create_device, create_texture, find_output};
-use crate::dup::{Duplicator, Poll};
+use crate::dup::{rotate_bgra, Duplicator, Poll, Rotation};
 use crate::ffutil::{Packet, StreamDesc, StreamKind};
 use crate::media;
 use crate::mux::{self, Recorder};
@@ -99,11 +99,26 @@ const MIN_NEW_US: i64 = 1_000_000;
 /// Mixer latency (≈125 ms) plus AAC encoder delay, with margin.
 const AUDIO_CATCH_UP: Duration = Duration::from_millis(260);
 
+#[derive(Clone)]
 struct Shot {
     width: u32,
     height: u32,
     pitch: usize,
     data: Vec<u8>,
+    /// Turns the image upright (portrait displays), see `upright`.
+    rotation: Rotation,
+}
+
+impl Shot {
+    /// Rotates on the CPU, so it runs on the screenshot thread rather than
+    /// on the capture thread.
+    fn upright(self) -> Shot {
+        if self.rotation == Rotation::None {
+            return self;
+        }
+        let (data, width, height) = rotate_bgra(&self.data, self.width, self.height, self.pitch, self.rotation);
+        Shot { width, height, pitch: width as usize * 4, data, rotation: Rotation::None }
+    }
 }
 
 /// State shared between the pipeline threads and the API.
@@ -157,6 +172,8 @@ impl Pipeline {
     fn is_alive(&self) -> bool {
         self.video.as_ref().is_some_and(|h| !h.is_finished())
     }
+    /// Runs under the engine lock: audio threads (WASAPI can hang with the
+    /// Windows audio service) get at most 2 s before they are left behind.
     fn shutdown(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(a) = self.audio.take() {
@@ -224,7 +241,8 @@ impl Engine {
 
     /// Restarts a crashed pipeline (GPU reset, driver update…) after a pause,
     /// and keeps retrying while replay wants capture but it failed to start
-    /// (monitor not listed yet after unlock, init timeout…).
+    /// (monitor not listed yet after unlock, init timeout…). Also reports a
+    /// recording that ended by itself.
     fn spawn_supervisor(&self) -> JoinHandle<()> {
         let (state, shared, events, alive) = (self.state.clone(), self.shared.clone(), self.events.clone(), self.alive.clone());
         std::thread::Builder::new()
@@ -238,6 +256,19 @@ impl Engine {
                     let mut st = state.lock();
                     if st.shutdown {
                         break;
+                    }
+                    // The recorder stops on a write error (disk full): report it
+                    // now instead of showing "recording" until the user stops it.
+                    let rec_ended = shared.recorder.lock().as_ref().is_some_and(|(r, _)| r.is_finished());
+                    if rec_ended {
+                        log::warn!("recording ended by itself");
+                        finish_recording(&shared, &events);
+                        // Capture only ran for the recording (see `stop_recording`).
+                        if !st.replay_enabled || st.paused {
+                            if let Some(p) = st.pipeline.take() {
+                                p.shutdown();
+                            }
+                        }
                     }
                     let dead = st.pipeline.as_ref().is_some_and(|p| !p.is_alive());
                     let died = dead && last_start.elapsed() > Duration::from_secs(3);
@@ -279,7 +310,7 @@ impl Engine {
                         }
                         last_start = Instant::now();
                     }
-                    if died || retry {
+                    if died || retry || rec_ended {
                         drop(st);
                         events(EngineEvent::Status(Engine::status_of(&state, &shared)));
                     }
@@ -543,7 +574,7 @@ impl Engine {
                 Some(rx) => rx.recv_timeout(Duration::from_secs(3)).map_err(|_| anyhow!("capture timed out")).and_then(|r| r),
                 None => capture_once(monitor.as_deref()),
             };
-            let res = shot.and_then(|s| media::save_png_bgra(&path, s.width, s.height, s.pitch, &s.data));
+            let res = shot.map(Shot::upright).and_then(|s| media::save_png_bgra(&path, s.width, s.height, s.pitch, &s.data));
             match res {
                 Ok(()) => events(EngineEvent::ScreenshotSaved { path }),
                 Err(e) => events(EngineEvent::ScreenshotFailed { error: format!("{e:#}") }),
@@ -656,8 +687,14 @@ fn start_pipeline(st: &mut State, shared: &Arc<Shared>, events: &EventSink) -> R
             }
         }
     };
-    let disk = cfg.disk_buffer.then(|| DiskStore::new(DiskStore::default_dir()));
-    *shared.buffer.lock() = Some(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk));
+    let disk = if cfg.disk_buffer {
+        DiskStore::new(DiskStore::default_dir()).map_err(|e| log::error!("disk buffer unavailable, using memory: {e}")).ok()
+    } else {
+        None
+    };
+    let old = shared.buffer.lock().replace(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk));
+    // Freed after unlocking: audio packets already wait for this lock.
+    drop(old);
     let _ = go_tx.send(true);
     st.pipeline = Some(Pipeline { stop, video: Some(video), audio, streams, info });
     Ok(())
@@ -696,7 +733,7 @@ impl Drop for Timer {
     }
 }
 
-fn readback(device: &ID3D11Device, ctx: &ID3D11DeviceContext, tex: &ID3D11Texture2D) -> Result<Shot> {
+fn readback(device: &ID3D11Device, ctx: &ID3D11DeviceContext, tex: &ID3D11Texture2D, rotation: Rotation) -> Result<Shot> {
     unsafe {
         let mut d = D3D11_TEXTURE2D_DESC::default();
         tex.GetDesc(&mut d);
@@ -716,7 +753,7 @@ fn readback(device: &ID3D11Device, ctx: &ID3D11DeviceContext, tex: &ID3D11Textur
         let pitch = m.RowPitch as usize;
         let data = std::slice::from_raw_parts(m.pData as *const u8, pitch * d.Height as usize).to_vec();
         ctx.Unmap(&staging, 0);
-        Ok(Shot { width: d.Width, height: d.Height, pitch, data })
+        Ok(Shot { width: d.Width, height: d.Height, pitch, data, rotation })
     }
 }
 
@@ -731,7 +768,7 @@ fn capture_once(monitor: Option<&str>) -> Result<Shot> {
     let until = Instant::now() + Duration::from_secs(2);
     while Instant::now() < until {
         if let Poll::Changed { desktop: true } = dup.poll(&ctx, &mut desktop, &mut make, &mut cursor)? {
-            return readback(&device, &ctx, desktop.as_ref().unwrap());
+            return readback(&device, &ctx, desktop.as_ref().unwrap(), dup.rotation);
         }
         std::thread::sleep(Duration::from_millis(16));
     }
@@ -755,10 +792,11 @@ fn video_thread(
         log::info!("capturing {} ({}x{}) on {}", out.info.name, out.info.width, out.info.height, out.info.adapter);
         let (device, ctx) = create_device(&out.adapter)?;
         let dup = Duplicator::new(&device, &out.output)?;
-        let (sw, sh) = (dup.width, dup.height);
+        // The video is upright: a portrait display gives a portrait video.
+        let (sw, sh) = dup.rotation.apply(dup.width, dup.height);
         let (ow, oh) = output_size(&cfg, sw, sh);
         let enc = VideoEncoder::new(&device, out.info.vendor_id, &cfg, ow, oh)?;
-        let conv = Converter::new(&device, &ctx, sw, sh, ow, oh, fps)?;
+        let conv = Converter::new(&device, &ctx, dup.width, dup.height, dup.rotation, ow, oh, fps)?;
         let cursor_r = if cfg.capture_cursor {
             CursorRenderer::new(&device).map_err(|e| log::warn!("cursor overlay disabled: {e:#}")).ok()
         } else {
@@ -797,9 +835,19 @@ fn video_thread(
             let mut sink = |p: Packet| shared.on_packet(0, p);
             let mut res = Ok(());
             while let Ok((frame, pts, key)) = enc_rx.recv() {
-                if let Err(e) = enc.submit(frame, pts, key, &mut sink) {
-                    res = Err(e);
-                    break;
+                match enc.submit(frame, pts, key, &mut sink) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        shared.dropped.fetch_add(1, Ordering::Relaxed);
+                        // A recording must still start on a keyframe: ask again.
+                        if key {
+                            shared.force_key.store(true, Ordering::Relaxed);
+                        }
+                    }
+                    Err(e) => {
+                        res = Err(e);
+                        break;
+                    }
                 }
             }
             enc.flush(&mut sink);
@@ -853,7 +901,7 @@ fn video_thread(
             let t = make_tex(conv.in_w, conv.in_h)?;
             unsafe { ctx.CopyResource(&t, input.as_ref().unwrap()) };
             if let Some(card) = shared.hold_card.lock().clone() {
-                if let Err(e) = crate::card::draw(&t, conv.in_w, conv.in_h, &card) {
+                if let Err(e) = crate::card::draw(&t, conv.in_w, conv.in_h, conv.rotation, &card) {
                     log::warn!("hold card: {e:#}");
                 }
             }
@@ -865,9 +913,10 @@ fn video_thread(
         if !hold {
             match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
                 Poll::Changed { desktop: d } => {
-                    if d && (conv.in_w != dup.width || conv.in_h != dup.height) {
-                        log::info!("desktop resized to {}x{}", dup.width, dup.height);
-                        conv = Converter::new(&device, &ctx, dup.width, dup.height, enc_w, enc_h, fps)?;
+                    // Resolution or orientation changed (the video keeps its size).
+                    if d && !conv.fits(dup.width, dup.height, dup.rotation) {
+                        log::info!("desktop changed to {}x{} rotation {:?}", dup.width, dup.height, dup.rotation);
+                        conv = Converter::new(&device, &ctx, dup.width, dup.height, dup.rotation, enc_w, enc_h, fps)?;
                         composed = None;
                     }
                     dirty = true;
@@ -894,7 +943,7 @@ fn video_thread(
                     }
                     let c = composed.as_ref().unwrap();
                     unsafe { ctx.CopyResource(c, src) };
-                    if let Err(e) = cursor_r.as_mut().unwrap().draw(&device, &ctx, c, dup.width, dup.height, &cursor) {
+                    if let Err(e) = cursor_r.as_mut().unwrap().draw(&device, &ctx, c, &cursor, conv.rotation) {
                         log::warn!("cursor draw failed, disabling: {e:#}");
                         cursor_r = None;
                     }
@@ -909,10 +958,10 @@ fn video_thread(
         // Screenshot requests are served from the clean desktop image.
         let pending: Vec<_> = std::mem::take(&mut *shared.shots.lock());
         if !pending.is_empty() {
-            let shot = desktop.as_ref().ok_or_else(|| anyhow!("no frame yet")).and_then(|t| readback(&device, &ctx, t));
+            let shot = desktop.as_ref().ok_or_else(|| anyhow!("no frame yet")).and_then(|t| readback(&device, &ctx, t, dup.rotation));
             for tx in pending {
                 let _ = tx.send(match &shot {
-                    Ok(s) => Ok(Shot { width: s.width, height: s.height, pitch: s.pitch, data: s.data.clone() }),
+                    Ok(s) => Ok(s.clone()),
                     Err(e) => Err(anyhow!("{e:#}")),
                 });
             }

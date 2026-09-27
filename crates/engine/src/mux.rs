@@ -196,6 +196,11 @@ impl Recorder {
         let _ = self.tx.send(Msg::Packet(stream, pkt));
     }
 
+    /// The writer ended by itself (write error): `stop` returns its result.
+    pub fn is_finished(&self) -> bool {
+        self.thread.as_ref().is_some_and(|t| t.is_finished())
+    }
+
     pub fn stop(mut self) -> Result<PathBuf> {
         let _ = self.tx.send(Msg::Stop);
         match self.thread.take().unwrap().join() {

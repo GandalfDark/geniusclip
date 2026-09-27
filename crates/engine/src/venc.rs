@@ -32,6 +32,11 @@ struct AVD3D11VAFramesContext {
     texture_infos: *mut c_void,
 }
 
+/// NVENC pixel rates (pixels per second) up to which a preset keeps up:
+/// the slow, two-pass one up to 1440p144, a faster one up to 4K120.
+const NVENC_HQ_MAX: u64 = 2560 * 1440 * 144;
+const NVENC_FAST_MAX: u64 = 3840 * 2160 * 120;
+
 pub struct VideoEncoder {
     ctx: CodecCtx,
     hw_device: *mut ff::AVBufferRef,
@@ -160,10 +165,19 @@ impl VideoEncoder {
 
         let p = c.priv_data;
         if name.ends_with("_nvenc") {
-            set_opt(p, "preset", "p5");
+            // p5 with a quarter-resolution first pass cannot keep up with
+            // very high pixel rates (4K120, 1440p240): trade quality for speed.
+            let rate = width as u64 * height as u64 * fps as u64;
+            let (preset, multipass) = match rate {
+                r if r <= NVENC_HQ_MAX => ("p5", "qres"),
+                r if r <= NVENC_FAST_MAX => ("p4", "disabled"),
+                _ => ("p3", "disabled"),
+            };
+            log::info!("{name}: preset {preset}, multipass {multipass} ({:.0} Mpx/s)", rate as f64 / 1e6);
+            set_opt(p, "preset", preset);
             set_opt(p, "tune", "hq");
             set_opt(p, "rc", "vbr");
-            set_opt(p, "multipass", "qres");
+            set_opt(p, "multipass", multipass);
             set_opt(p, "spatial-aq", "1");
             set_opt(p, "forced-idr", "1");
             if name.starts_with("h264") {
@@ -203,17 +217,24 @@ impl VideoEncoder {
     }
 
     /// Encodes a surface obtained from the pool and drains produced packets.
-    pub fn submit(&mut self, frame: HwFrame, pts: i64, force_key: bool, out: &mut dyn FnMut(Packet)) -> Result<()> {
+    /// Returns false when the encoder would not take the frame (dropped).
+    pub fn submit(&mut self, frame: HwFrame, pts: i64, force_key: bool, out: &mut dyn FnMut(Packet)) -> Result<bool> {
         unsafe {
             let f = &mut *(frame.0).0;
             f.pts = pts;
             f.pict_type = if force_key { ff::AVPictureType::AV_PICTURE_TYPE_I } else { ff::AVPictureType::AV_PICTURE_TYPE_NONE };
-            let r = ff::avcodec_send_frame(self.ctx.0, (frame.0).0);
+            let mut r = ff::avcodec_send_frame(self.ctx.0, (frame.0).0);
+            if is_eagain(r) {
+                // Output is full: take the finished packets, then retry once.
+                self.drain(out)?;
+                r = ff::avcodec_send_frame(self.ctx.0, (frame.0).0);
+            }
             drop(frame);
             if r < 0 && !is_eagain(r) {
                 check(r, "avcodec_send_frame")?;
             }
-            self.drain(out)
+            self.drain(out)?;
+            Ok(r >= 0)
         }
     }
 

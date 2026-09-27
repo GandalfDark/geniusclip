@@ -5,6 +5,10 @@
 //! result into the microphone ring. Loading the model (~0.3 s) therefore
 //! never stalls capture. On/off and strength are read live per chunk, so
 //! changing them does not restart the pipeline or clear the replay buffer.
+//!
+//! Output that arrives after the mixer has read that time is dropped, so a
+//! thread that falls behind (a game using every core) passes the audio
+//! through unprocessed until it has caught up, rather than losing the mic.
 
 use crate::audio::RATE;
 use anyhow::Result;
@@ -13,6 +17,15 @@ use df::tract::{DfParams, DfTract, RuntimeParams};
 use ndarray::Array2;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL};
+
+/// Chunks queued for the denoise thread (WASAPI packets, usually 10 ms).
+/// When full, the capture thread writes the audio itself, unprocessed.
+const QUEUE: usize = 64;
+/// A chunk that waited longer is passed through: denoised it would reach
+/// the ring too late (model latency 30 ms, mixer ≈ 125 ms, mic check 90 ms).
+const MAX_WAIT: Duration = Duration::from_millis(40);
 
 /// Live settings, shared with whoever feeds microphone audio.
 #[derive(Default)]
@@ -104,6 +117,14 @@ impl Denoiser {
         })
     }
 
+    /// Continues the stream at `idx` after chunks bypassed the model, rather
+    /// than feeding the skipped time to it as silence.
+    pub fn resume_at(&mut self, idx: i64) {
+        if self.base.is_some() {
+            self.base = Some(idx - self.fed);
+        }
+    }
+
     pub fn set_strength(&mut self, strength: u32) {
         let a = atten_db(strength);
         if a != self.atten {
@@ -158,23 +179,40 @@ impl Denoiser {
     }
 }
 
-/// A chunk of microphone audio: timeline index + interleaved stereo.
-pub type Chunk = (i64, Vec<f32>);
+/// A chunk of microphone audio: timeline index, interleaved stereo, and
+/// when it was queued.
+pub type Chunk = (i64, Vec<f32>, Instant);
 
-/// Runs a denoise thread. Every chunk sent to the returned channel comes
-/// back through `write` — denoised while enabled, untouched otherwise. The
-/// thread ends when the sender is dropped.
+/// Runs a denoise thread. Every chunk sent to the returned channel (up to
+/// `QUEUE`) comes back through `write` — denoised while enabled and keeping
+/// up, untouched otherwise. The thread ends when the sender is dropped.
 pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: impl Fn(i64, &[f32]) + Send + 'static) -> std::io::Result<Sender<Chunk>> {
-    let (tx, rx): (Sender<Chunk>, Receiver<Chunk>) = crossbeam_channel::unbounded();
+    let (tx, rx): (Sender<Chunk>, Receiver<Chunk>) = crossbeam_channel::bounded(QUEUE);
     std::thread::Builder::new().name("gc-denoise".into()).spawn(move || {
+        // Like the encoder: above the game's threads, as late output is lost.
+        unsafe {
+            let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+        }
         let mut model: Option<Denoiser> = None;
         let mut failed = false;
         let mut out = Vec::new();
-        for (idx, samples) in rx {
+        // Behind: chunks pass through until the queue has drained. Skipped:
+        // the model missed chunks and continues from the next one it gets.
+        let (mut behind, mut skipped) = (false, false);
+        // What queued up while the model loaded is expected: no warning.
+        let mut load_backlog = false;
+        let mut warned: Option<Instant> = None;
+        for (idx, samples, queued) in rx.iter() {
+            let was_behind = behind;
+            behind = queued.elapsed() > MAX_WAIT || (behind && !rx.is_empty());
+            load_backlog &= behind;
             let (on, strength) = control.get();
             if on && model.is_none() && !failed {
                 match Denoiser::new(strength) {
-                    Ok(d) => model = Some(d),
+                    Ok(d) => {
+                        model = Some(d);
+                        load_backlog = true;
+                    }
                     Err(e) => {
                         log::error!("noise suppression unavailable: {e:#}");
                         control.failed.store(true, Ordering::Relaxed);
@@ -182,8 +220,16 @@ pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: i
                     }
                 }
             }
-            let processed = match model.as_mut().filter(|_| on) {
+            let quiet = load_backlog || warned.is_some_and(|t| t.elapsed() < Duration::from_secs(60));
+            if on && behind && !was_behind && model.is_some() && !quiet {
+                log::warn!("noise suppression fell behind, passing the microphone through until it catches up");
+                warned = Some(Instant::now());
+            }
+            let processed = match model.as_mut().filter(|_| on && !behind) {
                 Some(d) => {
+                    if std::mem::take(&mut skipped) {
+                        d.resume_at(idx);
+                    }
                     d.set_strength(strength);
                     let at = d.process(idx, &samples, &mut out);
                     if let Some(at) = at {
@@ -192,6 +238,7 @@ pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: i
                     &out[..]
                 }
                 None => {
+                    skipped = model.is_some();
                     write(idx, &samples);
                     &samples[..]
                 }

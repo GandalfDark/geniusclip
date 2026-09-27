@@ -3,14 +3,21 @@
 //! Stores already-compressed packets (≈ bitrate × duration bytes), trimmed on
 //! whole-GOP boundaries so a clip can always start on a keyframe. The bytes
 //! live in RAM, or in temporary files (see `disk`) with only the index here.
+//!
+//! Packets of a stream arrive in time order (no B-frames), so time ranges are
+//! found by binary search, and an index of video keyframes keeps each push
+//! O(1) while nothing has to be dropped.
 
 use crate::disk::DiskStore;
-use crate::ffutil::{PacketRef, StreamDesc, StreamKind};
+use crate::ffutil::{Packet, PacketRef, StreamDesc, StreamKind};
 use std::collections::VecDeque;
 
 pub struct ReplayBuffer {
     pub streams: Vec<StreamDesc>,
     queues: Vec<VecDeque<PacketRef>>,
+    /// Times of the video keyframes held, oldest first; the first one is the
+    /// oldest video packet (the video queue always starts on a keyframe).
+    keys: VecDeque<i64>,
     bytes: usize,
     max_us: i64,
     disk: Option<DiskStore>,
@@ -35,6 +42,7 @@ impl ReplayBuffer {
         ReplayBuffer {
             streams,
             queues: (0..n).map(|_| VecDeque::new()).collect(),
+            keys: VecDeque::new(),
             bytes: 0,
             max_us: max_seconds as i64 * 1_000_000,
             disk,
@@ -48,9 +56,11 @@ impl ReplayBuffer {
     }
 
     pub fn clear(&mut self) {
-        self.queues.iter_mut().for_each(|q| q.clear());
+        let gone: Vec<PacketRef> = self.queues.iter_mut().flat_map(|q| q.drain(..)).collect();
+        self.keys.clear();
         self.bytes = 0;
-        if let Some(d) = &mut self.disk {
+        if let Some(d) = &self.disk {
+            d.release(gone);
             d.reset();
         }
         self.last_saved_end_us = None;
@@ -83,55 +93,66 @@ impl ReplayBuffer {
     }
 
     pub fn push(&mut self, stream: usize, pkt: PacketRef) {
+        let video = Some(stream) == self.video_index();
         // The first video packet kept must be a keyframe.
-        if Some(stream) == self.video_index() && self.queues[stream].is_empty() && !pkt.key {
+        if video && self.queues[stream].is_empty() && !pkt.key {
             return;
         }
-        let pkt = match &mut self.disk {
-            Some(d) => d.store(pkt),
-            None => pkt,
-        };
+        // Only queued: the disk writer thread moves the bytes later.
+        if let Some(d) = &self.disk {
+            d.store(&pkt);
+        }
+        if video && pkt.key {
+            self.keys.push_back(pkt.time_us);
+        }
         self.bytes += pkt.data.len();
         self.queues[stream].push_back(pkt);
         self.prune();
     }
 
+    /// Removes the oldest packets of `stream` while `old` holds for them.
+    fn drop_front(&mut self, stream: usize, gone: &mut Vec<PacketRef>, old: impl Fn(&Packet) -> bool) {
+        let q = &mut self.queues[stream];
+        while q.front().is_some_and(|p| old(p)) {
+            let p = q.pop_front().unwrap();
+            self.bytes -= p.data.len();
+            gone.push(p);
+        }
+    }
+
     fn prune(&mut self) {
-        let Some(v) = self.video_index() else {
-            // Audio-only buffer: plain time window.
-            let newest = self.queues.iter().filter_map(|q| q.back()).map(|p| p.time_us).max().unwrap_or(0);
-            for q in &mut self.queues {
-                while q.front().is_some_and(|p| p.time_us < newest - self.max_us) {
-                    self.bytes -= q.pop_front().unwrap().data.len();
+        let mut gone = Vec::new();
+        match self.video_index() {
+            None => {
+                // Audio-only buffer: plain time window.
+                let newest = self.queues.iter().filter_map(|q| q.back()).map(|p| p.time_us).max().unwrap_or(0);
+                let min = newest - self.max_us;
+                for i in 0..self.queues.len() {
+                    self.drop_front(i, &mut gone, |p| p.time_us < min);
                 }
             }
-            return;
-        };
-        let newest = match self.queues[v].back() {
-            Some(p) => p.time_us,
-            None => return,
-        };
-        // Drop leading GOPs while the remainder still covers max_us.
-        loop {
-            let q = &self.queues[v];
-            let Some(next_key) = q.iter().skip(1).find(|p| p.key) else { break };
-            if newest - next_key.time_us < self.max_us {
-                break;
-            }
-            let cut = next_key.time_us;
-            let q = &mut self.queues[v];
-            while q.front().is_some_and(|p| p.time_us < cut) {
-                self.bytes -= q.pop_front().unwrap().data.len();
+            Some(v) => {
+                let Some(newest) = self.queues[v].back().map(|p| p.time_us) else { return };
+                // Drop leading GOPs while the remainder still covers max_us.
+                while let Some(&cut) = self.keys.get(1) {
+                    if newest - cut < self.max_us {
+                        break;
+                    }
+                    self.keys.pop_front();
+                    self.drop_front(v, &mut gone, |p| p.time_us < cut);
+                }
+                let start = self.queues[v].front().map(|p| p.time_us).unwrap_or(newest);
+                for i in 0..self.queues.len() {
+                    if i != v {
+                        self.drop_front(i, &mut gone, |p| p.time_us < start - 100_000);
+                    }
+                }
             }
         }
-        let start = self.queues[v].front().map(|p| p.time_us).unwrap_or(newest);
-        for (i, q) in self.queues.iter_mut().enumerate() {
-            if i == v {
-                continue;
-            }
-            while q.front().is_some_and(|p| p.time_us < start - 100_000) {
-                self.bytes -= q.pop_front().unwrap().data.len();
-            }
+        // Dropping a packet can close (delete) its disk segment: not here,
+        // under the buffer lock on a capture thread.
+        if let Some(d) = &self.disk {
+            d.release(gone);
         }
     }
 
@@ -145,11 +166,11 @@ impl ReplayBuffer {
             origin_us = origin_us.max(s + 1);
         }
         let start_us = match v {
-            Some(v) => {
-                let q = &self.queues[v];
-                let first_key = q.iter().find(|p| p.key)?.time_us;
+            Some(_) => {
+                let first_key = *self.keys.front()?;
                 origin_us = origin_us.max(first_key);
-                q.iter().rev().find(|p| p.key && p.time_us <= origin_us)?.time_us
+                // The last keyframe at or before the origin (first_key is one).
+                self.keys[self.keys.partition_point(|&t| t <= origin_us) - 1]
             }
             None => origin_us,
         };
@@ -158,10 +179,10 @@ impl ReplayBuffer {
             .iter()
             .enumerate()
             .map(|(i, q)| {
-                q.iter()
-                    .filter(|p| p.time_us <= end_us && p.time_us >= if Some(i) == v { start_us } else { origin_us })
-                    .cloned()
-                    .collect()
+                let from = if Some(i) == v { start_us } else { origin_us };
+                let a = q.partition_point(|p| p.time_us < from);
+                let b = q.partition_point(|p| p.time_us <= end_us).max(a);
+                q.range(a..b).cloned().collect()
             })
             .collect();
         Some(ClipData { streams: self.streams.clone(), packets, origin_us, end_us })

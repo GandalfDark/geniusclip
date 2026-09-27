@@ -1,6 +1,8 @@
 //! GPU colour conversion + scaling (BGRA desktop → NV12 encoder surface)
 //! using the D3D11 video processor, which exists on NVIDIA, AMD and Intel.
+//! It also turns the image of a rotated (portrait) display upright.
 
+use crate::dup::Rotation;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
@@ -14,8 +16,12 @@ pub struct Converter {
     vctx: ID3D11VideoContext,
     venum: ID3D11VideoProcessorEnumerator,
     vp: ID3D11VideoProcessor,
+    /// Input size, as duplicated (before `rotation`).
     pub in_w: u32,
     pub in_h: u32,
+    /// Rotation applied to the input (None if the GPU cannot rotate).
+    pub rotation: Rotation,
+    requested: Rotation,
     pub out_w: u32,
     pub out_h: u32,
     inputs: HashMap<usize, ID3D11VideoProcessorInputView>,
@@ -23,7 +29,17 @@ pub struct Converter {
 }
 
 impl Converter {
-    pub fn new(device: &ID3D11Device, ctx: &ID3D11DeviceContext, in_w: u32, in_h: u32, out_w: u32, out_h: u32, fps: u32) -> Result<Self> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        device: &ID3D11Device,
+        ctx: &ID3D11DeviceContext,
+        in_w: u32,
+        in_h: u32,
+        rotation: Rotation,
+        out_w: u32,
+        out_h: u32,
+        fps: u32,
+    ) -> Result<Self> {
         let vdev: ID3D11VideoDevice = device.cast().context("ID3D11VideoDevice")?;
         let vctx: ID3D11VideoContext = ctx.cast().context("ID3D11VideoContext")?;
         let desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
@@ -46,6 +62,15 @@ impl Converter {
                 anyhow::bail!("GPU video processor cannot convert BGRA to NV12");
             }
             let vp = vdev.CreateVideoProcessor(&venum, 0).context("CreateVideoProcessor")?;
+            let mut caps = D3D11_VIDEO_PROCESSOR_CAPS::default();
+            let can_rotate = venum.GetVideoProcessorCaps(&mut caps).is_ok()
+                && caps.FeatureCaps & D3D11_VIDEO_PROCESSOR_FEATURE_CAPS_ROTATION.0 as u32 != 0;
+            let applied = if rotation != Rotation::None && !can_rotate {
+                log::warn!("GPU video processor cannot rotate: the rotated display is recorded sideways");
+                Rotation::None
+            } else {
+                rotation
+            };
             let me = Converter {
                 vdev,
                 vctx,
@@ -53,6 +78,8 @@ impl Converter {
                 vp,
                 in_w,
                 in_h,
+                rotation: applied,
+                requested: rotation,
                 out_w,
                 out_h,
                 inputs: HashMap::new(),
@@ -63,17 +90,31 @@ impl Converter {
         }
     }
 
+    /// Whether this converter was made for input of this size and rotation.
+    pub fn fits(&self, in_w: u32, in_h: u32, rotation: Rotation) -> bool {
+        (self.in_w, self.in_h, self.requested) == (in_w, in_h, rotation)
+    }
+
     fn configure(&self) {
         let (vctx, vp) = (&self.vctx, &self.vp);
-        // Letterbox when the desktop aspect differs from the output aspect.
-        let scale = (self.out_w as f64 / self.in_w as f64).min(self.out_h as f64 / self.in_h as f64);
-        let dw = ((self.in_w as f64 * scale).round() as i32).min(self.out_w as i32);
-        let dh = ((self.in_h as f64 * scale).round() as i32).min(self.out_h as i32);
+        // Letterbox when the (upright) desktop aspect differs from the output aspect.
+        let (uw, uh) = self.rotation.apply(self.in_w, self.in_h);
+        let scale = (self.out_w as f64 / uw as f64).min(self.out_h as f64 / uh as f64);
+        let dw = ((uw as f64 * scale).round() as i32).min(self.out_w as i32);
+        let dh = ((uh as f64 * scale).round() as i32).min(self.out_h as i32);
         let dx = (self.out_w as i32 - dw) / 2;
         let dy = (self.out_h as i32 - dh) / 2;
+        let rotation = match self.rotation {
+            Rotation::None => D3D11_VIDEO_PROCESSOR_ROTATION_IDENTITY,
+            Rotation::Cw90 => D3D11_VIDEO_PROCESSOR_ROTATION_90,
+            Rotation::Cw180 => D3D11_VIDEO_PROCESSOR_ROTATION_180,
+            Rotation::Cw270 => D3D11_VIDEO_PROCESSOR_ROTATION_270,
+        };
         unsafe {
             vctx.VideoProcessorSetStreamFrameFormat(vp, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
             vctx.VideoProcessorSetStreamAutoProcessingMode(vp, 0, false);
+            // Source rect is in input (unrotated) pixels, dest rect in output pixels.
+            vctx.VideoProcessorSetStreamRotation(vp, 0, self.rotation != Rotation::None, rotation);
             vctx.VideoProcessorSetStreamSourceRect(vp, 0, true, Some(&RECT { left: 0, top: 0, right: self.in_w as i32, bottom: self.in_h as i32 }));
             vctx.VideoProcessorSetStreamDestRect(vp, 0, true, Some(&RECT { left: dx, top: dy, right: dx + dw, bottom: dy + dh }));
             vctx.VideoProcessorSetOutputTargetRect(vp, true, Some(&RECT { left: 0, top: 0, right: self.out_w as i32, bottom: self.out_h as i32 }));

@@ -1,6 +1,7 @@
 //! Mouse cursor tracking (from Desktop Duplication metadata) and GPU drawing
 //! of the cursor on top of the captured desktop.
 
+use crate::dup::{rotate_bgra, Rotation};
 use anyhow::{anyhow, Context, Result};
 use std::ffi::c_void;
 use windows::core::{s, Interface, PCSTR};
@@ -23,6 +24,7 @@ pub struct CursorShape {
 #[derive(Default)]
 pub struct CursorState {
     pub visible: bool,
+    /// Top-left of the shape on the upright desktop (also on rotated displays).
     pub x: i32,
     pub y: i32,
     pub shape: Option<CursorShape>,
@@ -134,7 +136,8 @@ pub struct CursorRenderer {
     sampler: ID3D11SamplerState,
     cbuf: ID3D11Buffer,
     tex: Option<(ID3D11ShaderResourceView, u32, u32)>,
-    tex_gen: u64,
+    /// Shape generation and rotation `tex` was made for.
+    tex_key: (u64, Rotation),
     rtv: Option<(usize, ID3D11RenderTargetView)>,
 }
 
@@ -190,16 +193,19 @@ impl CursorRenderer {
                 sampler: sampler.unwrap(),
                 cbuf: cbuf.unwrap(),
                 tex: None,
-                tex_gen: u64::MAX,
+                tex_key: (u64::MAX, Rotation::None),
                 rtv: None,
             })
         }
     }
 
-    fn upload_shape(&mut self, device: &ID3D11Device, shape: &CursorShape) -> Result<()> {
+    /// Uploads the shape turned the other way than `rotation`, so it comes
+    /// out upright once the whole image is rotated.
+    fn upload_shape(&mut self, device: &ID3D11Device, shape: &CursorShape, rotation: Rotation) -> Result<()> {
+        let (pixels, width, height) = rotate_bgra(&shape.pixels, shape.width, shape.height, shape.width as usize * 4, rotation.inverse());
         let desc = D3D11_TEXTURE2D_DESC {
-            Width: shape.width,
-            Height: shape.height,
+            Width: width,
+            Height: height,
             MipLevels: 1,
             ArraySize: 1,
             Format: DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -209,8 +215,8 @@ impl CursorRenderer {
             ..Default::default()
         };
         let init = D3D11_SUBRESOURCE_DATA {
-            pSysMem: shape.pixels.as_ptr() as *const c_void,
-            SysMemPitch: shape.width * 4,
+            pSysMem: pixels.as_ptr() as *const c_void,
+            SysMemPitch: width * 4,
             SysMemSlicePitch: 0,
         };
         unsafe {
@@ -224,22 +230,25 @@ impl CursorRenderer {
         Ok(())
     }
 
-    /// Alpha-blends the cursor onto `target` (a BGRA render target of size tw×th).
+    /// Alpha-blends the cursor onto `target`, a BGRA render target holding
+    /// the duplicated image, which `rotation` turns upright.
     pub fn draw(
         &mut self,
         device: &ID3D11Device,
         ctx: &ID3D11DeviceContext,
         target: &ID3D11Texture2D,
-        tw: u32,
-        th: u32,
         cursor: &CursorState,
+        rotation: Rotation,
     ) -> Result<()> {
         let Some(shape) = cursor.shape.as_ref().filter(|_| cursor.visible) else { return Ok(()) };
-        if self.tex_gen != cursor.shape_gen {
-            self.upload_shape(device, shape)?;
-            self.tex_gen = cursor.shape_gen;
+        if self.tex_key != (cursor.shape_gen, rotation) {
+            self.upload_shape(device, shape, rotation)?;
+            self.tex_key = (cursor.shape_gen, rotation);
         }
         let Some((srv, w, h)) = self.tex.clone() else { return Ok(()) };
+        let mut td = D3D11_TEXTURE2D_DESC::default();
+        unsafe { target.GetDesc(&mut td) };
+        let (tw, th) = (td.Width, td.Height);
 
         let key = target.as_raw() as usize;
         if self.rtv.as_ref().map(|r| r.0) != Some(key) {
@@ -250,7 +259,9 @@ impl CursorRenderer {
         let rtv = self.rtv.as_ref().unwrap().1.clone();
 
         let (fw, fh) = (tw as f32, th as f32);
-        let (x0, y0) = (cursor.x as f32, cursor.y as f32);
+        // `w`×`h` is the upright shape size; the uploaded texture is already turned.
+        let (x, y, w, h) = rotation.to_image(cursor.x, cursor.y, w as i32, h as i32, tw as i32, th as i32);
+        let (x0, y0) = (x as f32, y as f32);
         let (x1, y1) = (x0 + w as f32, y0 + h as f32);
         let rect = [x0 / fw * 2.0 - 1.0, 1.0 - y0 / fh * 2.0, x1 / fw * 2.0 - 1.0, 1.0 - y1 / fh * 2.0];
 
