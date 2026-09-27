@@ -7,15 +7,43 @@
 use crate::cursor::{convert_shape, CursorState};
 use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
-use windows::core::Interface;
-use windows::Win32::Foundation::E_ACCESSDENIED;
+use windows::core::{Interface, HRESULT};
+use windows::Win32::Foundation::{E_ACCESSDENIED, LUID};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
 
 /// Duplication failing for this long means the output itself is gone
-/// (unplugged, Win+P): `poll` then fails so capture starts over.
+/// (unplugged, Win+P): `poll` then fails so capture starts over. Errors that
+/// only mean "not now" (see `is_waiting`) are waited out instead, as long as
+/// the output is still there; it is checked again this often.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(5);
+
+/// States that last as long as something else does: the secure desktop
+/// (UAC, lock screen), a mode change or a mode duplication cannot handle,
+/// too many duplication clients, a remote or switched-away session. Ending
+/// capture for them would only wipe the replay buffer and end a recording
+/// every few seconds.
+fn is_waiting(code: HRESULT) -> bool {
+    [
+        E_ACCESSDENIED,
+        DXGI_ERROR_ACCESS_LOST,
+        DXGI_ERROR_UNSUPPORTED,
+        DXGI_ERROR_NOT_CURRENTLY_AVAILABLE,
+        DXGI_ERROR_SESSION_DISCONNECTED,
+        DXGI_ERROR_MODE_CHANGE_IN_PROGRESS,
+    ]
+    .contains(&code)
+}
+
+/// The D3D device is gone (driver update, TDR): nothing recovers without a new one.
+fn is_device_lost(code: HRESULT) -> bool {
+    [DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET, DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DRIVER_INTERNAL_ERROR].contains(&code)
+}
+
+fn hresult(e: &anyhow::Error) -> Option<HRESULT> {
+    e.downcast_ref::<windows::core::Error>().map(|w| w.code())
+}
 
 /// Clockwise rotation that turns the duplicated image upright. On a
 /// portrait or flipped display Desktop Duplication hands out the unrotated
@@ -97,14 +125,22 @@ pub fn rotate_bgra(src: &[u8], w: u32, h: u32, pitch: usize, rot: Rotation) -> (
 pub struct Duplicator {
     device: ID3D11Device,
     output: IDXGIOutput1,
+    /// GDI name and adapter of the output, to tell whether it still exists.
+    device_name: [u16; 32],
+    adapter_luid: Option<LUID>,
     dup: Option<IDXGIOutputDuplication>,
-    /// Size of the duplicated (unrotated) image.
+    /// Size of the duplicated image (unrotated, as the frame texture comes).
+    /// Estimated from the display mode until a frame arrives, then taken
+    /// from the frame itself.
     pub width: u32,
     pub height: u32,
     pub rotation: Rotation,
     next_retry: Instant,
-    /// When duplication started failing (None while it works).
+    /// When duplication started failing (None while it works); restarted
+    /// after each check that found the output still there.
     lost_since: Option<Instant>,
+    /// A long wait was logged for the current failure streak.
+    wait_logged: bool,
     shape_buf: Vec<u8>,
 }
 
@@ -125,15 +161,21 @@ impl Duplicator {
         // Desktop coordinates are upright; the duplicated image is not.
         let rotation = Rotation::from_dxgi(desc.Rotation);
         let (width, height) = rotation.apply((r.right - r.left) as u32, (r.bottom - r.top) as u32);
+        let adapter_luid = unsafe { device.cast::<IDXGIDevice>().and_then(|d| d.GetAdapter()).and_then(|a| a.GetDesc()) }
+            .ok()
+            .map(|d| d.AdapterLuid);
         let mut me = Duplicator {
             device: device.clone(),
             output,
+            device_name: desc.DeviceName,
+            adapter_luid,
             dup: None,
             width,
             height,
             rotation,
             next_retry: Instant::now(),
             lost_since: None,
+            wait_logged: false,
             shape_buf: Vec::new(),
         };
         if let Err(e) = me.start() {
@@ -152,13 +194,20 @@ impl Duplicator {
         }
         .context("DuplicateOutput")?;
         let desc = unsafe { dup.GetDesc() };
-        // The display mode is in scan-out orientation, like the image.
-        self.width = desc.ModeDesc.Width;
-        self.height = desc.ModeDesc.Height;
+        // ModeDesc is the upright desktop size (like DesktopCoordinates),
+        // while frames come in scan-out orientation, which `rotation` turns
+        // upright. The first frame's texture has the final say (see `poll`).
+        let (mw, mh) = (desc.ModeDesc.Width, desc.ModeDesc.Height);
         self.rotation = Rotation::from_dxgi(desc.Rotation);
+        (self.width, self.height) = self.rotation.apply(mw, mh);
         self.dup = Some(dup);
-        log::info!("desktop duplication started {}x{} rotation {:?}", self.width, self.height, self.rotation);
+        log::info!("desktop duplication started: desktop {mw}x{mh}, rotation {:?}", self.rotation);
         Ok(())
+    }
+
+    /// Size of the image once `rotation` turned it upright.
+    pub fn upright_size(&self) -> (u32, u32) {
+        self.rotation.apply(self.width, self.height)
     }
 
     /// Grabs the newest desktop frame (non-blocking) into `dst`, which must be
@@ -177,11 +226,6 @@ impl Duplicator {
             }
             if let Err(e) = self.start() {
                 log::debug!("duplication retry failed: {e:#}");
-                // The secure desktop (UAC prompt, lock screen) denies access
-                // for as long as it is shown: that is not a lost output.
-                if e.downcast_ref::<windows::core::Error>().is_some_and(|w| w.code() == E_ACCESSDENIED) {
-                    self.lost_since = None;
-                }
                 return self.lost(e, Duration::from_millis(500));
             }
             *dst = None;
@@ -193,7 +237,7 @@ impl Duplicator {
         match unsafe { dup.AcquireNextFrame(0, &mut info, &mut res) } {
             Ok(()) => {}
             Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => {
-                self.lost_since = None;
+                self.recovered();
                 return Ok(Poll::Idle);
             }
             Err(e) => {
@@ -212,6 +256,11 @@ impl Duplicator {
                     let mut d = D3D11_TEXTURE2D_DESC::default();
                     unsafe { tex.GetDesc(&mut d) };
                     if d.Width != self.width || d.Height != self.height || dst.is_none() {
+                        // The texture is what gets converted: its size wins
+                        // over the mode's (the upright size follows from it).
+                        if (d.Width, d.Height) != (self.width, self.height) {
+                            log::info!("desktop frame is {}x{}, expected {}x{} (rotation {:?})", d.Width, d.Height, self.width, self.height, self.rotation);
+                        }
                         self.width = d.Width;
                         self.height = d.Height;
                         *dst = Some(make_dst(d.Width, d.Height)?);
@@ -256,7 +305,7 @@ impl Duplicator {
         }
         match result {
             Ok(p) => {
-                self.lost_since = None;
+                self.recovered();
                 Ok(p)
             }
             // Pointer shape or frame copy failed: recover like a lost
@@ -268,14 +317,70 @@ impl Duplicator {
         }
     }
 
-    /// Drops the duplication so the next poll after `retry` recreates it;
-    /// fails once it has been failing for `GIVE_UP_AFTER`.
+    fn recovered(&mut self) {
+        if self.lost_since.take().is_some() && std::mem::take(&mut self.wait_logged) {
+            log::info!("desktop duplication works again");
+        }
+    }
+
+    /// Drops the duplication so the next poll after `retry` recreates it.
+    /// Fails when the device is lost, or once it has been failing for
+    /// `GIVE_UP_AFTER` and the output is gone or the error is not one that
+    /// is worth waiting out.
     fn lost(&mut self, e: anyhow::Error, retry: Duration) -> Result<Poll> {
         self.dup = None;
         self.next_retry = Instant::now() + retry;
-        if self.lost_since.get_or_insert_with(Instant::now).elapsed() > GIVE_UP_AFTER {
+        let code = hresult(&e);
+        if code.is_some_and(is_device_lost) {
+            return Err(e.context("graphics device lost"));
+        }
+        if self.lost_since.get_or_insert_with(Instant::now).elapsed() <= GIVE_UP_AFTER {
+            return Ok(Poll::Lost);
+        }
+        if !self.output_present() {
+            return Err(e.context("display output is gone"));
+        }
+        if !code.is_some_and(is_waiting) {
+            // Possibly a stale output after a display change: a new
+            // pipeline enumerates the outputs again.
             return Err(e.context("desktop duplication keeps failing"));
         }
+        if !std::mem::replace(&mut self.wait_logged, true) {
+            log::info!("desktop duplication unavailable ({e:#}); waiting for it");
+        }
+        // Next output check in another GIVE_UP_AFTER.
+        self.lost_since = Some(Instant::now());
         Ok(Poll::Lost)
+    }
+
+    /// Whether the output is still part of the desktop, on this device's
+    /// adapter. Asks a new factory: an old one can keep describing the
+    /// display layout it was created with.
+    fn output_present(&self) -> bool {
+        unsafe {
+            if self.device.GetDeviceRemovedReason().is_err() {
+                return false;
+            }
+            let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() else {
+                // Cannot tell: keep waiting rather than restart for nothing.
+                return true;
+            };
+            let mut ai = 0;
+            while let Ok(adapter) = factory.EnumAdapters1(ai) {
+                ai += 1;
+                let luid = adapter.GetDesc1().map(|d| d.AdapterLuid).ok();
+                if self.adapter_luid.is_some() && luid != self.adapter_luid {
+                    continue;
+                }
+                let mut oi = 0;
+                while let Ok(output) = adapter.EnumOutputs(oi) {
+                    oi += 1;
+                    if output.GetDesc().is_ok_and(|d| d.DeviceName == self.device_name && d.AttachedToDesktop.as_bool()) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
     }
 }

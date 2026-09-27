@@ -15,6 +15,7 @@ use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use df::tract::{DfParams, DfTract, RuntimeParams};
 use ndarray::Array2;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -92,6 +93,15 @@ pub struct Denoiser {
     fed: i64,
     produced: i64,
     pending: Vec<f32>,
+    /// The last `delay + hop` input samples (mono, the last one is number
+    /// `fed - 1`): what the model has not output yet when it is bypassed,
+    /// and the unprocessed side of the fade back in.
+    raw: VecDeque<f32>,
+    /// Output samples still to drop: the model's latency holds audio from
+    /// before it started or was bypassed (that time is already written).
+    discard: usize,
+    /// Output samples left in the fade from unprocessed to denoised.
+    fade: usize,
     inp: Array2<f32>,
     outp: Array2<f32>,
 }
@@ -102,9 +112,10 @@ impl Denoiser {
         let model = DfTract::new(DfParams::default(), &RuntimeParams::default_with_ch(1).with_atten_lim(atten))?;
         anyhow::ensure!(model.sr as i64 == RATE, "model sample rate {}", model.sr);
         let hop = model.hop_size;
+        // Measured: output lags input by (lookahead + 1) hops = 30 ms.
+        let delay = hop * (model.lookahead + 1);
         Ok(Denoiser {
-            // Measured: output lags input by (lookahead + 1) hops = 30 ms.
-            delay: (hop * (model.lookahead + 1)) as i64,
+            delay: delay as i64,
             hop,
             model,
             atten,
@@ -112,17 +123,46 @@ impl Denoiser {
             fed: 0,
             produced: 0,
             pending: Vec::with_capacity(hop),
+            raw: VecDeque::with_capacity(delay + hop),
+            // Output before the first input is the model's warm-up.
+            discard: delay,
+            fade: hop,
             inp: Array2::zeros((1, hop)),
             outp: Array2::zeros((1, hop)),
         })
     }
 
+    /// The model is bypassed from the next chunk on (behind, or turned off).
+    /// Replaces `out` with what it took in but has not output yet — its
+    /// latency plus a partial hop — unprocessed, and returns its timeline
+    /// index, so the switch leaves no silent gap.
+    pub fn bypass(&mut self, out: &mut Vec<f32>) -> Option<i64> {
+        out.clear();
+        let base = self.base?;
+        // First input sample whose output has not been written.
+        let from = (self.produced + self.discard as i64 - self.delay).max(self.fed - self.raw.len() as i64).max(0);
+        for k in from..self.fed {
+            let x = self.raw[self.raw.len() - (self.fed - k) as usize];
+            out.push(x);
+            out.push(x);
+        }
+        (!out.is_empty()).then_some(base + from)
+    }
+
     /// Continues the stream at `idx` after chunks bypassed the model, rather
     /// than feeding the skipped time to it as silence.
     pub fn resume_at(&mut self, idx: i64) {
+        // Input from before the bypass went out unprocessed (see `bypass`):
+        // processing it now, as if it ran on into the new input, would click.
+        self.fed -= self.pending.len() as i64;
+        self.pending.clear();
+        self.raw.clear();
         if self.base.is_some() {
             self.base = Some(idx - self.fed);
         }
+        // The model still holds `delay` samples from before; then fade in.
+        self.discard = self.delay as usize;
+        self.fade = self.hop;
     }
 
     pub fn set_strength(&mut self, strength: u32) {
@@ -144,21 +184,27 @@ impl Denoiser {
             // Long pause or clock jump: continue the stream from here.
             self.base = Some(idx - self.fed);
         }
-        let start = self.base.unwrap() + self.produced - self.delay;
+        let mut start = None;
         if gap > RATE / 40 && gap <= RATE / 2 {
             // Short hole (dropped packets): keep the timeline with silence.
             for _ in 0..gap {
-                self.push(0.0, out);
+                self.push(0.0, out, &mut start);
             }
         }
         for f in stereo.chunks_exact(2) {
-            self.push((f[0] + f[1]) * 0.5, out);
+            self.push((f[0] + f[1]) * 0.5, out, &mut start);
         }
-        (!out.is_empty()).then_some(start)
+        start
     }
 
-    fn push(&mut self, x: f32, out: &mut Vec<f32>) {
+    /// Feeds one sample; a full hop is processed and appended to `out`
+    /// (`start` gets the timeline index of the first sample appended).
+    fn push(&mut self, x: f32, out: &mut Vec<f32>, start: &mut Option<i64>) {
         self.pending.push(x);
+        if self.raw.len() == self.delay as usize + self.hop {
+            self.raw.pop_front();
+        }
+        self.raw.push_back(x);
         self.fed += 1;
         if self.pending.len() < self.hop {
             return;
@@ -170,7 +216,26 @@ impl Denoiser {
             log::warn!("denoise: {e:#}");
             self.outp.assign(&self.inp);
         }
-        for &y in self.outp.iter() {
+        for i in 0..self.hop {
+            if self.discard > 0 {
+                self.discard -= 1;
+                continue;
+            }
+            // Output number n is input sample n - delay.
+            let k = self.produced + i as i64 - self.delay;
+            start.get_or_insert(self.base.unwrap() + k);
+            let mut y = self.outp[[0, i]];
+            if self.fade > 0 {
+                // From the unprocessed input to the model's output, so the
+                // model's start (or restart) does not click.
+                let back = (self.fed - k) as usize;
+                if (1..=self.raw.len()).contains(&back) {
+                    let x = self.raw[self.raw.len() - back];
+                    let w = 1.0 - self.fade as f32 / self.hop as f32;
+                    y = x + (y - x) * w;
+                }
+                self.fade -= 1;
+            }
             out.push(y);
             out.push(y);
         }
@@ -195,7 +260,7 @@ pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: i
         }
         let mut model: Option<Denoiser> = None;
         let mut failed = false;
-        let mut out = Vec::new();
+        let (mut out, mut tail) = (Vec::new(), Vec::new());
         // Behind: chunks pass through until the queue has drained. Skipped:
         // the model missed chunks and continues from the next one it gets.
         let (mut behind, mut skipped) = (false, false);
@@ -238,7 +303,15 @@ pub fn spawn(control: Arc<DenoiseControl>, levels: Option<Arc<Levels>>, write: i
                     &out[..]
                 }
                 None => {
-                    skipped = model.is_some();
+                    if let Some(d) = model.as_mut() {
+                        // First chunk past the model: what it still holds goes
+                        // out unprocessed instead of leaving a 30-40 ms hole.
+                        if !std::mem::replace(&mut skipped, true) {
+                            if let Some(at) = d.bypass(&mut tail) {
+                                write(at, &tail);
+                            }
+                        }
+                    }
                     write(idx, &samples);
                     &samples[..]
                 }
@@ -280,5 +353,44 @@ mod tests {
         }
         let reduction_db = 10.0 * (noise_in / noise_out.max(1e-12)).log10();
         assert!(reduction_db > 20.0, "noise only reduced by {reduction_db:.1} dB");
+    }
+
+    /// Output, the unprocessed tail at a bypass and the output after a
+    /// resume follow each other on the timeline without holes or overlaps.
+    #[test]
+    fn bypass_and_resume_keep_the_timeline() {
+        let mut d = Denoiser::new(50).expect("model loads");
+        let mut out = Vec::new();
+        // Not a multiple of the hop: a partial hop is pending at the bypass.
+        let n = 441i64;
+        let chunk = vec![0.01f32; n as usize * 2];
+        let (mut idx, mut end) = (1000i64, None);
+        let feed = |d: &mut Denoiser, idx: i64, end: &mut Option<i64>, out: &mut Vec<f32>| {
+            if let Some(at) = d.process(idx, &chunk, out) {
+                assert_eq!(at, end.unwrap_or(at), "output continues where it ended");
+                *end = Some(at + out.len() as i64 / 2);
+            }
+        };
+        for _ in 0..20 {
+            feed(&mut d, idx, &mut end, &mut out);
+            if end.is_none() {
+                assert!(out.is_empty());
+            }
+            idx += n;
+        }
+        assert!(end.is_some());
+        let at = d.bypass(&mut out).expect("tail");
+        assert_eq!(Some(at), end);
+        assert_eq!(at + out.len() as i64 / 2, idx, "tail reaches the end of the input");
+        // Passed through meanwhile, then back to the model.
+        idx += 10 * n;
+        d.resume_at(idx);
+        end = Some(idx);
+        for _ in 0..20 {
+            feed(&mut d, idx, &mut end, &mut out);
+            idx += n;
+        }
+        // Behind the input by the model's latency and at most a hop.
+        assert!(end.unwrap() >= idx - d.delay - d.hop as i64, "output resumed");
     }
 }

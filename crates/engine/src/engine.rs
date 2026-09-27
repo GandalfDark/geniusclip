@@ -136,7 +136,6 @@ struct Shared {
     /// Repeat the last desktop frame instead of capturing (see `set_hold`).
     hold: AtomicBool,
     hold_card: Mutex<Option<crate::card::HoldCard>>,
-    failed: Mutex<Option<String>>,
 }
 
 impl Shared {
@@ -166,6 +165,9 @@ struct Pipeline {
     audio: Option<AudioPipeline>,
     streams: Vec<StreamDesc>,
     info: VideoInfo,
+    /// Why the video thread ended, if it failed. Per pipeline, so a thread
+    /// of an abandoned start cannot report into the running one.
+    failed: Arc<Mutex<Option<String>>>,
 }
 
 impl Pipeline {
@@ -194,6 +196,10 @@ struct State {
     shutdown: bool,
     /// Capture paused while nobody can see the screen (display off, locked).
     paused: bool,
+    /// Video threads whose start timed out, told to stop. One may be stuck
+    /// in a driver call holding a D3D device and an encoder session, so the
+    /// supervisor starts no new one until they have ended.
+    stray: Vec<JoinHandle<()>>,
 }
 
 pub struct Engine {
@@ -217,6 +223,7 @@ impl Engine {
             last_error: None,
             shutdown: false,
             paused: false,
+            stray: Vec::new(),
         }));
         let shared = Arc::new(Shared {
             buffer: Mutex::new(None),
@@ -231,7 +238,6 @@ impl Engine {
             dropped_recent: AtomicU64::new(0),
             hold: AtomicBool::new(false),
             hold_card: Mutex::new(None),
-            failed: Mutex::new(None),
         });
         let alive = Arc::new(AtomicBool::new(true));
         let mut me = Engine { state, shared, events, supervisor: None, alive, monitor: Mutex::new(None) };
@@ -240,17 +246,18 @@ impl Engine {
     }
 
     /// Restarts a crashed pipeline (GPU reset, driver update…) after a pause,
-    /// and keeps retrying while replay wants capture but it failed to start
-    /// (monitor not listed yet after unlock, init timeout…). Also reports a
-    /// recording that ended by itself.
+    /// and keeps retrying, less and less often, while replay wants capture
+    /// but it failed to start (monitor not listed yet after unlock, init
+    /// timeout…). Also reports a recording that ended by itself.
     fn spawn_supervisor(&self) -> JoinHandle<()> {
         let (state, shared, events, alive) = (self.state.clone(), self.shared.clone(), self.events.clone(), self.alive.clone());
         std::thread::Builder::new()
             .name("gc-supervisor".into())
             .spawn(move || {
                 let mut last_start = Instant::now() - Duration::from_secs(60);
-                // Starting keeps failing; logged once until it works again.
-                let mut failing = false;
+                // Failed starts in a row: sets the back-off; the failure is
+                // logged once until it works again.
+                let mut failures = 0u32;
                 while alive.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(500));
                     let mut st = state.lock();
@@ -273,40 +280,80 @@ impl Engine {
                     let dead = st.pipeline.as_ref().is_some_and(|p| !p.is_alive());
                     let died = dead && last_start.elapsed() > Duration::from_secs(3);
                     if died {
-                        let err = shared.failed.lock().take().unwrap_or_else(|| "capture stopped".into());
-                        log::warn!("pipeline died: {err}; restarting");
-                        events(EngineEvent::Error { message: err.clone() });
-                        st.last_error = Some(err);
                         if let Some(p) = st.pipeline.take() {
+                            let err = p.failed.lock().take().unwrap_or_else(|| "capture stopped".into());
+                            log::warn!("pipeline died: {err}; restarting");
+                            events(EngineEvent::Error { message: err.clone() });
+                            st.last_error = Some(err);
                             p.shutdown();
                         }
                         // The recording cannot go on in a new pipeline: save it.
                         finish_recording(&shared, &events);
                     }
+                    st.stray.retain(|h| !h.is_finished());
                     let want = st.replay_enabled && !st.paused;
                     if st.pipeline.is_some() || !want {
-                        failing = false;
+                        failures = 0;
                     }
-                    let retry = want && st.pipeline.is_none() && (died || last_start.elapsed() > Duration::from_secs(5));
+                    let retry = want
+                        && st.pipeline.is_none()
+                        && st.stray.is_empty()
+                        && (died || last_start.elapsed() > retry_delay(failures));
                     if retry {
-                        match start_pipeline(&mut st, &shared, &events) {
-                            Ok(()) => {
-                                if failing {
+                        let outcome = match Launch::start(st.cfg.clone(), &shared) {
+                            Err(e) => Some(Err(e)),
+                            Ok(launch) => {
+                                // Setting up takes a while (up to 10 s before it
+                                // counts as hung): status and settings calls must
+                                // not wait for it.
+                                drop(st);
+                                let init = launch.wait();
+                                st = state.lock();
+                                // Settings changed, capture paused or turned off, or
+                                // an API call started capture meanwhile: moot.
+                                let wanted = !st.shutdown
+                                    && st.replay_enabled
+                                    && !st.paused
+                                    && st.pipeline.is_none()
+                                    && st.cfg.same_pipeline(&launch.cfg);
+                                match init {
+                                    Some(Ok(info)) if wanted => Some(launch.complete(&mut st, &shared, &events, info)),
+                                    Some(Ok(_)) => {
+                                        drop(launch.cancel());
+                                        None
+                                    }
+                                    Some(Err(e)) => {
+                                        launch.join();
+                                        wanted.then_some(Err(e))
+                                    }
+                                    None => {
+                                        st.stray.push(launch.cancel());
+                                        wanted.then(|| Err(anyhow!("video pipeline did not start")))
+                                    }
+                                }
+                            }
+                        };
+                        match outcome {
+                            Some(Ok(())) => {
+                                if failures > 0 {
                                     log::info!("capture started");
                                 }
-                                failing = false;
+                                failures = 0;
                                 // A crash's reason stays visible; an earlier start error is stale now.
                                 if !died {
                                     st.last_error = None;
                                 }
                             }
-                            Err(e) => {
-                                if !failing {
-                                    log::warn!("capture failed to start, retrying every 5 s: {e:#}");
+                            Some(Err(e)) => {
+                                if failures == 0 {
+                                    log::warn!("capture failed to start, retrying with back-off: {e:#}");
+                                } else {
+                                    log::debug!("capture start retry failed: {e:#}");
                                 }
-                                failing = true;
+                                failures += 1;
                                 st.last_error = Some(format!("{e:#}"));
                             }
+                            None => {}
                         }
                         last_start = Instant::now();
                     }
@@ -637,67 +684,127 @@ fn finish_recording(shared: &Shared, events: &EventSink) -> bool {
     true
 }
 
-fn start_pipeline(st: &mut State, shared: &Arc<Shared>, events: &EventSink) -> Result<()> {
-    // Packet times restart at the new pipeline's t0 and its streams may
-    // differ, so a recording from the previous one cannot continue.
-    finish_recording(shared, events);
-    let cfg = st.cfg.clone();
-    let t0 = clock::now_us();
-    let stop = Arc::new(AtomicBool::new(false));
-    *shared.failed.lock() = None;
-    shared.dropped.store(0, Ordering::Relaxed);
+/// Pause before the supervisor tries again after `failures` failed starts in a row.
+fn retry_delay(failures: u32) -> Duration {
+    Duration::from_secs(match failures {
+        0 | 1 => 5,
+        2 => 15,
+        3 => 30,
+        _ => 60,
+    })
+}
 
-    let (init_tx, init_rx) = bounded::<Result<VideoInfo>>(1);
-    let (go_tx, go_rx) = bounded::<bool>(1);
-    let video = {
-        let (cfg, shared, stop) = (cfg.clone(), shared.clone(), stop.clone());
-        std::thread::Builder::new().name("gc-video".into()).spawn(move || {
-            if let Err(e) = video_thread(cfg, t0, shared.clone(), stop, init_tx, go_rx) {
-                log::error!("video pipeline: {e:#}");
-                *shared.failed.lock() = Some(format!("{e:#}"));
-            }
-        })?
-    };
-    let info = match init_rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(Ok(info)) => info,
-        Ok(Err(e)) => {
-            let _ = video.join();
-            return Err(e);
-        }
-        Err(_) => {
-            stop.store(true, Ordering::Relaxed);
-            let _ = go_tx.send(false);
-            bail!("video pipeline did not start");
-        }
-    };
+/// How long the video thread may take to set up (device, duplication,
+/// encoder) before the start counts as failed.
+const INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
-    let mut streams = vec![info.desc.clone()];
-    let audio = {
-        let shared2 = shared.clone();
-        let sink: crate::audio::AudioSink = Arc::new(move |i, p| shared2.on_packet(1 + i, p));
-        match AudioPipeline::start(&cfg, t0, sink, shared.denoise.clone(), shared.live_audio.clone()) {
-            Ok(Some((a, descs))) => {
-                streams.extend(descs);
-                Some(a)
-            }
-            Ok(None) => None,
-            Err(e) => {
-                log::error!("audio disabled: {e:#}");
+/// A video thread that is setting up and not yet part of a pipeline.
+struct Launch {
+    cfg: EngineConfig,
+    t0: i64,
+    stop: Arc<AtomicBool>,
+    failed: Arc<Mutex<Option<String>>>,
+    video: JoinHandle<()>,
+    init_rx: Receiver<Result<VideoInfo>>,
+    go_tx: Sender<bool>,
+}
+
+impl Launch {
+    fn start(cfg: EngineConfig, shared: &Arc<Shared>) -> Result<Launch> {
+        let t0 = clock::now_us();
+        let stop = Arc::new(AtomicBool::new(false));
+        let failed = Arc::new(Mutex::new(None));
+        let (init_tx, init_rx) = bounded::<Result<VideoInfo>>(1);
+        let (go_tx, go_rx) = bounded::<bool>(1);
+        let video = {
+            let (cfg, shared, stop, failed) = (cfg.clone(), shared.clone(), stop.clone(), failed.clone());
+            std::thread::Builder::new().name("gc-video".into()).spawn(move || {
+                if let Err(e) = video_thread(cfg, t0, shared, stop, init_tx, go_rx) {
+                    log::error!("video pipeline: {e:#}");
+                    *failed.lock() = Some(format!("{e:#}"));
+                }
+            })?
+        };
+        Ok(Launch { cfg, t0, stop, failed, video, init_rx, go_tx })
+    }
+
+    /// Waits for the video thread's setup; None when it did not finish in time.
+    fn wait(&self) -> Option<Result<VideoInfo>> {
+        match self.init_rx.recv_timeout(INIT_TIMEOUT) {
+            Ok(r) => Some(r),
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => Some(Err(anyhow!("video thread ended during setup"))),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                log::warn!("video setup did not finish within {} s; no new capture start until it ends", INIT_TIMEOUT.as_secs());
                 None
             }
         }
-    };
-    let disk = if cfg.disk_buffer {
-        DiskStore::new(DiskStore::default_dir()).map_err(|e| log::error!("disk buffer unavailable, using memory: {e}")).ok()
-    } else {
-        None
-    };
-    let old = shared.buffer.lock().replace(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk));
-    // Freed after unlocking: audio packets already wait for this lock.
-    drop(old);
-    let _ = go_tx.send(true);
-    st.pipeline = Some(Pipeline { stop, video: Some(video), audio, streams, info });
-    Ok(())
+    }
+
+    /// After a failed setup: the thread is ending already.
+    fn join(self) {
+        let _ = self.video.join();
+    }
+
+    /// Tells the video thread not to start capturing; it ends as soon as its
+    /// setup returns. The handle tells when that happened.
+    fn cancel(self) -> JoinHandle<()> {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = self.go_tx.send(false);
+        self.video
+    }
+
+    /// Adds audio and a fresh replay buffer, then lets video capture begin.
+    fn complete(self, st: &mut State, shared: &Arc<Shared>, events: &EventSink, info: VideoInfo) -> Result<()> {
+        // Packet times restart at the new pipeline's t0 and its streams may
+        // differ, so a recording from the previous one cannot continue.
+        finish_recording(shared, events);
+        shared.dropped.store(0, Ordering::Relaxed);
+        let cfg = st.cfg.clone();
+        let mut streams = vec![info.desc.clone()];
+        let audio = {
+            let shared2 = shared.clone();
+            let sink: crate::audio::AudioSink = Arc::new(move |i, p| shared2.on_packet(1 + i, p));
+            match AudioPipeline::start(&cfg, self.t0, sink, shared.denoise.clone(), shared.live_audio.clone()) {
+                Ok(Some((a, descs))) => {
+                    streams.extend(descs);
+                    Some(a)
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    log::error!("audio disabled: {e:#}");
+                    None
+                }
+            }
+        };
+        let disk = if cfg.disk_buffer {
+            DiskStore::new(DiskStore::default_dir()).map_err(|e| log::error!("disk buffer unavailable, using memory: {e}")).ok()
+        } else {
+            None
+        };
+        let old = shared.buffer.lock().replace(ReplayBuffer::new(streams.clone(), st.replay_seconds, disk));
+        // Freed after unlocking: audio packets already wait for this lock.
+        drop(old);
+        let _ = self.go_tx.send(true);
+        st.pipeline = Some(Pipeline { stop: self.stop, video: Some(self.video), audio, streams, info, failed: self.failed });
+        Ok(())
+    }
+}
+
+/// Starts capture while holding the engine lock (API calls, which report
+/// the outcome to their caller).
+fn start_pipeline(st: &mut State, shared: &Arc<Shared>, events: &EventSink) -> Result<()> {
+    let launch = Launch::start(st.cfg.clone(), shared)?;
+    match launch.wait() {
+        Some(Ok(info)) => launch.complete(st, shared, events, info),
+        Some(Err(e)) => {
+            launch.join();
+            Err(e)
+        }
+        None => {
+            st.stray.push(launch.cancel());
+            bail!("video pipeline did not start")
+        }
+    }
 }
 
 struct Timer(HANDLE);
@@ -787,13 +894,32 @@ fn video_thread(
         let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
     }
     let fps = cfg.fps.clamp(10, 240);
+    let bind = D3D11_BIND_FLAG(D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0);
+    let mut desktop: Option<ID3D11Texture2D> = None;
+    let mut cursor = CursorState::default();
     let setup = (|| -> Result<_> {
         let out = find_output(cfg.monitor.as_deref())?;
         log::info!("capturing {} ({}x{}) on {}", out.info.name, out.info.width, out.info.height, out.info.adapter);
         let (device, ctx) = create_device(&out.adapter)?;
-        let dup = Duplicator::new(&device, &out.output)?;
+        let mut dup = Duplicator::new(&device, &out.output)?;
+        // The encoder size is fixed for the whole pipeline: take it from a
+        // real frame when one comes quickly (a new duplication hands out the
+        // current image at once), so a driver whose mode size is in another
+        // orientation than assumed still gets an upright video without bars.
+        let dev2 = device.clone();
+        let mut make = move |w, h| create_texture(&dev2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, bind);
+        let until = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < until {
+            if let Poll::Changed { desktop: true } = dup.poll(&ctx, &mut desktop, &mut make, &mut cursor)? {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(15));
+        }
         // The video is upright: a portrait display gives a portrait video.
-        let (sw, sh) = dup.rotation.apply(dup.width, dup.height);
+        let (sw, sh) = dup.upright_size();
+        if (sw, sh) != (out.info.width, out.info.height) {
+            log::info!("desktop image {sw}x{sh} upright differs from the monitor's {}x{}", out.info.width, out.info.height);
+        }
         let (ow, oh) = output_size(&cfg, sw, sh);
         let enc = VideoEncoder::new(&device, out.info.vendor_id, &cfg, ow, oh)?;
         let conv = Converter::new(&device, &ctx, dup.width, dup.height, dup.rotation, ow, oh, fps)?;
@@ -822,9 +948,10 @@ fn video_thread(
     // Encoding runs on its own thread so a slow encoder call (Media
     // Foundation can block for tens of ms) never delays frame capture.
     let pool = enc.pool();
-    let (enc_tx, enc_rx) = bounded::<(crate::venc::HwFrame, i64, bool)>(8);
-    let enc_thread = {
-        let shared = shared.clone();
+    let (enc_tx, enc_rx) = bounded::<EncodeJob>(8);
+    let cut = Arc::new(AtomicBool::new(false));
+    let handle = {
+        let (shared, cut) = (shared.clone(), cut.clone());
         std::thread::Builder::new().name("gc-encode".into()).spawn(move || -> Result<()> {
             // Above normal, not highest: with a software fallback encoder the
             // game's threads must not starve; the queue has 8 frames of slack.
@@ -832,7 +959,11 @@ fn video_thread(
                 let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
             }
             let mut enc = enc;
-            let mut sink = |p: Packet| shared.on_packet(0, p);
+            let mut sink = |p: Packet| {
+                if !cut.load(Ordering::Relaxed) {
+                    shared.on_packet(0, p);
+                }
+            };
             let mut res = Ok(());
             while let Ok((frame, pts, key)) = enc_rx.recv() {
                 match enc.submit(frame, pts, key, &mut sink) {
@@ -854,19 +985,18 @@ fn video_thread(
             res
         })?
     };
+    let mut encoder = EncodeThread { tx: Some(enc_tx), handle: Some(handle), cut };
     let mut queue_drops = 0u64;
 
-    let bind = D3D11_BIND_FLAG(D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0);
     let dev2 = device.clone();
     let mut make_tex = move |w, h| create_texture(&dev2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, bind);
-    let mut desktop: Option<ID3D11Texture2D> = None;
     let mut desktop_raw = None;
     let mut composed: Option<ID3D11Texture2D> = None;
     let mut input: Option<ID3D11Texture2D> = None;
     // The labelled copy of the last frame while holding.
     let mut held: Option<ID3D11Texture2D> = None;
-    let mut cursor = CursorState::default();
-    let mut dirty = false;
+    // Setup may have grabbed the first frame already.
+    let mut dirty = desktop.is_some();
 
     let timer = Timer::new();
     let period = 1_000_000.0 / fps as f64;
@@ -943,7 +1073,9 @@ fn video_thread(
                     }
                     let c = composed.as_ref().unwrap();
                     unsafe { ctx.CopyResource(c, src) };
-                    if let Err(e) = cursor_r.as_mut().unwrap().draw(&device, &ctx, c, &cursor, conv.rotation) {
+                    // The pointer is placed by how the image itself is turned,
+                    // whether or not the converter manages to turn it upright.
+                    if let Err(e) = cursor_r.as_mut().unwrap().draw(&device, &ctx, c, &cursor, dup.rotation) {
                         log::warn!("cursor draw failed, disabling: {e:#}");
                         cursor_r = None;
                     }
@@ -969,24 +1101,34 @@ fn video_thread(
 
         mark(1, &mut lap, &mut prof);
         if let Some(inp) = held.as_ref().or(input.as_ref()) {
+            let tx = encoder.tx.as_ref().unwrap();
             // Only this thread sends, so a full queue stays full until the
             // encoder takes a frame: this one would be dropped, skip its GPU work.
-            let sent = if enc_tx.is_full() {
+            let sent = if tx.is_full() {
+                // A dead encoder never takes one, and the queue keeps
+                // reporting full after it is gone: end so capture restarts.
+                if encoder.is_finished() {
+                    break;
+                }
                 false
             } else {
                 let (frame, surf, slice) = pool.acquire()?;
                 conv.convert(inp, &surf, slice).context("convert")?;
                 mark(2, &mut lap, &mut prof);
-                let force = shared.force_key.load(Ordering::Relaxed);
-                match enc_tx.try_send((frame, tick, force)) {
-                    Ok(()) => {
+                // Taken, not just read: a request arriving while this frame
+                // is sent (start_recording, encoder refusal) stays pending.
+                let force = shared.force_key.swap(false, Ordering::Relaxed);
+                match tx.try_send((frame, tick, force)) {
+                    Ok(()) => true,
+                    Err(e) => {
                         if force {
-                            shared.force_key.store(false, Ordering::Relaxed);
+                            shared.force_key.store(true, Ordering::Relaxed);
                         }
-                        true
+                        if e.is_disconnected() {
+                            break;
+                        }
+                        false
                     }
-                    Err(crossbeam_channel::TrySendError::Full(_)) => false,
-                    Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
                 }
             };
             if !sent {
@@ -1042,10 +1184,60 @@ fn video_thread(
             prof_t = Instant::now();
         }
     }
-    drop(enc_tx);
     shared.fps_x100.store(0, Ordering::Relaxed);
-    match enc_thread.join() {
-        Ok(r) => r.context("encoder"),
-        Err(_) => bail!("encoder thread panicked"),
+    let res = encoder.finish();
+    if stop.load(Ordering::Relaxed) {
+        res
+    } else {
+        // Left the loop because the encoder is gone.
+        res.and_then(|()| Err(anyhow!("encoder stopped")))
+    }
+}
+
+type EncodeJob = (crate::venc::HwFrame, i64, bool);
+
+/// How long a stopping pipeline waits for its encoder to flush.
+const ENCODER_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// The encoder thread of one pipeline. Every way out of the capture loop
+/// (errors included) stops it and waits for its last packets: they carry
+/// this pipeline's times and must not land in the next pipeline's buffer
+/// or recording.
+struct EncodeThread {
+    tx: Option<Sender<EncodeJob>>,
+    handle: Option<JoinHandle<Result<()>>>,
+    /// Set when the thread is left behind: its later packets are discarded.
+    cut: Arc<AtomicBool>,
+}
+
+impl EncodeThread {
+    fn is_finished(&self) -> bool {
+        self.handle.as_ref().is_none_or(|h| h.is_finished())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        // Closing the queue ends the encoder's loop; it flushes, then returns.
+        self.tx = None;
+        let Some(h) = self.handle.take() else { return Ok(()) };
+        let until = Instant::now() + ENCODER_STOP_TIMEOUT;
+        while !h.is_finished() {
+            if Instant::now() >= until {
+                self.cut.store(true, Ordering::Relaxed);
+                bail!("encoder did not stop within {} s", ENCODER_STOP_TIMEOUT.as_secs());
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        match h.join() {
+            Ok(r) => r.context("encoder"),
+            Err(_) => bail!("encoder thread panicked"),
+        }
+    }
+}
+
+impl Drop for EncodeThread {
+    fn drop(&mut self) {
+        if let Err(e) = self.finish() {
+            log::warn!("{e:#}");
+        }
     }
 }

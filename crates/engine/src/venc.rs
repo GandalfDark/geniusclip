@@ -246,20 +246,70 @@ impl VideoEncoder {
                     return Ok(());
                 }
                 check(r, "avcodec_receive_packet")?;
-                if (*self.pkt.0).duration <= 0 {
-                    (*self.pkt.0).duration = 1;
-                }
-                out(Packet::from_av(self.pkt.0, self.time_base));
-                ff::av_packet_unref(self.pkt.0);
+                self.emit(out);
             }
         }
     }
 
-    pub fn flush(&mut self, out: &mut dyn FnMut(Packet)) {
-        unsafe {
-            ff::avcodec_send_frame(self.ctx.0, ptr::null());
+    /// Hands the packet just received to `out`.
+    unsafe fn emit(&mut self, out: &mut dyn FnMut(Packet)) {
+        if (*self.pkt.0).duration <= 0 {
+            (*self.pkt.0).duration = 1;
         }
-        let _ = self.drain(out);
+        out(Packet::from_av(self.pkt.0, self.time_base));
+        ff::av_packet_unref(self.pkt.0);
+    }
+
+    /// Ends the stream and hands out every packet still inside the encoder.
+    pub fn flush(&mut self, out: &mut dyn FnMut(Packet)) {
+        // Iteration caps (≈ 1 ms apart when waiting): a stuck encoder must
+        // not hold up stopping the pipeline for long.
+        const TRIES: u32 = 1000;
+        const MAX_PACKETS: u32 = 10_000;
+        unsafe {
+            // A backed-up encoder refuses end-of-stream (EAGAIN) like a frame:
+            // take its finished packets, then ask again.
+            let mut accepted = false;
+            for _ in 0..TRIES {
+                let r = ff::avcodec_send_frame(self.ctx.0, ptr::null());
+                if !is_eagain(r) {
+                    // EOF: already draining.
+                    accepted = r >= 0 || r == ff::AVERROR_EOF;
+                    if !accepted {
+                        log::warn!("encoder flush: {}", err_str(r));
+                    }
+                    break;
+                }
+                if self.drain(out).is_err() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            if !accepted {
+                log::warn!("encoder did not take end of stream; its last frames are lost");
+                return;
+            }
+            let (mut waits, mut packets) = (0, 0);
+            while waits < TRIES && packets < MAX_PACKETS {
+                let r = ff::avcodec_receive_packet(self.ctx.0, self.pkt.0);
+                if r == ff::AVERROR_EOF {
+                    return;
+                }
+                if is_eagain(r) {
+                    // Hardware encoders can still be finishing a frame.
+                    waits += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+                if r < 0 {
+                    log::warn!("encoder flush: {}", err_str(r));
+                    return;
+                }
+                self.emit(out);
+                packets += 1;
+            }
+            log::warn!("encoder flush did not reach the end of stream");
+        }
     }
 }
 

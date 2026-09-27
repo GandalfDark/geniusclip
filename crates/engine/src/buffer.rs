@@ -59,7 +59,7 @@ impl ReplayBuffer {
         let gone: Vec<PacketRef> = self.queues.iter_mut().flat_map(|q| q.drain(..)).collect();
         self.keys.clear();
         self.bytes = 0;
-        if let Some(d) = &self.disk {
+        if let Some(d) = &mut self.disk {
             d.release(gone);
             d.reset();
         }
@@ -99,7 +99,7 @@ impl ReplayBuffer {
             return;
         }
         // Only queued: the disk writer thread moves the bytes later.
-        if let Some(d) = &self.disk {
+        if let Some(d) = &mut self.disk {
             d.store(&pkt);
         }
         if video && pkt.key {

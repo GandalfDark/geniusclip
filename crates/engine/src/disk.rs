@@ -12,14 +12,15 @@
 //! packet referring to it is pruned and no clip being saved still reads it —
 //! and also when the app exits or crashes.
 
-use crate::ffutil::PacketRef;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crate::ffutil::{Packet, PacketRef};
+use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
@@ -30,8 +31,11 @@ const SEGMENT_BYTES: u64 = 64 << 20;
 /// After a write error the disk is tried again this much later.
 const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Jobs queued for the writer (≈ 10 s of packets at 240 fps). When full,
-/// new packets simply stay in memory.
+/// packets wait in the backlog.
 const QUEUE: usize = 4096;
+/// Packets waiting for room in the queue (≈ 4 min at 240 fps with audio).
+/// Beyond that the oldest ones, the next to be pruned anyway, stay in memory.
+const BACKLOG: usize = 65_536;
 
 /// Segment numbers are unique per process, not per store: segments of an
 /// earlier pipeline can still be open (a clip being saved from them).
@@ -94,6 +98,12 @@ enum Job {
 /// dropped and its queue is done.
 pub struct DiskStore {
     tx: Sender<Job>,
+    /// Packets that found the queue full (a slow disk), oldest first; queued
+    /// as the writer catches up. Weak: a packet pruned meanwhile is skipped
+    /// and its memory is not held here.
+    backlog: VecDeque<Weak<Packet>>,
+    /// When the backlog last had to let packets go (logged once a minute).
+    overflow_logged: Option<Instant>,
 }
 
 impl DiskStore {
@@ -107,13 +117,58 @@ impl DiskStore {
         std::thread::Builder::new()
             .name("gc-disk".into())
             .spawn(move || Writer { dir, current: None, retry_at: None }.run(rx))?;
-        Ok(DiskStore { tx })
+        Ok(DiskStore { tx, backlog: VecDeque::new(), overflow_logged: None })
     }
 
-    /// Queues the packet's payload for the disk; until it is written (or if
-    /// the writer is far behind) it is read from memory.
-    pub fn store(&self, p: &PacketRef) {
-        let _ = self.tx.try_send(Job::Store(p.clone()));
+    /// Queues the packet's payload for the disk; until it is written it is
+    /// read from memory. With the writer behind it waits in the backlog, so
+    /// a slow disk delays the move instead of keeping the packet in RAM.
+    pub fn store(&mut self, p: &PacketRef) {
+        self.requeue();
+        if !self.backlog.is_empty() {
+            // Keep the order: older packets go to the disk first.
+            self.defer(Arc::downgrade(p));
+            return;
+        }
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(Job::Store(p.clone())) {
+            self.defer(Arc::downgrade(p));
+        }
+    }
+
+    /// Moves backlog packets into the queue while it has room.
+    fn requeue(&mut self) {
+        while let Some(w) = self.backlog.front() {
+            match w.upgrade() {
+                // Pruned while waiting: nothing to write.
+                None => {}
+                Some(p) => match self.tx.try_send(Job::Store(p)) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => return,
+                    // Writer gone: nothing will ever be written.
+                    Err(TrySendError::Disconnected(_)) => {
+                        self.backlog.clear();
+                        return;
+                    }
+                },
+            }
+            self.backlog.pop_front();
+        }
+    }
+
+    fn defer(&mut self, p: Weak<Packet>) {
+        if self.backlog.len() >= BACKLOG {
+            // Rarely (amortised): drop pruned entries, then if still full the
+            // oldest quarter, which stays in memory until pruned.
+            self.backlog.retain(|w| w.strong_count() > 0);
+            if self.backlog.len() >= BACKLOG {
+                self.backlog.drain(..BACKLOG / 4);
+                if self.overflow_logged.is_none_or(|t| t.elapsed() > Duration::from_secs(60)) {
+                    log::warn!("disk buffer cannot keep up; some packets stay in memory");
+                    self.overflow_logged = Some(Instant::now());
+                }
+            }
+        }
+        self.backlog.push_back(p);
     }
 
     /// Hands packets the buffer let go of to the writer thread to drop (on a
@@ -125,8 +180,10 @@ impl DiskStore {
     }
 
     /// Drops the open segment (it is deleted once its packets are gone) and
-    /// tries the disk again if it had failed.
-    pub fn reset(&self) {
+    /// tries the disk again if it had failed. Called after all packets were
+    /// released, so the backlog has nothing left to write.
+    pub fn reset(&mut self) {
+        self.backlog.clear();
         let _ = self.tx.try_send(Job::Reset);
     }
 }
