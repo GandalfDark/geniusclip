@@ -22,9 +22,17 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Keys from './Keys.svelte';
+  import { rowIds } from './Row.svelte';
 
-  let { value, onchange, conflict = false }: { value: string; onchange: (v: string) => void; conflict?: boolean } = $props();
+  let { value, onchange, conflict = false, label = '' }: { value: string; onchange: (v: string) => void; conflict?: boolean; label?: string } =
+    $props();
   let listening = $state(false);
+
+  // Read as "<action> <combo>": the name (`label`, else the settings row's)
+  // followed by the field's own content.
+  const id = $props.id();
+  const row = rowIds();
+  let nameId = $derived(label ? `${id}-name` : row?.label);
 
   const MODS = ['Control', 'Alt', 'Shift', 'Meta'];
 
@@ -66,7 +74,17 @@
 </script>
 
 <div class="hk">
-  <button class="field" class:listening class:conflict onclick={() => (listening = !listening)} onblur={() => (listening = false)}>
+  {#if label}<span id="{id}-name" hidden>{label}</span>{/if}
+  <button
+    class="field"
+    class:listening
+    class:conflict
+    id="{id}-field"
+    aria-labelledby={nameId ? `${nameId} ${id}-field` : undefined}
+    aria-describedby={row?.hint}
+    onclick={() => (listening = !listening)}
+    onblur={() => (listening = false)}
+  >
     {#if listening}
       <span class="listen">{app.t('hk.press')}</span>
     {:else if value}

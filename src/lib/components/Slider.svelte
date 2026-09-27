@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { rowIds } from './Row.svelte';
+  // Named by `label`, else by the settings row it sits in.
   let {
     value,
     min,
@@ -7,13 +9,35 @@
     onchange,
     format = (v: number) => String(v),
     width = '260px',
-  }: { value: number; min: number; max: number; step?: number; onchange: (v: number) => void; format?: (v: number) => string; width?: string } =
-    $props();
+    label = '',
+  }: {
+    value: number;
+    min: number;
+    max: number;
+    step?: number;
+    onchange: (v: number) => void;
+    format?: (v: number) => string;
+    width?: string;
+    label?: string;
+  } = $props();
+  const row = rowIds();
   let pct = $derived(((value - min) / (max - min)) * 100);
 </script>
 
 <div class="slider" style:width>
-  <input type="range" {min} {max} {step} {value} style:--pct="{pct}%" oninput={(e) => onchange(Number((e.currentTarget as HTMLInputElement).value))} />
+  <input
+    type="range"
+    {min}
+    {max}
+    {step}
+    {value}
+    aria-label={label || undefined}
+    aria-labelledby={label ? undefined : row?.label}
+    aria-describedby={row?.hint}
+    aria-valuetext={format(value)}
+    style:--pct="{pct}%"
+    oninput={(e) => onchange(Number((e.currentTarget as HTMLInputElement).value))}
+  />
   <span class="val mono">{format(value)}</span>
 </div>
 

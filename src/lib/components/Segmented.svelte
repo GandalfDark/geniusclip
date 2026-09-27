@@ -1,6 +1,14 @@
 <script lang="ts" generics="T extends string | number">
-  let { value, options, onchange, mono = false }: { value: T; options: { value: T; label: string }[]; onchange: (v: T) => void; mono?: boolean } =
-    $props();
+  import { rowIds } from './Row.svelte';
+  // Named by `label`, else by the settings row it sits in.
+  let {
+    value,
+    options,
+    onchange,
+    mono = false,
+    label = '',
+  }: { value: T; options: { value: T; label: string }[]; onchange: (v: T) => void; mono?: boolean; label?: string } = $props();
+  const row = rowIds();
 
   let root: HTMLDivElement;
   let btns: HTMLButtonElement[] = $state([]);
@@ -29,7 +37,15 @@
   });
 </script>
 
-<div class="seg" class:mono bind:this={root} role="radiogroup">
+<div
+  class="seg"
+  class:mono
+  bind:this={root}
+  role="radiogroup"
+  aria-label={label || undefined}
+  aria-labelledby={label ? undefined : row?.label}
+  aria-describedby={row?.hint}
+>
   <span class="pill" class:animated style:transform="translateX({pill.x}px)" style:width="{pill.w}px"></span>
   {#each options as o, i}
     <button bind:this={btns[i]} role="radio" aria-checked={o.value === value} class:active={o.value === value} onclick={() => onchange(o.value)}>

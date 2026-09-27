@@ -1,8 +1,20 @@
 <script lang="ts">
+  import { rowIds } from './Row.svelte';
+  // Named by `label`, else by the settings row it sits in.
   let { checked = false, onchange, label = '' }: { checked?: boolean; onchange: (v: boolean) => void; label?: string } = $props();
+  const row = rowIds();
 </script>
 
-<button class="sw" class:on={checked} role="switch" aria-checked={checked} aria-label={label} onclick={() => onchange(!checked)}>
+<button
+  class="sw"
+  class:on={checked}
+  role="switch"
+  aria-checked={checked}
+  aria-label={label || undefined}
+  aria-labelledby={label ? undefined : row?.label}
+  aria-describedby={row?.hint}
+  onclick={() => onchange(!checked)}
+>
   <span class="knob"></span>
 </button>
 

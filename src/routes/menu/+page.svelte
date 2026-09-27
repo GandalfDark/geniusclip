@@ -269,6 +269,7 @@
             <div class="q">
               <span>{app.t('set.length')}</span>
               <Slider
+                label={app.t('set.length')}
                 value={s.replaySeconds}
                 min={60}
                 max={s.engine.diskBuffer ? 3600 : 1200}
@@ -281,6 +282,7 @@
             <div class="q">
               <span>{app.t('set.quality')}</span>
               <Segmented
+                label={app.t('set.quality')}
                 value={s.engine.quality}
                 onchange={(v) => app.change((x) => (x.engine.quality = v))}
                 options={(['low', 'medium', 'high', 'ultra'] as const).map((q) => ({ value: q, label: app.t(`set.q.${q}`) }))}
@@ -288,25 +290,25 @@
             </div>
             <div class="q">
               <span>{app.t('menu.gameVolume')}</span>
-              <Slider value={Math.round(s.engine.systemVolume * 100)} min={0} max={200} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.systemVolume = v / 100), 300)} />
+              <Slider label={app.t('menu.gameVolume')} value={Math.round(s.engine.systemVolume * 100)} min={0} max={200} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.systemVolume = v / 100), 300)} />
             </div>
             <div class="q">
               <span>{app.t('menu.micVolume')}</span>
-              <Slider value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 300)} />
+              <Slider label={app.t('menu.micVolume')} value={Math.round(s.engine.micVolume * 100)} min={0} max={300} step={5} format={(v) => `${v}%`} width="100%" onchange={(v) => app.change((x) => (x.engine.micVolume = v / 100), 300)} />
             </div>
             <div class="q row">
               <span>{app.t('set.noise')}</span>
-              <Switch checked={s.engine.noiseSuppression} onchange={(v) => app.change((x) => (x.engine.noiseSuppression = v), 0)} />
+              <Switch label={app.t('set.noise')} checked={s.engine.noiseSuppression} onchange={(v) => app.change((x) => (x.engine.noiseSuppression = v), 0)} />
             </div>
             <div class="q row">
               <span>{app.t('set.overlayEnabled')}</span>
-              <Switch checked={s.overlay.enabled} onchange={(v) => app.change((x) => (x.overlay.enabled = v), 0)} />
+              <Switch label={app.t('set.overlayEnabled')} checked={s.overlay.enabled} onchange={(v) => app.change((x) => (x.overlay.enabled = v), 0)} />
             </div>
             <h5>{app.t('set.hotkeys')}</h5>
             {#each hkRows as r (r.key)}
               <div class="q row hk">
                 <span>{app.t(r.label)}</span>
-                <HotkeyInput value={s.hotkeys[r.key]} conflict={app.hotkeyErrors.includes(r.key)} onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)} />
+                <HotkeyInput label={app.t(r.label)} value={s.hotkeys[r.key]} conflict={app.hotkeyErrors.includes(r.key)} onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)} />
               </div>
             {/each}
             <button class="all" onclick={() => api.openInApp('settings')}>{app.t('menu.allSettings')}<Icon name="right" size={15} /></button>

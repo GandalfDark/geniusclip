@@ -29,7 +29,8 @@ export function duration(sec: number): string {
 
 /** Timecode with tenths: 1:04.3 */
 export function preciseTime(sec: number): string {
-  return `${duration(sec)}.${Math.floor((sec % 1) * 10)}`;
+  // The epsilon keeps 2.3 (stored as 2.29999…) from showing as 2.2.
+  return `${duration(sec)}.${Math.min(9, Math.floor((sec % 1) * 10 + 1e-6))}`;
 }
 
 /** "1,2 ГБ", "1.2 GB", "340 MB": units and decimal separator per language. */

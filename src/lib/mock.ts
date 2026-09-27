@@ -245,9 +245,16 @@ export function installMock() {
               path: entry.path,
               seconds: entry.duration,
             });
-            emit("library://changed", entry);
+            emit("library://changed", { path: entry.path, entry });
           }, 350);
           return;
+        }
+        case "delete_media": {
+          const i = media.findIndex((m) => m.path === args.path);
+          if (i < 0) throw "err.not-found";
+          media.splice(i, 1);
+          emit("library://changed", { path: args.path, removed: true });
+          return null;
         }
         case "toggle_recording":
           recording = !recording;

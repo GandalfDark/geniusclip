@@ -1,15 +1,25 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { rowIds } from './Row.svelte';
+  // Named by `label`, else by the settings row it sits in.
   let {
     value,
     options,
     onchange,
     width = '260px',
-  }: { value: string; options: { value: string; label: string }[]; onchange: (v: string) => void; width?: string } = $props();
+    label = '',
+  }: { value: string; options: { value: string; label: string }[]; onchange: (v: string) => void; width?: string; label?: string } = $props();
+  const row = rowIds();
 </script>
 
 <label class="sel" style:width>
-  <select {value} onchange={(e) => onchange((e.currentTarget as HTMLSelectElement).value)}>
+  <select
+    {value}
+    aria-label={label || undefined}
+    aria-labelledby={label ? undefined : row?.label}
+    aria-describedby={row?.hint}
+    onchange={(e) => onchange((e.currentTarget as HTMLSelectElement).value)}
+  >
     {#each options as o}
       <option value={o.value}>{o.label}</option>
     {/each}

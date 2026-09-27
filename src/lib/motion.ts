@@ -56,3 +56,10 @@ export const LONG_LIST = 40;
 export function move(node: Element, fromTo: { from: DOMRect; to: DOMRect }, { still = false }: { still?: boolean } = {}) {
   return still ? { duration: 0 } : flip(node, fromTo, flipParams());
 }
+
+/** out: for list items. Leaving items stay in their container until they
+ *  are gone, so it still counts the old list: a long one (e.g. filtered
+ *  down to a few) drops them at once instead of fading dozens. */
+export function leaveItem(node: Element) {
+  return (node.parentElement?.childElementCount ?? 0) > LONG_LIST ? { duration: 0 } : leave(node);
+}

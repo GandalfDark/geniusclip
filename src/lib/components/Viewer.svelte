@@ -29,6 +29,9 @@
   let closing = false;
   let alive = true;
   onDestroy(() => (alive = false));
+  // Focus moves into the dialog; on close it goes back to the card of the
+  // clip shown last, or to whatever had it before.
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   /** After an await: is the viewer still open on the clip the action began with?
    *  (Esc or another clip meanwhile must not be acted on.) */
@@ -61,6 +64,7 @@
   }
 
   onMount(async () => {
+    panel.focus({ preventScroll: true });
     if (!origin || reduced()) return;
     panel.animate([{ opacity: 0, transform: 'scale(0.985)' }, { opacity: 1, transform: 'none' }], { duration: DUR, easing: EASE });
     if (origin.src) {
@@ -73,7 +77,8 @@
   async function close() {
     if (closing) return;
     closing = true;
-    const card = document.querySelector<HTMLElement>(`[data-path="${CSS.escape(entry.path)}"] .thumb`);
+    const cardEl = document.querySelector<HTMLElement>(`[data-path="${CSS.escape(entry.path)}"]`);
+    const card = cardEl?.querySelector<HTMLElement>('.thumb');
     const img = card?.querySelector('img');
     if (card && !reduced()) {
       video?.pause();
@@ -81,6 +86,7 @@
       panel.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.985)' }], { duration: DUR, easing: EASE, fill: 'forwards' });
       if (img?.src) await fly(card.getBoundingClientRect(), player, img.src, true);
     }
+    (cardEl ?? (opener?.isConnected ? opener : null))?.focus({ preventScroll: true });
     onclose();
   }
 
@@ -348,25 +354,78 @@
     if (next) onselect(next);
   }
 
+  // The viewer is modal: Tab cycles through its own controls only.
+  const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), video[controls], [tabindex]:not([tabindex="-1"])';
+  function trapTab(e: KeyboardEvent) {
+    const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
+    const at = document.activeElement;
+    const inside = !!at && at !== panel && panel.contains(at);
+    const edge = e.shiftKey ? items[0] : items[items.length - 1];
+    if (inside && at !== edge) return;
+    e.preventDefault();
+    (e.shiftKey ? items[items.length - 1] : items[0])?.focus();
+  }
+
+  /** Space and the like belong to a focused control (button, field, slider). */
+  function onControl() {
+    const at = document.activeElement;
+    return !!at && at !== panel && at.matches('button, input, select, textarea, a[href], [role], [tabindex]:not([tabindex="-1"])');
+  }
+
   function onkey(e: KeyboardEvent) {
-    if (renaming) return;
+    if (closing) return;
+    if (e.key === 'Tab') return trapTab(e);
+    // Already handled by the focused control (a trim handle, a lane).
+    if (renaming || e.defaultPrevented) return;
     if (e.key === 'Escape') close();
     else if (e.key === 'ArrowLeft' && (!isVideo || e.ctrlKey)) go(-1);
     else if (e.key === 'ArrowRight' && (!isVideo || e.ctrlKey)) go(1);
-    else if (isVideo && e.code === 'Space') {
+    else if (isVideo && e.code === 'Space' && !onControl()) {
       e.preventDefault();
       if (video) video.paused ? video.play() : video.pause();
     } else if (isVideo && e.code === 'KeyI') setIn();
     else if (isVideo && e.code === 'KeyO') setOut();
   }
 
+  /** Shortest selection, in seconds. */
+  const MIN_LEN = 0.5;
+  const tenth = (t: number) => Math.round(t * 10) / 10;
+
   function setIn() {
     trimming = true;
-    start = Math.min(current, end - 0.5);
+    start = Math.min(current, end - MIN_LEN);
   }
   function setOut() {
     trimming = true;
-    end = Math.max(current, start + 0.5);
+    end = Math.max(current, start + MIN_LEN);
+  }
+
+  /** Moves a trim handle (kept inside the clip and apart from the other one)
+   *  and shows that frame. */
+  function setHandle(which: 'start' | 'end', t: number) {
+    if (which === 'start') start = Math.max(0, Math.min(t, end - MIN_LEN));
+    else end = Math.min(total, Math.max(t, start + MIN_LEN));
+    if (video) video.currentTime = which === 'start' ? start : end;
+  }
+
+  // Arrows nudge a handle by 0.1 s (Shift: 1 s), PageUp/PageDown by 10 s,
+  // Home/End take it as far as it goes.
+  function handleKey(which: 'start' | 'end', e: KeyboardEvent) {
+    const at = which === 'start' ? start : end;
+    const step = e.shiftKey ? 1 : 0.1;
+    const to: Record<string, number> = {
+      ArrowLeft: at - step,
+      ArrowDown: at - step,
+      ArrowRight: at + step,
+      ArrowUp: at + step,
+      PageDown: at - 10,
+      PageUp: at + 10,
+      Home: 0,
+      End: total,
+    };
+    if (!(e.key in to)) return;
+    e.preventDefault();
+    setHandle(which, tenth(to[e.key]));
   }
 
   function drag(which: 'start' | 'end' | 'seek', e: PointerEvent) {
@@ -374,9 +433,9 @@
     const rect = track.getBoundingClientRect();
     const move = (ev: PointerEvent) => {
       const t = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)) * total;
-      if (which === 'start') start = Math.min(t, end - 0.5);
-      else if (which === 'end') end = Math.max(t, start + 0.5);
-      if (video) video.currentTime = which === 'seek' ? t : which === 'start' ? start : end;
+      if (which === 'seek') {
+        if (video) video.currentTime = t;
+      } else setHandle(which, t);
     };
     move(e);
     const up = () => {
@@ -468,7 +527,7 @@
 <svelte:window onkeydown={onkey} />
 
 <div class="backdrop" in:fade={{ duration: DUR }} out:fade={{ duration: 160 }} onclick={close} role="presentation"></div>
-<div class="viewer" bind:this={panel}>
+<div class="viewer" bind:this={panel} role="dialog" aria-modal="true" aria-label={entry.name} tabindex="-1">
   <header>
     <div class="title">
       {#if renaming}
@@ -550,8 +609,32 @@
             <div class="dim" style:left="0" style:width="{(start / total) * 100}%"></div>
             <div class="dim" style:left="{(end / total) * 100}%" style:right="0"></div>
             <div class="sel" style:left="{(start / total) * 100}%" style:width="{((end - start) / total) * 100}%"></div>
-            <button class="handle in" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label={app.t('trim.start')}></button>
-            <button class="handle out" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label={app.t('trim.end')}></button>
+            <div
+              class="handle in"
+              style:left="{(start / total) * 100}%"
+              role="slider"
+              tabindex="0"
+              aria-label={app.t('trim.start')}
+              aria-valuemin={0}
+              aria-valuemax={tenth(end - MIN_LEN)}
+              aria-valuenow={tenth(start)}
+              aria-valuetext={preciseTime(start)}
+              onpointerdown={(e) => (e.stopPropagation(), drag('start', e))}
+              onkeydown={(e) => handleKey('start', e)}
+            ></div>
+            <div
+              class="handle out"
+              style:left="{(end / total) * 100}%"
+              role="slider"
+              tabindex="0"
+              aria-label={app.t('trim.end')}
+              aria-valuemin={tenth(start + MIN_LEN)}
+              aria-valuemax={tenth(total)}
+              aria-valuenow={tenth(end)}
+              aria-valuetext={preciseTime(end)}
+              onpointerdown={(e) => (e.stopPropagation(), drag('end', e))}
+              onkeydown={(e) => handleKey('end', e)}
+            ></div>
           </div>
           {#each lanes as l (l.track)}
             <div
@@ -610,6 +693,10 @@
     border: 1px solid var(--line-2);
     border-radius: var(--r-lg);
     overflow: hidden;
+  }
+  /* Focused on open only to take focus into the dialog: no ring. */
+  .viewer:focus-visible {
+    outline: none;
   }
   header {
     display: flex;
@@ -705,7 +792,8 @@
   .nav:hover {
     color: var(--text);
   }
-  .stage:hover .nav {
+  .stage:hover .nav,
+  .nav:focus-visible {
     opacity: 1;
   }
   .prev {
@@ -868,6 +956,9 @@
     width: 10px;
     background: var(--accent);
     cursor: ew-resize;
+  }
+  .handle:focus-visible {
+    outline-color: var(--text);
   }
   .handle.in {
     margin-left: -10px;

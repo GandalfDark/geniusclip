@@ -1,13 +1,28 @@
 import { listen } from '@tauri-apps/api/event';
 import { api } from './api';
 import { applyAccent } from './accents';
-import { isLang, matchLang, translate, type Lang, type TKey } from './i18n';
+import { isKey, isLang, matchLang, translate, type Lang, type TKey } from './i18n';
 import type { EngineEvent, EngineStatus, MediaEntry, Settings, Snapshot, UpdateInfo } from './types';
 
 export interface Notice {
   id: number;
   text: string;
   tone: 'ok' | 'error' | 'info';
+}
+
+/** library://changed: the file's new listing, or that it's gone. Neither
+ *  (or no payload) means "something changed, list again". */
+type LibraryChange = { path: string; entry?: MediaEntry | null; removed?: boolean };
+
+/** `list` without `path` (and `entry`'s own path), plus `entry` placed like
+ *  the backend sorts: newest first. */
+function upsert(list: MediaEntry[], path: string, entry: MediaEntry | null): MediaEntry[] {
+  const out = list.filter((m) => m.path !== path && m.path !== entry?.path);
+  if (entry) {
+    const i = out.findIndex((m) => m.modified < entry.modified);
+    out.splice(i < 0 ? out.length : i, 0, entry);
+  }
+  return out;
 }
 
 class AppStore {
@@ -37,6 +52,8 @@ class AppStore {
   #remote: Settings | null = null;
   #mediaSeq = 0;
   #mediaReq: Promise<void> | null = null;
+  /** Listings requested and not answered yet. */
+  #listing = 0;
   #noticeId = 0;
 
   get settings(): Settings | null {
@@ -58,7 +75,6 @@ class AppStore {
     this.update = snap.update;
     this.hotkeyErrors = snap.hotkeyErrors;
     applyAccent(snap.settings.accent);
-    document.documentElement.lang = this.lang;
 
     await listen<EngineStatus>('engine://status', (e) => (this.status = e.payload));
     await listen<Settings>('settings://changed', (e) => {
@@ -66,14 +82,17 @@ class AppStore {
       if (!this.#pending) this.#applyRemote();
       api.hotkeyErrors().then((h) => (this.hotkeyErrors = h));
     });
-    await listen<{ path: string } | null>('library://changed', (e) => {
+    await listen<LibraryChange | null>('library://changed', (e) => {
       if (this.mediaPaused) return;
-      const path = e.payload?.path;
+      const c = e.payload;
+      if (c?.removed) return this.#patch(c.path, null);
+      const path = c?.entry?.path ?? c?.path;
       if (path) {
         this.fresh[path] = true;
         setTimeout(() => delete this.fresh[path], 2200);
       }
-      this.refreshMedia();
+      if (c?.entry) this.#patch(c.path, c.entry);
+      else this.refreshMedia();
     });
     await listen<UpdateInfo>('update://available', (e) => (this.update = e.payload));
     await listen<EngineEvent>('engine://event', (e) => {
@@ -90,14 +109,26 @@ class AppStore {
    *  order, and an older one must not overwrite a newer one. */
   refreshMedia(): Promise<void> {
     const seq = ++this.#mediaSeq;
-    const req = api.listMedia().then((list) => {
-      // A newer request was made meanwhile: wait for that one instead.
-      if (seq !== this.#mediaSeq) return this.#mediaReq!;
-      this.media = list;
-      this.mediaLoaded = true;
-    });
+    this.#listing++;
+    const req = api
+      .listMedia()
+      .finally(() => this.#listing--)
+      .then((list) => {
+        // A newer request was made meanwhile: wait for that one instead.
+        if (seq !== this.#mediaSeq) return this.#mediaReq!;
+        this.media = list;
+        this.mediaLoaded = true;
+      });
     this.#mediaReq = req;
     return req;
+  }
+
+  /** One file changed: updated in place, without listing the whole library. */
+  #patch(path: string, entry: MediaEntry | null) {
+    this.media = upsert(this.media, path, entry);
+    // A listing under way may have been taken before this change and would
+    // undo it: a newer one replaces it.
+    if (this.#listing) this.refreshMedia();
   }
 
   async refreshSnapshot() {
@@ -159,7 +190,19 @@ class AppStore {
     }
   }
 
-  notify(text: string, tone: Notice['tone'] = 'info') {
+  /** Backend errors are stable codes ("err.not-found", maybe followed by
+   *  details), shown translated; a code this version doesn't know becomes
+   *  err.unknown. Any other text is shown as is. */
+  errorText(msg: string): string {
+    const code = /^(?:Error:\s*)?(err\.[\w-]+)/.exec(msg.trim())?.[1];
+    if (!code) return msg;
+    return this.t(isKey(code) ? code : 'err.unknown');
+  }
+
+  notify(msg: string, tone: Notice['tone'] = 'info') {
+    const text = this.errorText(msg);
+    // The code (and any details) stays findable in the console.
+    if (text !== msg) console.warn('error:', msg);
     const id = ++this.#noticeId;
     this.notices.push({ id, text, tone });
     setTimeout(() => (this.notices = this.notices.filter((n) => n.id !== id)), 4500);

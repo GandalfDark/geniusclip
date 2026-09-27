@@ -7,7 +7,7 @@
   import Viewer from '$lib/components/Viewer.svelte';
   import { api } from '$lib/api';
   import { enter } from '$lib/enter';
-  import { LONG_LIST, leave, move } from '$lib/motion';
+  import { LONG_LIST, leaveItem, move } from '$lib/motion';
   import type { Origin } from '$lib/components/Viewer.svelte';
   import { app } from '$lib/app.svelte';
   import type { MediaEntry, MediaKind } from '$lib/types';
@@ -105,7 +105,7 @@
   {#if list.length}
     <div class="grid">
       {#each list as m, i (m.path)}
-        <div class="cell" animate:move={{ still }} in:enter|global={{ i, fresh: !!app.fresh[m.path], still }} out:leave>
+        <div class="cell" animate:move={{ still }} in:enter|global={{ i, fresh: !!app.fresh[m.path], still }} out:leaveItem>
           <MediaCard entry={m} onopen={open} />
         </div>
       {/each}

@@ -18,6 +18,8 @@ import ko from './locales/ko';
 
 export type TKey = keyof typeof ruStrings;
 
+export const isKey = (k: string): k is TKey => k in ruStrings;
+
 /** Plural forms keyed by Intl.PluralRules category; `{n}` is the number.
  *  `exact1` (optional) is used for exactly 1 ("the last minute"). */
 export type Plural = { exact1?: string; zero?: string; one?: string; two?: string; few?: string; many?: string; other: string };
