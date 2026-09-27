@@ -347,12 +347,12 @@ pub fn menu_close(app: AppHandle) {
 #[tauri::command]
 pub async fn menu_screenshot(app: AppHandle) {
     let wait = |ms| tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_millis(ms)));
-    app.state::<AppState>().engine.set_hold(false);
+    crate::menu::hold(&app, false);
     let _ = wait(120).await;
     crate::actions::screenshot(&app);
     let _ = wait(100).await;
     if crate::menu::is_open() {
-        app.state::<AppState>().engine.set_hold(true);
+        crate::menu::hold(&app, true);
     }
 }
 

@@ -28,6 +28,21 @@ const UNLOAD_AFTER: std::time::Duration = std::time::Duration::from_secs(5 * 60)
 /// The window that was in front (the game), to give focus back on close.
 static PREV: Mutex<isize> = Mutex::new(0);
 
+/// Freezes the video on the game, labelled "menu is open" (or resumes it).
+pub fn hold(app: &AppHandle, on: bool) {
+    let card = on.then(|| {
+        let s = app.state::<AppState>().settings.read().clone();
+        let lang = s.lang();
+        let c = overlay::accent(&s.accent);
+        geniusclip_engine::HoldCard {
+            title: crate::i18n::t(lang, "menu.hold-title").into(),
+            subtitle: crate::i18n::t(lang, "menu.hold-hint").into(),
+            accent: [(c >> 16) as u8, (c >> 8) as u8, c as u8],
+        }
+    });
+    app.state::<AppState>().engine.set_hold(card);
+}
+
 pub fn is_open() -> bool {
     OPEN.load(Ordering::Relaxed)
 }
@@ -52,7 +67,7 @@ fn open(app: &AppHandle) {
     *PREV.lock() = fg.0 as isize;
     // Freeze the video on the game before the menu shows up (the capture
     // loop checks once per frame).
-    app.state::<AppState>().engine.set_hold(true);
+    hold(app, true);
     std::thread::sleep(std::time::Duration::from_millis(40));
     let win = match app.get_webview_window(LABEL) {
         Some(w) => w,
@@ -115,7 +130,7 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(80));
         if !OPEN.load(Ordering::Relaxed) {
-            h.state::<AppState>().engine.set_hold(false);
+            hold(&h, false);
         }
     });
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;

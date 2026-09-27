@@ -47,5 +47,7 @@
   "setup.close": "閉じる",
   "setup.minimize": "最小化",
   "ov.menu-unavailable": "ここではメニューを開けません",
-  "ov.menu-unavailable.sub": "ゲームをボーダーレスウィンドウに切り替えてください"
+  "ov.menu-unavailable.sub": "ゲームをボーダーレスウィンドウに切り替えてください",
+  "menu.hold-title": "GeniusClip のメニューを表示中",
+  "menu.hold-hint": "メニューを閉じると動画が再開します"
 }

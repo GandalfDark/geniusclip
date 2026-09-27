@@ -47,5 +47,7 @@
   "setup.close": "Kapat",
   "setup.minimize": "Küçült",
   "ov.menu-unavailable": "Menü burada açılamıyor",
-  "ov.menu-unavailable.sub": "Oyunu kenarlıksız pencere moduna al"
+  "ov.menu-unavailable.sub": "Oyunu kenarlıksız pencere moduna al",
+  "menu.hold-title": "GeniusClip menüsü açık",
+  "menu.hold-hint": "Menü kapanınca video devam eder"
 }

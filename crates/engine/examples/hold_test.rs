@@ -12,10 +12,14 @@ fn main() -> anyhow::Result<()> {
     engine.configure(EngineConfig { mic: false, system_audio: false, fps: 30, ..Default::default() }, 30)?;
     engine.set_replay_enabled(true)?;
     std::thread::sleep(Duration::from_secs(3));
-    engine.set_hold(true);
+    engine.set_hold(Some(HoldCard {
+        title: "Открыто меню GeniusClip".into(),
+        subtitle: "Видео продолжится, когда меню закроется".into(),
+        accent: [139, 92, 246],
+    }));
     println!("hold on");
     std::thread::sleep(Duration::from_secs(3));
-    engine.set_hold(false);
+    engine.set_hold(None);
     println!("hold off");
     std::thread::sleep(Duration::from_secs(3));
     let s = engine.status();

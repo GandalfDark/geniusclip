@@ -81,7 +81,7 @@ fn rgb(hex: u32, a: f32) -> D2D1_COLOR_F {
 }
 
 /// Must match src/lib/accents.ts.
-fn accent(id: &str) -> u32 {
+pub(crate) fn accent(id: &str) -> u32 {
     match id {
         "red" => 0xff5a36,
         "lime" => 0xc6f432,

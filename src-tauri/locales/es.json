@@ -47,5 +47,7 @@
   "setup.close": "Cerrar",
   "setup.minimize": "Minimizar",
   "ov.menu-unavailable": "El menú no puede abrirse aquí",
-  "ov.menu-unavailable.sub": "Pon el juego en modo ventana sin bordes"
+  "ov.menu-unavailable.sub": "Pon el juego en modo ventana sin bordes",
+  "menu.hold-title": "Menú de GeniusClip abierto",
+  "menu.hold-hint": "El vídeo continúa al cerrar el menú"
 }

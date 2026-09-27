@@ -119,6 +119,7 @@ struct Shared {
     dropped_recent: AtomicU64,
     /// Repeat the last desktop frame instead of capturing (see `set_hold`).
     hold: AtomicBool,
+    hold_card: Mutex<Option<crate::card::HoldCard>>,
     failed: Mutex<Option<String>>,
 }
 
@@ -211,6 +212,7 @@ impl Engine {
             dropped: AtomicU64::new(0),
             dropped_recent: AtomicU64::new(0),
             hold: AtomicBool::new(false),
+            hold_card: Mutex::new(None),
             failed: Mutex::new(None),
         });
         let alive = Arc::new(AtomicBool::new(true));
@@ -475,10 +477,13 @@ impl Engine {
         Ok(())
     }
 
-    /// While on, video keeps repeating the last captured frame. The in-game
-    /// menu covers the whole screen, so its time in a clip shows the game as
-    /// it was when the menu opened instead of the menu.
-    pub fn set_hold(&self, on: bool) {
+    /// With a card, video keeps repeating the last captured frame, dimmed
+    /// and labelled with the card. The in-game menu covers the whole screen,
+    /// so its time in a clip shows the game as it was when the menu opened
+    /// instead of the menu. `None` resumes capture.
+    pub fn set_hold(&self, card: Option<crate::card::HoldCard>) {
+        let on = card.is_some();
+        *self.shared.hold_card.lock() = card;
         self.shared.hold.store(on, Ordering::Relaxed);
     }
 
@@ -751,6 +756,8 @@ fn video_thread(
     let mut desktop: Option<ID3D11Texture2D> = None;
     let mut composed: Option<ID3D11Texture2D> = None;
     let mut input: Option<ID3D11Texture2D> = None;
+    // The labelled copy of the last frame while holding.
+    let mut held: Option<ID3D11Texture2D> = None;
     let mut cursor = CursorState::default();
     let mut dirty = false;
 
@@ -782,7 +789,20 @@ fn video_thread(
         lap = Instant::now();
 
         // Holding needs a frame to repeat; without one, capture as usual.
-        let hold = shared.hold.load(Ordering::Relaxed) && desktop.is_some();
+        let hold = shared.hold.load(Ordering::Relaxed) && input.is_some();
+        if hold && held.is_none() {
+            let t = make_tex(conv.in_w, conv.in_h)?;
+            unsafe { ctx.CopyResource(&t, input.as_ref().unwrap()) };
+            if let Some(card) = shared.hold_card.lock().clone() {
+                if let Err(e) = crate::card::draw(&t, conv.in_w, conv.in_h, &card) {
+                    log::warn!("hold card: {e:#}");
+                }
+            }
+            held = Some(t);
+        } else if !hold && held.is_some() {
+            held = None;
+            conv.reset_inputs();
+        }
         if !hold {
             match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
                 Poll::Changed { desktop: d } => {
@@ -833,7 +853,7 @@ fn video_thread(
         }
 
         mark(1, &mut lap, &mut prof);
-        if let Some(inp) = input.as_ref() {
+        if let Some(inp) = held.as_ref().or(input.as_ref()) {
             let (frame, surf, slice) = pool.acquire()?;
             conv.convert(inp, &surf, slice).context("convert")?;
             mark(2, &mut lap, &mut prof);

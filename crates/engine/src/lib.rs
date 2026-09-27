@@ -3,6 +3,7 @@
 //! plus WASAPI audio, live recording, screenshots and clip utilities.
 
 mod audio;
+mod card;
 mod buffer;
 pub mod clock;
 mod config;
@@ -22,6 +23,7 @@ mod mux;
 mod venc;
 
 pub use audio::{list_devices as list_audio_devices, AudioDevice};
+pub use card::HoldCard;
 pub use config::{Codec, EngineConfig, Quality, Resolution};
 pub use d3d::{list_monitors, MonitorInfo};
 pub use engine::{Engine, EngineEvent, EngineStatus, MonitorEvent, SaveOutcome};

@@ -47,5 +47,7 @@
   "setup.close": "Закрыть",
   "setup.minimize": "Свернуть",
   "ov.menu-unavailable": "Меню здесь не откроется",
-  "ov.menu-unavailable.sub": "Включите в игре оконный режим без рамки"
+  "ov.menu-unavailable.sub": "Включите в игре оконный режим без рамки",
+  "menu.hold-title": "Открыто меню GeniusClip",
+  "menu.hold-hint": "Видео продолжится, когда меню закроется"
 }

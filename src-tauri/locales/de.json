@@ -47,5 +47,7 @@
   "setup.close": "Schließen",
   "setup.minimize": "Minimieren",
   "ov.menu-unavailable": "Menü hier nicht verfügbar",
-  "ov.menu-unavailable.sub": "Stell im Spiel „Randloses Fenster“ ein"
+  "ov.menu-unavailable.sub": "Stell im Spiel „Randloses Fenster“ ein",
+  "menu.hold-title": "GeniusClip-Menü ist geöffnet",
+  "menu.hold-hint": "Das Video geht weiter, sobald das Menü zu ist"
 }

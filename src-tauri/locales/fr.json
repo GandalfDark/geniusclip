@@ -47,5 +47,7 @@
   "setup.close": "Fermer",
   "setup.minimize": "Réduire",
   "ov.menu-unavailable": "Menu indisponible ici",
-  "ov.menu-unavailable.sub": "Passez le jeu en mode fenêtré sans bordure"
+  "ov.menu-unavailable.sub": "Passez le jeu en mode fenêtré sans bordure",
+  "menu.hold-title": "Menu GeniusClip ouvert",
+  "menu.hold-hint": "La vidéo reprend à la fermeture du menu"
 }

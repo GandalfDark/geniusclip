@@ -47,5 +47,7 @@
   "setup.close": "Close",
   "setup.minimize": "Minimize",
   "ov.menu-unavailable": "The menu can't open here",
-  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode"
+  "ov.menu-unavailable.sub": "Switch the game to borderless windowed mode",
+  "menu.hold-title": "GeniusClip menu is open",
+  "menu.hold-hint": "The video continues when the menu closes"
 }
