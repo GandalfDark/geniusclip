@@ -12,6 +12,10 @@
   let canvas: HTMLCanvasElement;
   let w = $state(0);
   let h = $state(0);
+  // Redrawn on every drag step: theme colours are read once (the accent
+  // can't change while the viewer is open) and the backing store is only
+  // resized when the lane is.
+  let colors: { accent: string; warn: string } | null = null;
 
   // Levels are drawn on a dB scale so quiet voices stay visible and
   // a 2× boost reads as a clear step up.
@@ -24,16 +28,22 @@
   $effect(() => {
     if (!canvas || w === 0 || h === 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    const cw = Math.round(w * dpr);
+    const ch = Math.round(h * dpr);
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
     const g = canvas.getContext('2d');
     if (!g) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
 
-    const css = getComputedStyle(canvas);
-    const accent = css.getPropertyValue('--accent').trim() || '#9580ff';
-    const warn = css.getPropertyValue('--warn').trim() || '#f5b83d';
+    if (!colors) {
+      const css = getComputedStyle(canvas);
+      colors = { accent: css.getPropertyValue('--accent').trim() || '#9580ff', warn: css.getPropertyValue('--warn').trim() || '#f5b83d' };
+    }
+    const { accent, warn } = colors;
     const mid = h / 2;
     const n = peaks.length;
     for (let x = 0; x < w; x += BAR + GAP) {

@@ -1,5 +1,6 @@
 // Motion system: one soft curve and a few durations for the whole app.
 // Keep in sync with the --dur / --ease tokens in app.css.
+import { flip } from 'svelte/animate';
 
 export const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 export const DUR = 320;
@@ -46,3 +47,12 @@ export function leave(_node: Element, { duration = DUR_FAST }: Opts = {}) {
 }
 
 export const flipParams = () => ({ duration: reduced() ? 0 : DUR, easing: easeOut });
+
+/** Past this many items a list skips per-item entrances and FLIP moves. */
+export const LONG_LIST = 40;
+
+/** animate: FLIP move; `still` makes items jump into place (flip itself
+ *  reads computed styles of every moved item). */
+export function move(node: Element, fromTo: { from: DOMRect; to: DOMRect }, { still = false }: { still?: boolean } = {}) {
+  return still ? { duration: 0 } : flip(node, fromTo, flipParams());
+}

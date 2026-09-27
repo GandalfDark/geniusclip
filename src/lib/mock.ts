@@ -260,6 +260,11 @@ export function installMock() {
         }
         case "hotkey_errors":
           return [];
+        case "set_hotkeys_suspended":
+          return null;
+        // The in-game menu opens itself only when its window is showing.
+        case "plugin:window|is_visible":
+          return true;
         case "list_media":
           return media;
         case "thumbnail": {

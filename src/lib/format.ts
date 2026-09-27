@@ -1,5 +1,22 @@
 import { translate, type Lang } from './i18n';
 
+// Intl formatters are costly to build and every card formats a date and a
+// size, so each one is made once per language and options.
+const formatters = new Map<string, unknown>();
+function memo<T>(key: string, make: () => T): T {
+  let f = formatters.get(key) as T | undefined;
+  if (f === undefined) formatters.set(key, (f = make()));
+  return f;
+}
+const numberFmt = (lang: Lang, digits: number) =>
+  memo(`n:${lang}:${digits}`, () => new Intl.NumberFormat(lang, { minimumFractionDigits: digits, maximumFractionDigits: digits }));
+const timeFmt = (lang: Lang) => memo(`t:${lang}`, () => new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit' }));
+const dayFmt = (lang: Lang) => memo(`d:${lang}`, () => new Intl.DateTimeFormat(lang, { day: '2-digit', month: '2-digit' }));
+const relFmt = (lang: Lang, style: 'long' | 'short') =>
+  memo(`r:${lang}:${style}`, () => new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style }));
+
+const UNITS = ['unit.b', 'unit.kb', 'unit.mb', 'unit.gb', 'unit.tb'] as const;
+
 /** Timecode: 4:58, 12:03, 1:02:15. */
 export function duration(sec: number): string {
   if (!isFinite(sec) || sec < 0) sec = 0;
@@ -17,31 +34,29 @@ export function preciseTime(sec: number): string {
 
 /** "1,2 ГБ", "1.2 GB", "340 MB": units and decimal separator per language. */
 export function bytes(n: number, lang: Lang): string {
-  const units = (['unit.b', 'unit.kb', 'unit.mb', 'unit.gb', 'unit.tb'] as const).map((k) => translate(lang, k));
   let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
+  while (n >= 1024 && i < UNITS.length - 1) {
     n /= 1024;
     i++;
   }
-  const digits = i >= 3 ? 1 : 0;
-  const v = new Intl.NumberFormat(lang, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
-  return `${v} ${units[i]}`;
+  const v = numberFmt(lang, i >= 3 ? 1 : 0).format(n);
+  return `${v} ${translate(lang, UNITS[i])}`;
 }
 
 /** "сегодня 21:10", "yesterday 21:10", "24.09 21:10" in the UI language. */
 export function date(ms: number, lang: Lang): string {
   const d = new Date(ms);
   const now = new Date();
-  const time = d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
-  const rel = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' });
+  const time = timeFmt(lang).format(d);
+  const rel = relFmt(lang, 'long');
   if (d.toDateString() === now.toDateString()) return `${rel.format(0, 'day')} ${time}`;
   if (new Date(now.getTime() - 86400000).toDateString() === d.toDateString()) return `${rel.format(-1, 'day')} ${time}`;
-  return `${d.toLocaleDateString(lang, { day: '2-digit', month: '2-digit' })} ${time}`;
+  return `${dayFmt(lang).format(d)} ${time}`;
 }
 
 /** "2 min ago", "yesterday" in the UI language. */
 export function ago(ms: number, lang: Lang): string {
-  const rel = new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style: 'short' });
+  const rel = relFmt(lang, 'short');
   const s = (ms - Date.now()) / 1000;
   if (s > -45) return rel.format(0, 'second');
   if (s > -3600) return rel.format(Math.round(s / 60), 'minute');

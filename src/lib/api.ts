@@ -11,6 +11,10 @@ export const api = {
   screenshot: () => invoke<void>('take_screenshot'),
   toggleRecording: () => invoke<void>('toggle_recording'),
   hotkeyErrors: () => invoke<string[]>('hotkey_errors'),
+  /** Global hotkeys off while a hotkey field waits for a combo, so pressing
+   *  an existing one is recorded instead of firing. */
+  /** Resolves to the hotkey conflicts (as `hotkeyErrors`) once registered again. */
+  setHotkeysSuspended: (suspended: boolean) => invoke<string[]>('set_hotkeys_suspended', { suspended }),
   listMedia: () => invoke<MediaEntry[]>('list_media'),
   thumbnail: (path: string) => invoke<string>('thumbnail', { path }),
   deleteMedia: (path: string) => invoke<void>('delete_media', { path }),
@@ -27,6 +31,7 @@ export const api = {
   micTest: (on: boolean) => invoke<void>('mic_test', { on }),
   menuClose: () => invoke<void>('menu_close'),
   menuScreenshot: () => invoke<void>('menu_screenshot'),
+  menuReady: () => invoke<void>('menu_ready'),
   systemStats: () => invoke<SystemStats>('system_stats'),
   /** Main window on a page, optionally opening a clip in the viewer. */
   openInApp: (route: string, path: string | null = null) => invoke<void>('open_in_app', { route, path }),

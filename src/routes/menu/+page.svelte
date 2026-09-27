@@ -3,11 +3,13 @@
   // save / quick actions / recent replays (or quick settings) / hardware load.
   // The backend shows the window and sends menu://open; closing plays the
   // animation first, then asks the backend to hide it and refocus the game.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import Icon, { type IconName } from '$lib/components/Icon.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import Keys from '$lib/components/Keys.svelte';
+  import Notices from '$lib/components/Notices.svelte';
   import Slider from '$lib/components/Slider.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
@@ -45,20 +47,33 @@
     page = 'main';
     playing = null;
     shown = true;
+    app.mediaPaused = false;
+    // A clip saved while the menu was hidden doesn't flash "Saved" now.
+    lastSaved = app.clipSavedAt;
     app.refreshMedia();
     pollStats();
     clearInterval(statsTimer);
     statsTimer = setInterval(pollStats, 1000);
   }
 
-  let closing = false;
-  async function close() {
-    if (closing || !shown) return;
-    closing = true;
+  /** Off screen: no playback, polling or library refreshes until the next open. */
+  function hidden() {
     shown = false;
     playing = null;
     clearInterval(statsTimer);
-    await new Promise((r) => setTimeout(r, 220));
+    app.mediaPaused = true;
+  }
+
+  let closing = false;
+  async function close() {
+    if (closing) return;
+    closing = true;
+    // Not opened on the page (e.g. start-up failed): nothing to animate, but
+    // the window still has to go away.
+    if (shown) {
+      hidden();
+      await new Promise((r) => setTimeout(r, 220));
+    }
     await api.menuClose().catch(() => {});
     closing = false;
   }
@@ -67,13 +82,8 @@
     const offs = [
       listen('menu://open', open),
       listen('menu://close', close),
-      // Hidden without the page asking (focus went to the game): stop
-      // playback and polling until the next open.
-      listen('menu://hidden', () => {
-        shown = false;
-        playing = null;
-        clearInterval(statsTimer);
-      }),
+      // Hidden without the page asking (focus went to the game).
+      listen('menu://hidden', hidden),
     ];
     (async () => {
       if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
@@ -82,9 +92,15 @@
         document.body.style.background = 'url(/dev-clip-thumb.jpg) center / cover';
       }
       await app.init();
-      // First open: the window was created for it, so the event came too early.
-      open();
-    })();
+      // From now on the backend may send open/close to this page.
+      api.menuReady().catch(() => {});
+      // First open: the window was created for it, so the event came too
+      // early. Unless it was hidden again while starting up.
+      if (!shown) {
+        if (await getCurrentWindow().isVisible().catch(() => true)) open();
+        else app.mediaPaused = true;
+      }
+    })().catch((e) => console.error('menu start-up', e));
     return () => {
       clearInterval(statsTimer);
       offs.forEach((p) => p.then((off) => off()));
@@ -101,15 +117,15 @@
     }
   });
 
-  // "Saved" on the big button when a clip lands.
-  let lastSaved = 0;
+  // "Saved" on the big button when a clip lands while the menu is open.
+  let lastSaved = app.clipSavedAt;
   $effect(() => {
     const at = app.clipSavedAt;
-    if (at && at !== lastSaved && shown) {
-      lastSaved = at;
-      savedFlash = true;
-      setTimeout(() => (savedFlash = false), 1500);
-    }
+    if (at === lastSaved) return;
+    lastSaved = at;
+    if (!untrack(() => shown)) return;
+    savedFlash = true;
+    setTimeout(() => (savedFlash = false), 1500);
   });
 
   // While the menu is open capture holds the last game frame; for a
@@ -120,8 +136,16 @@
     if (snapping) return;
     snapping = true;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    await api.menuScreenshot().catch(() => {});
-    snapping = false;
+    let ok = true;
+    try {
+      await api.menuScreenshot();
+    } catch (e) {
+      ok = false;
+      app.notify(String(e), 'error');
+    } finally {
+      snapping = false;
+    }
+    if (!ok) return;
     shotFlash = true;
     setTimeout(() => (shotFlash = false), 1200);
   }
@@ -308,6 +332,8 @@
       <span class="hint">{app.t('menu.close')}</span>
     {/if}
   {/if}
+  <!-- Inside the menu so it hides with the page while a screenshot is taken. -->
+  <Notices />
 </div>
 
 <style>

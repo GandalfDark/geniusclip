@@ -10,7 +10,7 @@
   import { flipParams, leave, rise } from '$lib/motion';
   import type { Origin } from '$lib/components/Viewer.svelte';
   import { app } from '$lib/app.svelte';
-  import { duration } from '$lib/format';
+  import { duration, hotkeyParts } from '$lib/format';
   import { readyLine } from '$lib/i18n';
   import type { MediaEntry } from '$lib/types';
 
@@ -26,9 +26,13 @@
   let origin = $state<Origin | null>(null);
   let justSaved = $state(false);
 
-  // The main button confirms each saved clip for a moment (hotkey saves too).
+  // The main button confirms each saved clip for a moment (hotkey saves too),
+  // but not one saved before this page was shown.
+  let seenSaved = app.clipSavedAt;
   $effect(() => {
-    if (!app.clipSavedAt) return;
+    const at = app.clipSavedAt;
+    if (at === seenSaved) return;
+    seenSaved = at;
     justSaved = true;
     const t = setTimeout(() => (justSaved = false), 1500);
     return () => clearTimeout(t);
@@ -139,7 +143,11 @@
         {/each}
       </div>
     {:else if app.mediaLoaded}
-      <p class="muted empty">{app.t('home.empty', { key: s.hotkeys.saveClip.replaceAll('+', ' + '), min: Math.round(s.replaySeconds / 60) })}</p>
+      <p class="muted empty">
+        {s.hotkeys.saveClip
+          ? app.t('home.empty', { key: hotkeyParts(s.hotkeys.saveClip).join(' + '), min: Math.round(s.replaySeconds / 60) })
+          : app.t('home.emptyNoKey', { min: Math.round(s.replaySeconds / 60) })}
+      </p>
     {/if}
   </section>
 </div>

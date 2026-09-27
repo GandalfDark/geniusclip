@@ -1,17 +1,48 @@
+<script lang="ts" module>
+  import { api } from '$lib/api';
+  import { app } from '$lib/app.svelte';
+
+  // Global hotkeys stay off while any field is listening, so pressing a
+  // combo that is already bound records it instead of firing it.
+  let listeners = 0;
+  function suspend(on: boolean) {
+    const was = listeners > 0;
+    listeners += on ? 1 : -1;
+    if (was === listeners > 0) return;
+    // Conflicts aren't checked while suspended; take the fresh list on resume.
+    api
+      .setHotkeysSuspended(listeners > 0)
+      .then((errs) => {
+        if (listeners === 0 && errs) app.hotkeyErrors = errs;
+      })
+      .catch(() => {});
+  }
+</script>
+
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Keys from './Keys.svelte';
-  import { app } from '$lib/app.svelte';
 
   let { value, onchange, conflict = false }: { value: string; onchange: (v: string) => void; conflict?: boolean } = $props();
   let listening = $state(false);
 
   const MODS = ['Control', 'Alt', 'Shift', 'Meta'];
 
-  function onkeydown(e: KeyboardEvent) {
+  // Capture phase on window runs before any other key handler, so Esc here
+  // cancels the rebinding without also closing the menu or the viewer.
+  $effect(() => {
     if (!listening) return;
+    window.addEventListener('keydown', onkeydown, true);
+    suspend(true);
+    return () => {
+      window.removeEventListener('keydown', onkeydown, true);
+      suspend(false);
+    };
+  });
+
+  function onkeydown(e: KeyboardEvent) {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     if (e.code === 'Escape') {
       listening = false;
       return;
@@ -33,8 +64,6 @@
     listening = false;
   }
 </script>
-
-<svelte:window {onkeydown} />
 
 <div class="hk">
   <button class="field" class:listening class:conflict onclick={() => (listening = !listening)} onblur={() => (listening = false)}>

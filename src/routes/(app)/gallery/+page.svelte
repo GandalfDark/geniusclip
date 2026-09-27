@@ -5,10 +5,9 @@
   import Select from '$lib/components/Select.svelte';
   import MediaCard from '$lib/components/MediaCard.svelte';
   import Viewer from '$lib/components/Viewer.svelte';
-  import { flip } from 'svelte/animate';
   import { api } from '$lib/api';
   import { enter } from '$lib/enter';
-  import { flipParams, leave } from '$lib/motion';
+  import { LONG_LIST, leave, move } from '$lib/motion';
   import type { Origin } from '$lib/components/Viewer.svelte';
   import { app } from '$lib/app.svelte';
   import type { MediaEntry, MediaKind } from '$lib/types';
@@ -41,6 +40,23 @@
   }
 
   let games = $derived([...new Set(app.media.map((m) => m.game).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
+  // The picked game's clips are all gone (or the picker is hidden with one
+  // game left): drop the filter instead of showing an empty or stuck list.
+  $effect(() => {
+    if (game && app.mediaLoaded && (games.length < 2 || !games.includes(game))) game = '';
+  });
+
+  // Typing filters after a short pause, not on every key.
+  let search = $state('');
+  $effect(() => {
+    const q = query.toLowerCase();
+    if (!q) {
+      search = '';
+      return;
+    }
+    const t = setTimeout(() => (search = q), 150);
+    return () => clearTimeout(t);
+  });
   const count = (k: 'all' | MediaKind) => (k === 'all' ? app.media.length : app.media.filter((m) => m.kind === k).length);
   const tabs = [
     { value: 'all', key: 'gallery.all' },
@@ -53,9 +69,12 @@
       (m) =>
         (kind === 'all' || m.kind === kind) &&
         (!game || m.game === game) &&
-        (!query || (m.name + ' ' + m.game).toLowerCase().includes(query.toLowerCase())),
+        (!search || (m.name + ' ' + m.game).toLowerCase().includes(search)),
     ),
   );
+  // Dozens of cards animating at once stutter: a long list just appears and
+  // reflows (a freshly saved clip still pops in).
+  let still = $derived(list.length > LONG_LIST);
 </script>
 
 <div class="page">
@@ -86,7 +105,7 @@
   {#if list.length}
     <div class="grid">
       {#each list as m, i (m.path)}
-        <div class="cell" animate:flip={flipParams()} in:enter|global={{ i, fresh: !!app.fresh[m.path] }} out:leave>
+        <div class="cell" animate:move={{ still }} in:enter|global={{ i, fresh: !!app.fresh[m.path], still }} out:leave>
           <MediaCard entry={m} onopen={open} />
         </div>
       {/each}

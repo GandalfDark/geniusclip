@@ -19,9 +19,17 @@
   // Meters use a dB scale (-60..0 dBFS) with a short falloff.
   const level = (peak: number) => Math.max(0, Math.min(1, (20 * Math.log10(Math.max(peak, 1e-6)) + 60) / 60));
 
+  // Left the page while the check was starting: stop it again, nothing
+  // would be there to turn it off.
+  let alive = true;
+
   async function start() {
     try {
       await api.micTest(true);
+      if (!alive) {
+        api.micTest(false).catch(() => {});
+        return;
+      }
       on = true;
     } catch (e) {
       app.notify(String(e), 'error');
@@ -60,6 +68,7 @@
   });
 
   onDestroy(() => {
+    alive = false;
     if (on) api.micTest(false).catch(() => {});
   });
 </script>

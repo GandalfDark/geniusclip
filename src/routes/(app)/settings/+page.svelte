@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
   import Icon from '$lib/components/Icon.svelte';
@@ -40,7 +41,8 @@
   $effect(() => {
     const e = s.engine;
     void [e.monitor, e.resolution, e.codec, e.quality, e.fps, e.bitrateKbps, e.mic, e.systemAudio, e.separateTracks, e.diskBuffer, s.replaySeconds];
-    api.estimate($state.snapshot(s)).then((r) => (estimate = r));
+    // The snapshot reads every setting; only the fields above should re-run this.
+    api.estimate(untrack(() => $state.snapshot(s))).then((r) => (estimate = r));
   });
 
   $effect(() => {
@@ -336,8 +338,8 @@
         {#if s.overlay.enabled}
           <Row label={app.t('set.corner')}>
             <div class="corners">
-              {#each ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as c}
-                <button class="corner {c}" class:active={s.overlay.corner === c} aria-label={c} onclick={() => app.change((x) => (x.overlay.corner = c), 0)}>
+              {#each ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const as c}
+                <button class="corner {c}" class:active={s.overlay.corner === c} aria-label={app.t(`set.corner.${c}`)} onclick={() => app.change((x) => (x.overlay.corner = c), 0)}>
                   <span></span>
                 </button>
               {/each}

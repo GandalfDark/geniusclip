@@ -12,9 +12,12 @@
   let el: HTMLElement;
   let frame: HTMLElement;
   let fresh = $derived(!!app.fresh[entry.path]);
+  // Every library refresh hands over new entry objects; only a new path
+  // should reload the thumbnail (otherwise all cards blink).
+  let path = $derived(entry.path);
 
   $effect(() => {
-    const path = entry.path;
+    const p = path;
     thumb = null;
     loaded = false;
     const io = new IntersectionObserver(
@@ -22,7 +25,7 @@
         if (!e.isIntersecting) return;
         io.disconnect();
         try {
-          thumbPath = await api.thumbnail(path);
+          thumbPath = await api.thumbnail(p);
           thumb = fileUrl(thumbPath);
         } catch {
           /* keep the empty frame */

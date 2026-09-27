@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { fade } from 'svelte/transition';
   import { DUR, EASE, reduced, rise } from '$lib/motion';
@@ -27,6 +27,12 @@
   let ghostEl: HTMLImageElement | null = $state(null);
   let ghostSrc = $state<string | null>(null);
   let closing = false;
+  let alive = true;
+  onDestroy(() => (alive = false));
+
+  /** After an await: is the viewer still open on the clip the action began with?
+   *  (Esc or another clip meanwhile must not be acted on.) */
+  const still = (path: string) => alive && !closing && entry.path === path;
 
   // --- Container transform: the thumbnail grows from its card into the player.
   const aspect = () => (entry.width && entry.height ? entry.width / entry.height : 16 / 9);
@@ -112,13 +118,17 @@
     confirmDelete = false;
     audio = null;
     lanes = [];
+    peaks = {};
     audioFor = '';
   });
 
   // --- Audio lanes: per-track volume, heard live before saving.
-  type Lane = { track: number; label: string; icon: IconName; offIcon: IconName; peaks: number[]; file: string; gain: number; muted: boolean };
+  type Lane = { track: number; label: string; icon: IconName; offIcon: IconName; file: string; gain: number; muted: boolean };
   let audio = $state.raw<ClipAudio | null>(null);
   let lanes = $state<Lane[]>([]);
+  // Thousands of levels per track, never edited: kept out of the deeply
+  // reactive lanes so they aren't wrapped in proxies.
+  let peaks = $state.raw<Record<number, number[]>>({});
   let audioFor = '';
 
   async function loadAudio(path: string) {
@@ -129,6 +139,7 @@
       // GeniusClip clips: show game and mic; the mix is rebuilt from them.
       const tracks = a.mix ? [1, 2] : a.titles.map((_, k) => k);
       audio = a;
+      peaks = Object.fromEntries(tracks.map((k) => [k, a.peaks[k] ?? []]));
       lanes = tracks
         .filter((k) => a.files[k])
         .map((k, n) => {
@@ -140,7 +151,6 @@
             label: game ? app.t('trim.game') : mic ? app.t('trim.mic') : title,
             icon: game ? 'game' : mic ? 'mic' : 'speaker',
             offIcon: mic ? 'micOff' : 'speakerOff',
-            peaks: a.peaks[k] ?? [],
             file: a.files[k],
             gain: 1,
             muted: false,
@@ -161,22 +171,40 @@
   // The video stays connected (at zero gain): Chromium drives the video clock
   // from its audio, and an unconnected source would freeze playback.
   let actx: AudioContext | null = null;
-  let videoGain: GainNode | null = null;
-  let videoGainFor: HTMLVideoElement | null = null;
+  /** The video's own route into the graph (an element can be wired only once). */
+  let videoNodes: { el: HTMLVideoElement; src: MediaElementAudioSourceNode; gain: GainNode } | null = null;
   let players = $state.raw<{ el: HTMLAudioElement; gain: GainNode; src: MediaElementAudioSourceNode }[]>([]);
   let previewing = $derived(trimming && lanes.length > 0 && !!video);
+
+  // Each clip gets a new <video>: the previous one's nodes are let go, or its
+  // decoder stays alive until the viewer closes.
+  function releaseVideo(el?: HTMLVideoElement) {
+    if (!videoNodes || (el && videoNodes.el !== el)) return;
+    videoNodes.src.disconnect();
+    videoNodes.gain.disconnect();
+    videoNodes = null;
+  }
+
+  $effect(() => {
+    const v = video;
+    return () => {
+      if (v) releaseVideo(v);
+    };
+  });
 
   $effect(() => {
     if (!previewing || !video) return;
     const v = video;
     const files = lanes.map((l) => l.file);
     const ctx = (actx ??= new AudioContext());
-    if (videoGainFor !== v) {
-      videoGain = ctx.createGain();
-      ctx.createMediaElementSource(v).connect(videoGain).connect(ctx.destination);
-      videoGainFor = v;
+    if (videoNodes?.el !== v) {
+      releaseVideo();
+      const src = ctx.createMediaElementSource(v);
+      const gain = ctx.createGain();
+      src.connect(gain).connect(ctx.destination);
+      videoNodes = { el: v, src, gain };
     }
-    const vGain = videoGain!;
+    const vGain = videoNodes.gain;
     vGain.gain.value = 0;
     const master = ctx.createGain();
     master.connect(ctx.destination);
@@ -314,6 +342,8 @@
   }
 
   function go(delta: number) {
+    // A save, rename or delete in progress finishes on the clip it started on.
+    if (busy) return;
     const next = list[index + delta];
     if (next) onselect(next);
   }
@@ -358,12 +388,15 @@
   }
 
   async function trim(replace: boolean) {
+    if (busy) return;
+    const path = entry.path;
     busy = true;
     try {
       video?.pause();
-      const res = await api.trimMedia(entry.path, start, end, replace, trackGains());
+      const res = await api.trimMedia(path, start, end, replace, trackGains());
       app.notify(app.t('gallery.trimmed'), 'ok');
       await app.refreshMedia();
+      if (!still(path)) return;
       if (replace) close();
       else if (res) onselect(res);
     } catch (e) {
@@ -373,35 +406,61 @@
     }
   }
 
+  function startRename() {
+    newName = entry.name;
+    renaming = true;
+  }
+
+  // Enter and blur both commit, Esc cancels; whichever comes first ends the
+  // editing, so the blur that follows (the field goes away) does nothing.
   async function rename() {
-    if (!newName.trim() || newName === entry.name) {
-      renaming = false;
-      return;
-    }
+    if (!renaming) return;
+    renaming = false;
+    const name = newName.trim();
+    const path = entry.path;
+    if (!name || name === entry.name || busy) return;
+    busy = true;
     try {
-      const path = await api.renameMedia(entry.path, newName.trim());
+      const to = await api.renameMedia(path, name);
       await app.refreshMedia();
-      const e = app.media.find((m) => m.path === path);
+      if (!still(path)) return;
+      const e = app.media.find((m) => m.path === to);
       if (e) onselect(e);
     } catch (e) {
       app.notify(String(e), 'error');
+    } finally {
+      busy = false;
     }
-    renaming = false;
+  }
+
+  function renameKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') rename();
+    else if (e.key === 'Escape') {
+      // Only the field: the viewer itself stays open.
+      e.stopPropagation();
+      renaming = false;
+    }
   }
 
   async function del() {
+    if (busy) return;
     if (!confirmDelete) {
       confirmDelete = true;
       setTimeout(() => (confirmDelete = false), 3000);
       return;
     }
+    const path = entry.path;
     const next = list[index + 1] ?? list[index - 1];
+    busy = true;
     try {
-      await api.deleteMedia(entry.path);
+      await api.deleteMedia(path);
       await app.refreshMedia();
+      if (!still(path)) return;
       next ? onselect(next) : close();
     } catch (e) {
       app.notify(String(e), 'error');
+    } finally {
+      busy = false;
     }
   }
 </script>
@@ -414,7 +473,7 @@
     <div class="title">
       {#if renaming}
         <!-- svelte-ignore a11y_autofocus -->
-        <input class="rename" bind:value={newName} autofocus onkeydown={(e) => e.key === 'Enter' && rename()} onblur={rename} />
+        <input class="rename" bind:value={newName} autofocus onkeydown={renameKey} onblur={rename} />
       {:else}
         <h3>{entry.name}</h3>
       {/if}
@@ -431,10 +490,10 @@
         {/key}
       </button>
       <span class="sep"></span>
-      <button class="btn ghost icon" title={app.t('gallery.rename')} onclick={() => ((newName = entry.name), (renaming = true))}><Icon name="rename" size={18} /></button>
+      <button class="btn ghost icon" title={app.t('gallery.rename')} disabled={busy} onclick={startRename}><Icon name="rename" size={18} /></button>
       <button class="btn ghost icon" title={app.t('gallery.reveal')} onclick={() => api.revealPath(entry.path)}><Icon name="folder" size={18} /></button>
       <button class="btn ghost icon" title={app.t('gallery.open')} onclick={() => api.openPath(entry.path)}><Icon name="open" size={18} /></button>
-      <button class="btn ghost danger" class:icon={!confirmDelete} title={app.t('gallery.delete')} onclick={del}>
+      <button class="btn ghost danger" class:icon={!confirmDelete} title={app.t('gallery.delete')} disabled={busy} onclick={del}>
         <Icon name="trash" size={18} />{#if confirmDelete}{app.t('gallery.confirmDelete')}{/if}
       </button>
       <span class="sep"></span>
@@ -444,7 +503,7 @@
 
   <div class="stage" bind:this={stageEl}>
     {#if index > 0}
-      <button class="nav prev" onclick={() => go(-1)} aria-label="prev"><Icon name="left" size={20} /></button>
+      <button class="nav prev" disabled={busy} onclick={() => go(-1)} aria-label={app.t('gallery.prev')}><Icon name="left" size={20} /></button>
     {/if}
     {#key entry.path}
       {#if isVideo}
@@ -455,7 +514,7 @@
       {/if}
     {/key}
     {#if index < list.length - 1}
-      <button class="nav next" onclick={() => go(1)} aria-label="next"><Icon name="right" size={20} /></button>
+      <button class="nav next" disabled={busy} onclick={() => go(1)} aria-label={app.t('gallery.next')}><Icon name="right" size={20} /></button>
     {/if}
   </div>
 
@@ -491,8 +550,8 @@
             <div class="dim" style:left="0" style:width="{(start / total) * 100}%"></div>
             <div class="dim" style:left="{(end / total) * 100}%" style:right="0"></div>
             <div class="sel" style:left="{(start / total) * 100}%" style:width="{((end - start) / total) * 100}%"></div>
-            <button class="handle in" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label="start"></button>
-            <button class="handle out" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label="end"></button>
+            <button class="handle in" style:left="{(start / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('start', e))} aria-label={app.t('trim.start')}></button>
+            <button class="handle out" style:left="{(end / total) * 100}%" onpointerdown={(e) => (e.stopPropagation(), drag('end', e))} aria-label={app.t('trim.end')}></button>
           </div>
           {#each lanes as l (l.track)}
             <div
@@ -510,7 +569,7 @@
               onkeydown={(e) => laneKey(l, e)}
               {@attach wheel(l)}
             >
-              <Waveform peaks={l.peaks} gain={l.gain} muted={l.muted} from={start / total} to={end / total} />
+              <Waveform peaks={peaks[l.track] ?? []} gain={l.gain} muted={l.muted} from={start / total} to={end / total} />
             </div>
           {/each}
           <div class="head" style:left="{(current / total) * 100}%"></div>
