@@ -32,10 +32,13 @@ struct AVD3D11VAFramesContext {
     texture_infos: *mut c_void,
 }
 
-/// NVENC pixel rates (pixels per second) up to which a preset keeps up:
-/// the slow, two-pass one up to 1440p144, a faster one up to 4K120.
-const NVENC_HQ_MAX: u64 = 2560 * 1440 * 144;
-const NVENC_FAST_MAX: u64 = 3840 * 2160 * 120;
+/// NVENC pixel rates (pixels per second) up to which a preset is used: p3
+/// up to 1440p144, p2 up to 4K120, p1 beyond. Measured on 1440p60 game
+/// footage at the app's bitrate, p3 costs the encoder 40% less than p5 with
+/// a quarter-resolution first pass, for 0.2 less VMAF (97.1 against 97.3):
+/// nothing anyone sees in a replay, while the encoder keeps less busy.
+const NVENC_P3_MAX: u64 = 2560 * 1440 * 144;
+const NVENC_P2_MAX: u64 = 3840 * 2160 * 120;
 /// Variable frame rate: the encoder's own keyframe interval, in seconds of
 /// full-rate frames (the capture loop forces one every second).
 const VFR_GOP_SECONDS: i32 = 4;
@@ -172,19 +175,17 @@ impl VideoEncoder {
 
         let p = c.priv_data;
         if name.ends_with("_nvenc") {
-            // p5 with a quarter-resolution first pass cannot keep up with
-            // very high pixel rates (4K120, 1440p240): trade quality for speed.
             let rate = width as u64 * height as u64 * fps as u64;
-            let (preset, multipass) = match rate {
-                r if r <= NVENC_HQ_MAX => ("p5", "qres"),
-                r if r <= NVENC_FAST_MAX => ("p4", "disabled"),
-                _ => ("p3", "disabled"),
+            let preset = match rate {
+                r if r <= NVENC_P3_MAX => "p3",
+                r if r <= NVENC_P2_MAX => "p2",
+                _ => "p1",
             };
-            log::info!("{name}: preset {preset}, multipass {multipass} ({:.0} Mpx/s)", rate as f64 / 1e6);
+            log::info!("{name}: preset {preset} ({:.0} Mpx/s)", rate as f64 / 1e6);
             set_opt(p, "preset", preset);
             set_opt(p, "tune", "hq");
             set_opt(p, "rc", "vbr");
-            set_opt(p, "multipass", multipass);
+            set_opt(p, "multipass", "disabled");
             set_opt(p, "spatial-aq", "1");
             set_opt(p, "forced-idr", "1");
             if name.starts_with("h264") {
