@@ -23,6 +23,7 @@
   let s = $derived(app.settings!);
   let snap = $derived(app.snapshot!);
   let estimate = $state<Estimate | null>(null);
+  let estimateSeq = 0;
   let checking = $state(false);
   let active = $state('capture');
   let showSaved = $state(false);
@@ -42,7 +43,16 @@
     const e = s.engine;
     void [e.monitor, e.resolution, e.codec, e.quality, e.fps, e.bitrateKbps, e.mic, e.systemAudio, e.separateTracks, e.diskBuffer, s.replaySeconds];
     // The snapshot reads every setting; only the fields above should re-run this.
-    api.estimate(untrack(() => $state.snapshot(s))).then((r) => (estimate = r));
+    const snap = untrack(() => $state.snapshot(s));
+    // A slider sends every step: ask once it rests, and only the newest answer counts.
+    const seq = ++estimateSeq;
+    const t = setTimeout(() => {
+      api
+        .estimate(snap)
+        .then((r) => seq === estimateSeq && (estimate = r))
+        .catch(() => {});
+    }, 120);
+    return () => clearTimeout(t);
   });
 
   $effect(() => {
@@ -73,8 +83,11 @@
     scroller.scrollTo({ top: node.offsetTop - scroller.offsetTop, behavior: 'smooth' });
   }
   function onscrollend() {
+    const was = jumping;
     jumping = false;
     clearTimeout(release);
+    // Cut short (a wheel turn) or not where it was going: light what is shown.
+    if (was) onscroll();
   }
 
   function onscroll() {
@@ -556,6 +569,9 @@
     border-radius: 50%;
     border: 1.6px solid currentColor;
     border-right-color: transparent;
+  }
+  /* Only while collecting: a hidden spinner would still wake the page every frame. */
+  .report.busy .spin {
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin {

@@ -49,7 +49,15 @@
     };
   });
 
+  const RESERVED = ['Alt+F4', 'Alt+Tab', 'Alt+Shift+Tab', 'Control+Tab', 'Control+Shift+Tab', 'Alt+Escape', 'Control+Escape', 'Control+Alt+Delete'];
+
   function onkeydown(e: KeyboardEvent) {
+    // Tab and Shift+Tab move on as usual (a keyboard user must be able to
+    // leave the field) and are never bound.
+    if (e.code === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      listening = false;
+      return;
+    }
     e.preventDefault();
     e.stopImmediatePropagation();
     if (e.code === 'Escape') {
@@ -71,7 +79,10 @@
     // letters, digits and the like need a modifier, or they'd fire while
     // typing in a game's chat.
     if (!mods.length && !SOLO.test(e.code)) return;
-    onchange([...mods, e.code].join('+'));
+    const accel = [...mods, e.code].join('+');
+    // Windows' own shortcuts: bound, they would stop working everywhere.
+    if (RESERVED.includes(accel)) return;
+    onchange(accel);
     listening = false;
   }
 </script>

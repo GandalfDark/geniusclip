@@ -19,6 +19,7 @@
     }
     try {
       await app.init();
+      app.watchFocus();
       // The in-game menu can send the main window to a page.
       await listen<string>('app://navigate', (e) => goto(e.payload));
     } finally {

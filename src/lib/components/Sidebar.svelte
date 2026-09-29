@@ -13,6 +13,9 @@
   let path = $derived(page.url.pathname);
   let activeIndex = $derived(items.findIndex((it) => (it.href === '/' ? path === '/' : path.startsWith(it.href))));
   let live = $derived(!!app.status?.replayEnabled && !!app.status?.running);
+  let tip = $derived(
+    !app.status?.replayEnabled ? app.t('home.off') : app.waitingForGame ? app.t('home.waitGame') : app.status?.paused ? app.t('home.paused') : app.t('home.on'),
+  );
 </script>
 
 <nav class="side" data-tauri-drag-region>
@@ -30,7 +33,7 @@
       </a>
     {/each}
   </div>
-  <div class="state" title={live ? app.t('home.on') : app.t('home.off')}>
+  <div class="state" title={tip}>
     <span class="dot" class:live></span>
     {#if app.status?.recording}<span class="rec mono">REC</span>{/if}
   </div>

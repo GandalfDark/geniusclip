@@ -107,6 +107,7 @@
   let renaming = $state(false);
   let newName = $state('');
   let confirmDelete = $state(false);
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
   let copied = $state(false);
 
   async function send() {
@@ -133,6 +134,7 @@
     trimming = false;
     renaming = false;
     confirmDelete = false;
+    clearTimeout(confirmTimer);
     audio = null;
     lanes = [];
     peaks = {};
@@ -522,7 +524,8 @@
     if (busy) return;
     if (!confirmDelete) {
       confirmDelete = true;
-      setTimeout(() => (confirmDelete = false), 3000);
+      clearTimeout(confirmTimer);
+      confirmTimer = setTimeout(() => (confirmDelete = false), 3000);
       return;
     }
     const path = entry.path;

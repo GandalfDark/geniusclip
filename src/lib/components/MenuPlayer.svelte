@@ -24,6 +24,7 @@
   let flying = $state(false);
   let copied = $state(false);
   let confirmDelete = $state(false);
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
   let closing = false;
 
   const ratio = $derived(entry.width && entry.height ? `${entry.width} / ${entry.height}` : '16 / 9');
@@ -105,7 +106,8 @@
   async function remove() {
     if (!confirmDelete) {
       confirmDelete = true;
-      setTimeout(() => (confirmDelete = false), 3000);
+      clearTimeout(confirmTimer);
+      confirmTimer = setTimeout(() => (confirmDelete = false), 3000);
       return;
     }
     try {

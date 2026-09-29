@@ -32,6 +32,7 @@ class AppStore {
   mediaLoaded = $state(false);
   update = $state<UpdateInfo | null>(null);
   hotkeyErrors = $state<string[]>([]);
+  #listedAt = 0;
   /** "Only in games" holds capture until a game shows up. */
   waitingForGame = $state(false);
   notices = $state<Notice[]>([]);
@@ -74,17 +75,23 @@ class AppStore {
   t = (key: TKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars);
 
   async init() {
+    // Registered before the snapshot is taken: this event only fires on a
+    // change, so one sent meanwhile is newer than the snapshot's value.
+    let waitingEvent = false;
+    await listen<boolean>('capture://waiting', (e) => {
+      waitingEvent = true;
+      this.waitingForGame = e.payload;
+    });
     const snap = await api.snapshot();
     this.#systemLang = isLang(snap.lang) ? snap.lang : matchLang(navigator.language);
     this.snapshot = snap;
     this.status = snap.status;
     this.update = snap.update;
     this.hotkeyErrors = snap.hotkeyErrors;
-    this.waitingForGame = snap.waitingForGame;
+    if (!waitingEvent) this.waitingForGame = snap.waitingForGame;
     applyAccent(snap.settings.accent);
 
     await listen<EngineStatus>('engine://status', (e) => (this.status = e.payload));
-    await listen<boolean>('capture://waiting', (e) => (this.waitingForGame = e.payload));
     await listen<Settings>('settings://changed', (e) => {
       this.#remote = e.payload;
       if (!this.#pending) this.#applyRemote();
@@ -110,24 +117,32 @@ class AppStore {
     await listen<UpdateInfo>('update://available', (e) => (this.update = e.payload));
     await listen<EngineEvent>('engine://event', (e) => {
       const ev = e.payload;
+      if (ev.type === 'status') {
+        const { type: _, ...status } = ev;
+        this.status = status;
+      }
       if (ev.type === 'clipSaved') this.clipSavedAt = Date.now();
       if (ev.type === 'clipFailed' || ev.type === 'recordingFailed' || ev.type === 'screenshotFailed') {
         this.notify(ev.error, 'error');
       }
     });
     this.refreshMedia();
-    // Files deleted or added in Explorer show up when the window is back.
-    let listedAt = Date.now();
-    window.addEventListener('focus', () => {
-      if (Date.now() - listedAt < 5000) return;
-      listedAt = Date.now();
-      this.refreshMedia();
-    });
+  }
+
+  /** Main window: files deleted or added in Explorer show up when it is back
+   *  in front (unless it was listed a moment ago anyway). */
+  watchFocus() {
+    const onFocus = () => {
+      if (!this.mediaPaused && Date.now() - this.#listedAt > 5000) this.refreshMedia();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }
 
   /** Resolves once the newest listing is in: responses can arrive out of
    *  order, and an older one must not overwrite a newer one. */
   refreshMedia(): Promise<void> {
+    this.#listedAt = Date.now();
     const seq = ++this.#mediaSeq;
     this.#listing++;
     const req = api
@@ -136,7 +151,13 @@ class AppStore {
       .then((list) => {
         // A newer request was made meanwhile: wait for that one instead.
         if (seq !== this.#mediaSeq) return this.#mediaReq!;
-        this.media = list;
+        // Entries that didn't change keep their objects, so their cards
+        // don't render again.
+        const old = new Map(this.media.map((m) => [m.path, m]));
+        this.media = list.map((m) => {
+          const o = old.get(m.path);
+          return o && o.modified === m.modified && o.size === m.size && o.favorite === m.favorite && o.name === m.name && o.game === m.game && o.duration === m.duration ? o : m;
+        });
         this.mediaLoaded = true;
       })
       // A failed listing keeps the current list; callers (after a rename or

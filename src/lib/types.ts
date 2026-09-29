@@ -183,4 +183,4 @@ export type EngineEvent =
   | { type: 'screenshotSaved'; path: string }
   | { type: 'screenshotFailed'; error: string }
   | { type: 'error'; message: string }
-  | { type: 'status' };
+  | ({ type: 'status' } & EngineStatus);

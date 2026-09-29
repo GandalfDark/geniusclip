@@ -25,6 +25,9 @@
   let paused = $derived(!!st?.paused);
   // "Only in games" with no game: calm, nothing is wrong.
   let waiting = $derived(on && app.waitingForGame);
+  // Display-off and lock pauses can't be seen (the screen is off), so a
+  // pause shown here is the battery one, if that setting is on.
+  let batteryPause = $derived(paused && !!app.snapshot?.hasBattery && s.pauseOnBattery);
   let recent = $derived(app.media.filter((m) => m.kind !== 'screenshot').slice(0, 8));
   let viewing = $state<MediaEntry | null>(null);
   let origin = $state<Origin | null>(null);
@@ -116,12 +119,12 @@
     <div class="head">
       <span class="dot" class:live={on && running && !paused && !waiting} class:wait={on && (!running || paused) && !waiting}></span>
       <!-- Animate only the on/off/paused change; capture start-up is shown by the dot. -->
-      {#key `${on}-${paused}-${waiting}`}
+      {#key `${on}-${batteryPause}-${waiting}`}
         <div class="txt" in:rise={{ y: 6 }}>
           {#if waiting}
             <h1>{app.t('home.waitGame')}</h1>
             <p>{app.t('home.waitGameHint')}</p>
-          {:else if on && paused}
+          {:else if on && batteryPause}
             <h1>{app.t('home.paused')}</h1>
             <p>{app.t('home.pausedBattery')}</p>
           {:else}
@@ -145,7 +148,7 @@
     {/if}
 
     <div class="actions">
-      <button class="btn primary big save" class:saved={justSaved} disabled={!on} onclick={() => api.saveClip()}>
+      <button class="btn primary big save" class:saved={justSaved} disabled={!on || waiting} onclick={() => api.saveClip()}>
         {#key justSaved}
           <span class="save-in" in:rise={{ y: 6, duration: 260 }}>
             {#if justSaved}
@@ -348,17 +351,17 @@
     background: var(--rec);
     box-shadow: 0 0 0 5px color-mix(in srgb, var(--rec) 16%, transparent);
   }
-  /* The pulse ring only changes transform and opacity, which the compositor
-     animates without repainting the page every frame (a box-shadow pulse
-     did, for as long as Home was open). */
+  /* A few pulses when replay goes live, then still: the app records the
+     screen, and a ring pulsing on it for as long as Home is open changed the
+     desktop every frame, so every frame had to be encoded. */
   .dot.live::after {
     content: '';
     position: absolute;
     inset: -5px;
     border-radius: 50%;
     background: color-mix(in srgb, var(--rec) 45%, transparent);
-    animation: pulse 2.2s ease-out infinite;
-    will-change: transform, opacity;
+    opacity: 0;
+    animation: pulse 2.2s ease-out 3;
     pointer-events: none;
   }
   .dot.wait {
