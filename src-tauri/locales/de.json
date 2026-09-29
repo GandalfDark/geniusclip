@@ -22,6 +22,8 @@
   "ov.error": "Etwas ist schiefgelaufen",
   "ov.already-saved": "Schon gespeichert",
   "ov.already-saved.sub": "Nichts Neues seit dem letzten Clip",
+  "ov.replay-wait": "Wartet auf ein Spiel",
+  "ov.replay-wait.sub": "Die Aufnahme startet, sobald ein Spiel im Vollbild läuft",
   "ov.copied": "Clip kopiert",
   "ov.copied.sub": "In einen Chat einfügen: Strg+V",
   "setup.title": "GeniusClip-Setup",

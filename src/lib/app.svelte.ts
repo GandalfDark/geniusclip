@@ -32,6 +32,8 @@ class AppStore {
   mediaLoaded = $state(false);
   update = $state<UpdateInfo | null>(null);
   hotkeyErrors = $state<string[]>([]);
+  /** "Only in games" holds capture until a game shows up. */
+  waitingForGame = $state(false);
   notices = $state<Notice[]>([]);
   savedPulse = $state(0);
   /** Bumped when a clip finishes saving (drives the button's "Saved" state). */
@@ -78,9 +80,11 @@ class AppStore {
     this.status = snap.status;
     this.update = snap.update;
     this.hotkeyErrors = snap.hotkeyErrors;
+    this.waitingForGame = snap.waitingForGame;
     applyAccent(snap.settings.accent);
 
     await listen<EngineStatus>('engine://status', (e) => (this.status = e.payload));
+    await listen<boolean>('capture://waiting', (e) => (this.waitingForGame = e.payload));
     await listen<Settings>('settings://changed', (e) => {
       this.#remote = e.payload;
       if (!this.#pending) this.#applyRemote();

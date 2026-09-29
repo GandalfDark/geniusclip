@@ -23,6 +23,8 @@
   // Display-off and lock pauses are invisible (the screen is off); only a
   // battery pause can be seen here.
   let paused = $derived(!!st?.paused);
+  // "Only in games" with no game: calm, nothing is wrong.
+  let waiting = $derived(on && app.waitingForGame);
   let recent = $derived(app.media.filter((m) => m.kind !== 'screenshot').slice(0, 8));
   let viewing = $state<MediaEntry | null>(null);
   let origin = $state<Origin | null>(null);
@@ -112,11 +114,14 @@
 <div class="page">
   <section class="deck panel" class:off={!on}>
     <div class="head">
-      <span class="dot" class:live={on && running && !paused} class:wait={on && (!running || paused)}></span>
+      <span class="dot" class:live={on && running && !paused && !waiting} class:wait={on && (!running || paused) && !waiting}></span>
       <!-- Animate only the on/off/paused change; capture start-up is shown by the dot. -->
-      {#key `${on}-${paused}`}
+      {#key `${on}-${paused}-${waiting}`}
         <div class="txt" in:rise={{ y: 6 }}>
-          {#if on && paused}
+          {#if waiting}
+            <h1>{app.t('home.waitGame')}</h1>
+            <p>{app.t('home.waitGameHint')}</p>
+          {:else if on && paused}
             <h1>{app.t('home.paused')}</h1>
             <p>{app.t('home.pausedBattery')}</p>
           {:else}

@@ -83,6 +83,8 @@ pub struct Settings {
     pub auto_update: bool,
     /// Laptops: no replay while running on battery.
     pub pause_on_battery: bool,
+    /// Replay only while a game is on the recorded monitor (see `actions::games_gate`).
+    pub games_only: bool,
     pub onboarding: Onboarding,
 }
 
@@ -104,6 +106,7 @@ impl Default for Settings {
             overlay: OverlaySettings::default(),
             auto_update: true,
             pause_on_battery: false,
+            games_only: false,
             onboarding: Onboarding::default(),
         }
     }

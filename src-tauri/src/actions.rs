@@ -94,6 +94,10 @@ fn save(app: &AppHandle, seconds: Option<u32>) {
         overlay::toast(app, Toast::simple("replay-off-hint"));
         return;
     }
+    if crate::power::waiting_for_game() {
+        overlay::toast(app, Toast::simple("replay-wait"));
+        return;
+    }
     let g = current_game(app);
     let path = target_path(&s, &s.clips_dir, &g, "", "mp4");
     let res = ensure_dir(&path).and_then(|_| {
@@ -233,9 +237,10 @@ fn warn_if_disk_low(app: &AppHandle) {
 }
 
 /// Whether `track_foreground` has anything to do: only clips from the replay
-/// buffer use the last game, so there is none while replay is off or paused.
+/// buffer use the last game, so there is none while replay is off or paused
+/// (but it runs while "Only in games" waits: it is what spots the game).
 pub fn tracking_foreground(app: &AppHandle) -> bool {
-    app.state::<AppState>().settings.read().replay_enabled && !crate::power::is_paused()
+    app.state::<AppState>().settings.read().replay_enabled && !crate::power::system_paused()
 }
 
 /// What decides `track_foreground`'s answer, all of it cheap to read: the
@@ -269,10 +274,24 @@ fn track_key(app: &AppHandle) -> TrackKey {
     }
 }
 
-/// The last `track_foreground` lookup and what it was made for.
-static TRACKED: Mutex<Option<(TrackKey, Option<AppInfo>)>> = Mutex::new(None);
+/// A lookup: what it was made for and when, the app in front, and whether
+/// a game fills the recorded monitor.
+struct Tracked {
+    key: TrackKey,
+    at: Instant,
+    found: Option<AppInfo>,
+    in_game: bool,
+}
 
-/// Called every second: remembers the last game in focus.
+/// The last `track_foreground` lookup.
+static TRACKED: Mutex<Option<Tracked>> = Mutex::new(None);
+
+/// A game on another monitor than the focused window can close without the
+/// focus changing: the lookup is redone this often anyway.
+const TRACK_REFRESH: Duration = Duration::from_secs(10);
+
+/// Called every second: remembers the last game in focus, and runs the
+/// "Only in games" check.
 pub fn track_foreground(app: &AppHandle) {
     if !tracking_foreground(app) {
         return;
@@ -281,20 +300,52 @@ pub fn track_foreground(app: &AppHandle) {
     // version info each second is wasted work while the same window stays in
     // front: the lookup is redone only when the foreground window changes.
     let key = track_key(app);
-    let found = {
+    let (found, in_game) = {
         let mut tracked = TRACKED.lock();
         match tracked.as_ref() {
-            Some((k, found)) if *k == key => found.clone(),
+            Some(t) if t.key == key && t.at.elapsed() < TRACK_REFRESH => (t.found.clone(), t.in_game),
             _ => {
-                let found = fullscreen_on_capture_monitor(app).or_else(|| game::foreground_app().filter(|a| !a.is_desktop));
-                *tracked = Some((key, found.clone()));
-                found
+                let fullscreen = fullscreen_on_capture_monitor(app);
+                let in_game = fullscreen.as_ref().is_some_and(game::is_game);
+                let found = fullscreen.or_else(|| game::foreground_app().filter(|a| !a.is_desktop));
+                *tracked = Some(Tracked { key, at: Instant::now(), found: found.clone(), in_game });
+                (found, in_game)
             }
         }
     };
     if let Some(a) = found {
         *app.state::<AppState>().last_game.lock() = Some((a, Instant::now()));
     }
+    games_gate(app, in_game);
+}
+
+/// When "Only in games" last saw a game on the recorded monitor.
+static GAME_SEEN: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// "Only in games": capture waits while no game (a fullscreen app that isn't
+/// a browser or a player) is on the recorded monitor. After one leaves it
+/// goes on for the replay's length: a quick alt-tab keeps the game in the
+/// replay, and past that the replay would hold none of it anyway.
+fn games_gate(app: &AppHandle, in_game: bool) {
+    let st = app.state::<AppState>();
+    let (on, secs) = {
+        let s = st.settings.read();
+        (s.games_only, s.replay_seconds)
+    };
+    let waiting = on && {
+        let mut seen = GAME_SEEN.lock();
+        if in_game {
+            *seen = Some(Instant::now());
+        }
+        seen.is_none_or(|t| t.elapsed() > Duration::from_secs(secs as u64))
+    };
+    crate::power::set_waiting_for_game(waiting);
+}
+
+/// The "Only in games" check right away (at startup, after the setting changed).
+pub fn check_games_gate(app: &AppHandle) {
+    *TRACKED.lock() = None;
+    track_foreground(app);
 }
 
 /// Copies the newest clip or recording to the clipboard (tray action).

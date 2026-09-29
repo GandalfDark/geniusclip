@@ -96,6 +96,8 @@ pub struct Snapshot {
     has_battery: bool,
     /// Notes of the update that was just installed, until dismissed.
     whats_new: Option<WhatsNew>,
+    /// "Only in games" holds capture until a game shows up.
+    waiting_for_game: bool,
 }
 
 pub(crate) fn ram_total_mb() -> u64 {
@@ -123,6 +125,7 @@ pub async fn get_snapshot(app: AppHandle) -> CmdResult<Snapshot> {
             hotkey_errors: st.hotkey_errors.lock().clone(),
             update: st.update.lock().clone(),
             whats_new: crate::updates::whats_new(&app),
+            waiting_for_game: crate::power::waiting_for_game(),
         };
         snapshot
     })
@@ -224,6 +227,10 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
     }
     if old.pause_on_battery != new.pause_on_battery {
         crate::power::refresh();
+    }
+    if old.games_only != new.games_only {
+        let h = app.clone();
+        std::thread::spawn(move || crate::actions::check_games_gate(&h));
     }
     if old.autostart != new.autostart {
         crate::sync_autostart(app, new.autostart);

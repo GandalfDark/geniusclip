@@ -113,6 +113,7 @@ let settings: Settings = {
   overlay: { enabled: true, corner: "top-right", sound: true },
   autoUpdate: true,
   pauseOnBattery: false,
+  gamesOnly: false,
   onboarding: { clipSaved: false, menuOpened: false, dismissed: false },
 };
 
@@ -153,7 +154,7 @@ function status() {
     fps: 60,
     droppedFrames: 0,
     droppedRecent: 0,
-    paused: false,
+    paused: new URLSearchParams(location.search).has("waiting"),
     lastError: null,
     noiseUnavailable: false,
   };
@@ -230,6 +231,7 @@ export function installMock() {
             hotkeyErrors: [],
             update: null,
             whatsNew,
+            waitingForGame: new URLSearchParams(location.search).has("waiting"),
             lang: navigator.language.startsWith("ru") ? "ru" : "en",
           };
         case "get_status":

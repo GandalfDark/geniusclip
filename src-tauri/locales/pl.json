@@ -22,6 +22,8 @@
   "ov.error": "Coś poszło nie tak",
   "ov.already-saved": "Już zapisano",
   "ov.already-saved.sub": "Nic nowego od ostatniego klipu",
+  "ov.replay-wait": "Czeka na grę",
+  "ov.replay-wait.sub": "Nagrywanie ruszy, gdy gra włączy się na pełnym ekranie",
   "ov.copied": "Klip skopiowany",
   "ov.copied.sub": "Wklej na czacie: Ctrl+V",
   "setup.title": "Instalator GeniusClip",

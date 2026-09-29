@@ -22,6 +22,8 @@
   "ov.error": "Бірдеңе дұрыс болмады",
   "ov.already-saved": "Әлдеқашан сақталған",
   "ov.already-saved.sub": "Соңғы клиптен бері жаңа сәт жоқ",
+  "ov.replay-wait": "Қайталау ойынды күтуде",
+  "ov.replay-wait.sub": "Ойын толық экранға ашылғанда жазу басталады",
   "ov.copied": "Клип көшірілді",
   "ov.copied.sub": "Чатқа қойыңыз: Ctrl+V",
   "setup.title": "GeniusClip орнату",

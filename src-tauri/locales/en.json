@@ -22,6 +22,8 @@
   "ov.error": "Something went wrong",
   "ov.already-saved": "Already saved",
   "ov.already-saved.sub": "Nothing new since the last clip",
+  "ov.replay-wait": "Waiting for a game",
+  "ov.replay-wait.sub": "Replay starts when a game is fullscreen",
   "ov.copied": "Clip copied",
   "ov.copied.sub": "Paste into a chat: Ctrl+V",
   "setup.title": "GeniusClip Setup",

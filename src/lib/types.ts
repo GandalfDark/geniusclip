@@ -60,6 +60,7 @@ export interface Settings {
   overlay: { enabled: boolean; corner: string; sound: boolean };
   autoUpdate: boolean;
   pauseOnBattery: boolean;
+  gamesOnly: boolean;
   /** First-steps card on Home; the backend ticks the steps as they happen. */
   onboarding: Onboarding;
 }
@@ -131,6 +132,7 @@ export interface Snapshot {
   hasBattery: boolean;
   /** Set on the first start after an update, until dismissed. */
   whatsNew: WhatsNew | null;
+  waitingForGame: boolean;
 }
 
 export interface WhatsNew {

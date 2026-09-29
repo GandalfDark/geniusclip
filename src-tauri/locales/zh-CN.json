@@ -22,6 +22,8 @@
   "ov.error": "出了点问题",
   "ov.already-saved": "已经保存过了",
   "ov.already-saved.sub": "上个片段之后没有新内容",
+  "ov.replay-wait": "等待游戏",
+  "ov.replay-wait.sub": "游戏全屏后开始录制",
   "ov.copied": "片段已复制",
   "ov.copied.sub": "粘贴到聊天：Ctrl+V",
   "setup.title": "GeniusClip 安装程序",

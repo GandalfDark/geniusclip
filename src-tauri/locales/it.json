@@ -22,6 +22,8 @@
   "ov.error": "Qualcosa è andato storto",
   "ov.already-saved": "Già salvato",
   "ov.already-saved.sub": "Niente di nuovo dall’ultima clip",
+  "ov.replay-wait": "In attesa di un gioco",
+  "ov.replay-wait.sub": "La cattura parte quando un gioco va a schermo intero",
   "ov.copied": "Clip copiata",
   "ov.copied.sub": "Incollala in una chat: Ctrl+V",
   "setup.title": "Installazione di GeniusClip",

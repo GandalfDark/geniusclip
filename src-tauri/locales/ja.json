@@ -22,6 +22,8 @@
   "ov.error": "問題が発生しました",
   "ov.already-saved": "保存済みです",
   "ov.already-saved.sub": "前回のクリップ以降、新しい場面はありません",
+  "ov.replay-wait": "ゲームを待機中",
+  "ov.replay-wait.sub": "ゲームが全画面になると録画を開始します",
   "ov.copied": "クリップをコピーしました",
   "ov.copied.sub": "チャットに貼り付け：Ctrl+V",
   "setup.title": "GeniusClip セットアップ",

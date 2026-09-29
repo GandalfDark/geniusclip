@@ -51,6 +51,43 @@ const OVERLAY_EXES: &[&str] = &[
     "medal.exe",
 ];
 
+/// Fullscreen apps that aren't games: browsers, video players, slideshows,
+/// calls. "Only in games" doesn't wake capture for them.
+const NOT_GAMES: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "browser.exe",
+    "opera.exe",
+    "brave.exe",
+    "vivaldi.exe",
+    "arc.exe",
+    "vlc.exe",
+    "mpc-hc.exe",
+    "mpc-hc64.exe",
+    "mpc-be.exe",
+    "mpc-be64.exe",
+    "potplayer.exe",
+    "potplayermini.exe",
+    "potplayermini64.exe",
+    "wmplayer.exe",
+    "microsoft.media.player.exe",
+    "video.ui.exe",
+    "mpv.exe",
+    "telegram.exe",
+    "powerpnt.exe",
+    "zoom.exe",
+    "ms-teams.exe",
+    "teams.exe",
+    "obs64.exe",
+];
+
+/// Whether a fullscreen app counts as a game (not a browser or a player).
+pub fn is_game(app: &AppInfo) -> bool {
+    let exe = app.exe.to_lowercase();
+    !app.is_desktop && !NOT_GAMES.contains(&exe.as_str()) && !OVERLAY_EXES.contains(&exe.as_str())
+}
+
 /// Hosts whose file description is meaningless; the window title names the app.
 const HOST_EXES: &[&str] = &["javaw.exe", "java.exe", "python.exe", "pythonw.exe", "electron.exe"];
 

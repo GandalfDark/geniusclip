@@ -177,6 +177,9 @@
         <Row label={app.t('set.replayEnabled')} hint={app.t('set.replayEnabledHint')}>
           <Switch checked={s.replayEnabled} onchange={(v) => api.setReplay(v)} />
         </Row>
+        <Row label={app.t('set.gamesOnly')} hint={app.t('set.gamesOnlyHint')}>
+          <Switch checked={!!s.gamesOnly} onchange={(v) => app.change((x) => (x.gamesOnly = v), 0)} />
+        </Row>
         <Row label={app.t('set.length')}>
           <Slider
             value={s.replaySeconds}

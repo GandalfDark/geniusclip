@@ -3,7 +3,9 @@
 //!   to sleep on its own, and the GPU keeps encoding a dark screen;
 //! - session locked: capture fails on the secure desktop anyway, and the
 //!   pipeline would keep restarting.
-//! - on battery, if the user chose so (laptops).
+//! - on battery, if the user chose so (laptops);
+//! - "Only in games", while no game is on the recorded monitor (the check
+//!   itself is `actions::games_gate`).
 //! Capture resumes when all of that is over.
 //!
 //! The same hidden window also hears display changes, which drop the cached
@@ -12,7 +14,7 @@
 use crate::state::AppState;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use windows::core::w;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -24,6 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 static DISPLAY_OFF: AtomicBool = AtomicBool::new(false);
 static LOCKED: AtomicBool = AtomicBool::new(false);
 static ON_BATTERY: AtomicBool = AtomicBool::new(false);
+static WAITING_FOR_GAME: AtomicBool = AtomicBool::new(false);
 static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
 const WTS_SESSION_LOCK: usize = 0x7;
@@ -49,14 +52,55 @@ pub fn refresh() {
     apply();
 }
 
-fn should_pause(app: &AppHandle) -> bool {
+fn paused_by_system(app: &AppHandle) -> bool {
     let battery = ON_BATTERY.load(Ordering::Relaxed) && app.state::<AppState>().settings.read().pause_on_battery;
     DISPLAY_OFF.load(Ordering::Relaxed) || LOCKED.load(Ordering::Relaxed) || battery
 }
 
-/// Whether capture is (or is about to be) paused, without the engine lock.
-pub fn is_paused() -> bool {
-    APP.get().is_some_and(should_pause)
+fn should_pause(app: &AppHandle) -> bool {
+    paused_by_system(app) || WAITING_FOR_GAME.load(Ordering::Relaxed)
+}
+
+/// Whether the display, the lock or the battery pause capture ("Only in
+/// games" aside), without the engine lock.
+pub fn system_paused() -> bool {
+    APP.get().is_some_and(paused_by_system)
+}
+
+/// Whether "Only in games" holds capture until a game shows up.
+pub fn waiting_for_game() -> bool {
+    WAITING_FOR_GAME.load(Ordering::Relaxed)
+}
+
+/// "Only in games": pauses capture (and empties the replay, which then holds
+/// no game any more) or lets it run again.
+pub fn set_waiting_for_game(waiting: bool) {
+    if WAITING_FOR_GAME.swap(waiting, Ordering::Relaxed) == waiting {
+        return;
+    }
+    log::info!("{}", if waiting { "no game: capture waits for one" } else { "game: capture runs" });
+    if let Some(app) = APP.get() {
+        let _ = app.emit("capture://waiting", waiting);
+    }
+    apply();
+}
+
+/// Applies the pause state now, on this thread (at startup, before replay
+/// starts, so it doesn't start only to stop a second later).
+pub fn sync(app: &AppHandle) {
+    let _one_at_a_time = APPLY.lock();
+    set_paused(app);
+}
+
+fn set_paused(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    let paused = should_pause(app);
+    if let Err(e) = st.engine.set_paused(paused) {
+        log::warn!("resume capture: {e:#}");
+    }
+    if paused && WAITING_FOR_GAME.load(Ordering::Relaxed) {
+        st.engine.clear_replay();
+    }
 }
 
 fn apply() {
@@ -70,9 +114,7 @@ fn apply() {
     // state instead of an older thread finishing last and re-pausing.
     std::thread::spawn(move || {
         let _one_at_a_time = APPLY.lock();
-        if let Err(e) = app.state::<AppState>().engine.set_paused(should_pause(&app)) {
-            log::warn!("resume capture: {e:#}");
-        }
+        set_paused(&app);
     });
 }
 

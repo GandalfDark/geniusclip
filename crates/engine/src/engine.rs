@@ -451,6 +451,13 @@ impl Engine {
         r
     }
 
+    /// Drops what the replay buffer holds (its memory too), keeping it on.
+    pub fn clear_replay(&self) {
+        if let Some(b) = self.shared.buffer.lock().as_mut() {
+            b.clear();
+        }
+    }
+
     pub fn set_replay_enabled(&self, on: bool) -> Result<()> {
         let mut st = self.state.lock();
         st.replay_enabled = on;

@@ -22,6 +22,8 @@
   "ov.error": "문제가 발생했어요",
   "ov.already-saved": "이미 저장됨",
   "ov.already-saved.sub": "마지막 클립 이후 새 장면이 없어요",
+  "ov.replay-wait": "게임 대기 중",
+  "ov.replay-wait.sub": "게임이 전체 화면이 되면 녹화를 시작합니다",
   "ov.copied": "클립 복사됨",
   "ov.copied.sub": "채팅에 붙여넣기: Ctrl+V",
   "setup.title": "GeniusClip 설치",

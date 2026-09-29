@@ -22,6 +22,8 @@
   "ov.error": "Une erreur est survenue",
   "ov.already-saved": "Déjà sauvegardé",
   "ov.already-saved.sub": "Rien de nouveau depuis le dernier clip",
+  "ov.replay-wait": "En attente d’un jeu",
+  "ov.replay-wait.sub": "La capture démarre dès qu’un jeu passe en plein écran",
   "ov.copied": "Clip copié",
   "ov.copied.sub": "Collez-le dans un chat : Ctrl+V",
   "setup.title": "Installation de GeniusClip",
