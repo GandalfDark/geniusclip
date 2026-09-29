@@ -655,7 +655,10 @@ impl AudioPipeline {
         }
 
         let stop = Arc::new(AtomicBool::new(false));
-        let mut threads = Vec::new();
+        // Built first: if a later step fails, dropping it stops the threads
+        // already started.
+        let mut pipeline = AudioPipeline { stop: stop.clone(), threads: Vec::new() };
+        let threads = &mut pipeline.threads;
         let sys_ring = Arc::new(SourceRing::default());
         let mic_ring = Arc::new(SourceRing::default());
         if cfg.system_audio {
@@ -726,7 +729,7 @@ impl AudioPipeline {
             }
         })?);
 
-        Ok(Some((AudioPipeline { stop, threads }, descs)))
+        Ok(Some((pipeline, descs)))
     }
 
     pub fn stop(mut self) {

@@ -251,6 +251,13 @@ impl CursorRenderer {
         self.under = None;
     }
 
+    /// The desktop texture was replaced (duplication restarted): the view of
+    /// the old one would keep it in video memory while nothing is drawn.
+    pub fn release_target(&mut self) {
+        self.under = None;
+        self.rtv = None;
+    }
+
     /// Takes the cursor off `target` again by putting back the pixels it
     /// covered: a clean desktop image for screenshots, or for drawing the
     /// cursor elsewhere when only the pointer moved.

@@ -4,7 +4,9 @@ use crate::buffer::ClipData;
 use crate::ffutil::*;
 use crate::finalize;
 use anyhow::{anyhow, bail, Context, Result};
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use ffmpeg_sys_next as ff;
 use std::ffi::c_int;
 use std::path::{Path, PathBuf};
@@ -245,8 +247,15 @@ enum Msg {
     Stop,
 }
 
+/// Packets a recording may have waiting for the disk (about 30 s at 60 fps
+/// with three audio tracks). A disk slower than the recording would fill
+/// memory without end: the recording stops instead.
+const RECORD_QUEUE: usize = 8192;
+
 pub struct Recorder {
     tx: Sender<Msg>,
+    /// The queue overflowed: the writer ends the recording.
+    overflow: Arc<AtomicBool>,
     thread: Option<JoinHandle<Result<PathBuf>>>,
 }
 
@@ -255,16 +264,20 @@ impl Recorder {
     /// Writing begins at the first video keyframe received.
     pub fn start(path: PathBuf, streams: Vec<StreamDesc>, comment: String) -> Result<Self> {
         let muxer = Muxer::create(&path, &streams, true, &comment)?;
-        let (tx, rx) = unbounded();
+        let (tx, rx) = bounded(RECORD_QUEUE);
         let video = streams.iter().position(|s| s.kind == StreamKind::Video);
+        let overflow = Arc::new(AtomicBool::new(false));
+        let over = overflow.clone();
         let thread = std::thread::Builder::new()
             .name("gc-recorder".into())
-            .spawn(move || record_loop(muxer, rx, video))?;
-        Ok(Recorder { tx, thread: Some(thread) })
+            .spawn(move || record_loop(muxer, rx, video, &over))?;
+        Ok(Recorder { tx, overflow, thread: Some(thread) })
     }
 
     pub fn push(&self, stream: usize, pkt: PacketRef) {
-        let _ = self.tx.send(Msg::Packet(stream, pkt));
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(Msg::Packet(stream, pkt)) {
+            self.overflow.store(true, Ordering::Relaxed);
+        }
     }
 
     /// The writer ended by itself (write error): `stop` returns its result.
@@ -290,11 +303,16 @@ impl Drop for Recorder {
     }
 }
 
-fn record_loop(mut muxer: Muxer, rx: Receiver<Msg>, video: Option<usize>) -> Result<PathBuf> {
+fn record_loop(mut muxer: Muxer, rx: Receiver<Msg>, video: Option<usize>, overflow: &AtomicBool) -> Result<PathBuf> {
     let mut origin: Option<i64> = None;
     let mut written = 0usize;
     let mut failure = None;
     while let Ok(msg) = rx.recv() {
+        if overflow.load(Ordering::Relaxed) {
+            log::error!("recording stopped: the disk can't keep up with it");
+            failure = Some(anyhow!("the disk is too slow for the recording"));
+            break;
+        }
         match msg {
             Msg::Stop => break,
             Msg::Packet(si, p) => {

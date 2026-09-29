@@ -192,8 +192,14 @@ impl VideoEncoder {
                 set_opt(p, "profile", "high");
             }
         } else if name.ends_with("_amf") {
+            // The same tiers as NVENC's: the balanced preset up to 1440p144,
+            // the fastest beyond (the quality one costs the encoder much
+            // more for a difference nobody sees in a replay).
+            let rate = width as u64 * height as u64 * fps as u64;
+            let quality = if rate <= NVENC_P3_MAX { "balanced" } else { "speed" };
+            log::info!("{name}: quality preset {quality} ({:.0} Mpx/s)", rate as f64 / 1e6);
             set_opt(p, "usage", "transcoding");
-            set_opt(p, "quality", "quality");
+            set_opt(p, "quality", quality);
             set_opt(p, "rc", "vbr_peak");
             set_opt(p, "forced_idr", "1");
         } else if name.ends_with("_mf") {

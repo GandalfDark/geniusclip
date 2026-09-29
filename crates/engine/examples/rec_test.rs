@@ -1,7 +1,7 @@
 //! Records the screen (no audio devices are opened) and checks that the
 //! recording comes out as a regular MP4.
 //!
-//!   cargo run -p geniusclip-engine --example rec_test -- [seconds] [out.mp4]
+//!   cargo run -p geniusclip-engine --example rec_test -- [seconds] [out.mp4] [monitor, e.g. \.\DISPLAY2]
 
 use geniusclip_engine::*;
 use std::path::PathBuf;
@@ -27,7 +27,8 @@ fn main() -> anyhow::Result<()> {
             let _ = tx.send(other);
         }
     });
-    engine.configure(EngineConfig { system_audio: false, mic: false, ..Default::default() }, 30)?;
+    let monitor = args.get(3).cloned();
+    engine.configure(EngineConfig { monitor, system_audio: false, mic: false, ..Default::default() }, 30)?;
     engine.start_recording(out.clone(), "rec_test".into())?;
     std::thread::sleep(Duration::from_secs(secs));
     engine.stop_recording()?;

@@ -55,6 +55,9 @@ impl MicMonitor {
         let r = ring.clone();
         // The check plays the microphone at its own volume, never muted.
         let tx = denoise::spawn(control, Some(levels.clone()), || false, move |idx, s| r.write(idx, s))?;
+        // Built first: if starting a thread fails, dropping it stops the
+        // ones already running.
+        let monitor = MicMonitor { stop: stop.clone() };
         {
             let (ring, stop) = (ring.clone(), stop.clone());
             std::thread::Builder::new()
@@ -75,7 +78,7 @@ impl MicMonitor {
                 }
             })?;
         }
-        Ok(MicMonitor { stop })
+        Ok(monitor)
     }
 }
 

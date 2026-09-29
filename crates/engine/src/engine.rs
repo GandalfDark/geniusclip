@@ -103,6 +103,10 @@ const AUDIO_CATCH_UP: Duration = Duration::from_millis(260);
 /// Variable frame rate: an unchanged screen is still encoded this often
 /// (frames per second), so players and seeking stay smooth.
 const MIN_FPS: u32 = 5;
+/// Variable frame rate: a change covering only a sliver of the screen (see
+/// `dup::SMALL_CHANGE`) is encoded at most this often. A caret or a spinner
+/// looks the same at 15 fps, and a whole frame is encoded for each.
+const SMALL_CHANGE_FPS: u32 = 15;
 /// Frames encoded at the full rate after a clip is asked for. Encoders hand
 /// a frame out only once a few more have come in (NVENC holds 3), which on
 /// a static screen at `MIN_FPS` would keep the clip's last frames waiting.
@@ -138,6 +142,8 @@ struct Shared {
     denoise: Arc<DenoiseControl>,
     live_audio: Arc<LiveAudio>,
     recorder: Mutex<Option<(Recorder, Instant)>>,
+    /// Threads writing a clip or finishing a recording, waited for on quit.
+    writers: Mutex<Vec<JoinHandle<()>>>,
     replay_on: AtomicBool,
     force_key: AtomicBool,
     /// Encode the next ticks' images even if nothing changed (a clip ends
@@ -150,6 +156,14 @@ struct Shared {
     /// Repeat the last desktop frame instead of capturing (see `set_hold`).
     hold: AtomicBool,
     hold_card: Mutex<Option<crate::card::HoldCard>>,
+}
+
+impl Shared {
+    fn add_writer(&self, w: JoinHandle<()>) {
+        let mut ws = self.writers.lock();
+        ws.retain(|w| !w.is_finished());
+        ws.push(w);
+    }
 }
 
 impl Shared {
@@ -189,14 +203,26 @@ impl Pipeline {
         self.video.as_ref().is_some_and(|h| !h.is_finished())
     }
     /// Runs under the engine lock: audio threads (WASAPI can hang with the
-    /// Windows audio service) get at most 2 s before they are left behind.
-    fn shutdown(mut self) {
+    /// Windows audio service) get at most 2 s before they are left behind,
+    /// the capture thread `SHUTDOWN_WAIT` (a driver call can hang, and the
+    /// whole engine would with it). One left behind goes to `stray`: no new
+    /// capture starts until it ends.
+    fn shutdown(mut self, stray: &mut Vec<JoinHandle<()>>) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(a) = self.audio.take() {
             a.stop();
         }
         if let Some(v) = self.video.take() {
-            let _ = v.join();
+            let deadline = Instant::now() + SHUTDOWN_WAIT;
+            while !v.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if v.is_finished() {
+                let _ = v.join();
+            } else {
+                log::warn!("capture thread did not stop within {SHUTDOWN_WAIT:?}, leaving it behind");
+                stray.push(v);
+            }
         }
     }
 }
@@ -244,6 +270,7 @@ impl Engine {
             denoise: Arc::default(),
             live_audio: Arc::default(),
             recorder: Mutex::new(None),
+            writers: Mutex::new(Vec::new()),
             replay_on: AtomicBool::new(false),
             force_key: AtomicBool::new(false),
             frame_now: AtomicBool::new(false),
@@ -288,7 +315,7 @@ impl Engine {
                         // Capture only ran for the recording (see `stop_recording`).
                         if !st.replay_enabled || st.paused {
                             if let Some(p) = st.pipeline.take() {
-                                p.shutdown();
+                                p.shutdown(&mut st.stray);
                             }
                         }
                     }
@@ -300,7 +327,7 @@ impl Engine {
                             log::warn!("pipeline died: {err}; restarting");
                             events(EngineEvent::Error { message: err.clone() });
                             st.last_error = Some(err);
-                            p.shutdown();
+                            p.shutdown(&mut st.stray);
                         }
                         // The recording cannot go on in a new pipeline: save it.
                         finish_recording(&shared, &events);
@@ -397,7 +424,7 @@ impl Engine {
         }
         st.cfg = cfg;
         let res = if let Some(p) = st.pipeline.take() {
-            p.shutdown();
+            p.shutdown(&mut st.stray);
             // A recording ends with its pipeline (see `start_pipeline`), so
             // capture only restarts if replay still needs it.
             finish_recording(&self.shared, &self.events);
@@ -434,9 +461,15 @@ impl Engine {
         let res = if paused {
             if !recording {
                 if let Some(p) = st.pipeline.take() {
-                    p.shutdown();
+                    p.shutdown(&mut st.stray);
                 }
                 log::info!("capture paused");
+            }
+            // Capture starts over with a new replay after the pause; kept
+            // meanwhile it would hold its memory for nothing, and a clip
+            // saved from it would end in a frozen frame as long as the pause.
+            if let Some(b) = self.shared.buffer.lock().as_mut() {
+                b.clear();
             }
             Ok(())
         } else if st.replay_enabled && st.pipeline.is_none() {
@@ -474,7 +507,7 @@ impl Engine {
             }
             if self.shared.recorder.lock().is_none() {
                 if let Some(p) = st.pipeline.take() {
-                    p.shutdown();
+                    p.shutdown(&mut st.stray);
                 }
             }
             Ok(())
@@ -548,7 +581,7 @@ impl Engine {
         };
         self.shared.frame_now.store(true, Ordering::Relaxed);
         let (events, shared) = (self.events.clone(), self.shared.clone());
-        std::thread::Builder::new().name("gc-save".into()).spawn(move || {
+        let writer = std::thread::Builder::new().name("gc-save".into()).spawn(move || {
             // Audio is encoded slightly behind video; let it catch up to
             // `end`, which is up to a frame ahead of now.
             std::thread::sleep(AUDIO_CATCH_UP + Duration::from_micros(ahead as u64));
@@ -580,6 +613,7 @@ impl Engine {
                 }
             }
         })?;
+        self.shared.add_writer(writer);
         Ok(SaveOutcome::Started)
     }
 
@@ -596,7 +630,7 @@ impl Engine {
         // the recording at once: replace it now instead.
         if st.pipeline.as_ref().is_some_and(|p| !p.is_alive()) {
             if let Some(p) = st.pipeline.take() {
-                p.shutdown();
+                p.shutdown(&mut st.stray);
             }
         }
         if st.pipeline.is_none() {
@@ -604,7 +638,18 @@ impl Engine {
             self.after_change(&mut st, r)?;
         }
         let streams = st.pipeline.as_ref().unwrap().streams.clone();
-        let rec = Recorder::start(path.clone(), streams, comment)?;
+        let rec = match Recorder::start(path.clone(), streams, comment) {
+            Ok(r) => r,
+            Err(e) => {
+                // Capture that was started only for this recording.
+                if !st.replay_enabled || st.paused {
+                    if let Some(p) = st.pipeline.take() {
+                        p.shutdown(&mut st.stray);
+                    }
+                }
+                return Err(e);
+            }
+        };
         *self.shared.recorder.lock() = Some((rec, Instant::now()));
         self.shared.force_key.store(true, Ordering::Relaxed);
         drop(st);
@@ -622,7 +667,7 @@ impl Engine {
             let mut st = self.state.lock();
             if !st.replay_enabled || st.paused {
                 if let Some(p) = st.pipeline.take() {
-                    p.shutdown();
+                    p.shutdown(&mut st.stray);
                 }
             }
         }
@@ -689,7 +734,20 @@ impl Engine {
         let mut st = self.state.lock();
         st.shutdown = true;
         if let Some(p) = st.pipeline.take() {
-            p.shutdown();
+            p.shutdown(&mut st.stray);
+        }
+        drop(st);
+        // Clips and recordings still being written: cut off, they would be
+        // lost (a clip) or left unfinished until the next start.
+        let writers: Vec<_> = std::mem::take(&mut *self.shared.writers.lock());
+        let deadline = Instant::now() + FINISH_WAIT;
+        for w in writers {
+            while !w.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if w.is_finished() {
+                let _ = w.join();
+            }
         }
         self.alive.store(false, Ordering::Relaxed);
     }
@@ -713,9 +771,10 @@ fn finish_recording(shared: &Shared, events: &EventSink) -> bool {
         Ok(path) => events(EngineEvent::RecordingSaved { path }),
         Err(e) => events(EngineEvent::RecordingFailed { error: format!("{e:#}") }),
     });
-    // Unlikely; dropping the recorder still finishes the file.
-    if let Err(e) = spawned {
-        log::error!("finish recording: {e}");
+    match spawned {
+        Ok(w) => shared.add_writer(w),
+        // Unlikely; dropping the recorder still finishes the file.
+        Err(e) => log::error!("finish recording: {e}"),
     }
     true
 }
@@ -729,6 +788,12 @@ fn retry_delay(failures: u32) -> Duration {
         _ => 60,
     })
 }
+
+/// How long stopping capture waits for the capture thread.
+const SHUTDOWN_WAIT: Duration = Duration::from_secs(5);
+
+/// How long quitting waits for clips and recordings still being written.
+const FINISH_WAIT: Duration = Duration::from_secs(20);
 
 /// How long the video thread may take to set up (device, duplication,
 /// encoder) before the start counts as failed.
@@ -910,7 +975,7 @@ fn capture_once(monitor: Option<&str>) -> Result<Shot> {
     let mut make = move |w, h| create_texture(&dev2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_SHADER_RESOURCE);
     let until = Instant::now() + Duration::from_secs(2);
     while Instant::now() < until {
-        if let Poll::Changed { desktop: true } = dup.poll(&ctx, &mut desktop, &mut make, &mut cursor)? {
+        if let Poll::Changed { desktop: true, .. } = dup.poll(&ctx, &mut desktop, &mut make, &mut cursor)? {
             return readback(&device, &ctx, desktop.as_ref().unwrap(), dup.rotation);
         }
         std::thread::sleep(Duration::from_millis(16));
@@ -946,7 +1011,7 @@ fn video_thread(
         let mut make = move |w, h| create_texture(&dev2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, bind);
         let until = Instant::now() + Duration::from_secs(1);
         while Instant::now() < until {
-            if let Poll::Changed { desktop: true } = dup.poll(&ctx, &mut desktop, &mut make, &mut cursor)? {
+            if let Poll::Changed { desktop: true, .. } = dup.poll(&ctx, &mut desktop, &mut make, &mut cursor)? {
                 break;
             }
             std::thread::sleep(Duration::from_millis(15));
@@ -1041,10 +1106,15 @@ fn video_thread(
     // time (the encoder counts frames, which would stretch its GOP).
     let vfr = !cfg.constant_fps;
     let max_gap = fps.div_ceil(MIN_FPS) as i64;
+    let small_gap = fps.div_ceil(SMALL_CHANGE_FPS) as i64;
     let key_every = fps as i64;
     // An image not encoded yet: new desktop or pointer, hold start or end,
     // or a frame asked for (a clip ends now).
     let mut need = true;
+    // Only small changes since the last frame sent: sent at `small_gap`.
+    let mut need_small = false;
+    // Among the changes waiting in `dirty`, one that isn't small.
+    let mut big = true;
     let mut last_sent: Option<i64> = None;
     let mut last_key: Option<i64> = None;
     // Every tick is encoded before this one (a clip was asked for).
@@ -1065,6 +1135,8 @@ fn video_thread(
     let (mut prof_ticks, mut prof_frames) = (0u64, 0u64);
     // New desktop images and pointer-only changes, for the same log.
     let mut prof_changes = [0u64; 2];
+    // Of the new desktop images, the small changes.
+    let mut prof_small = 0u64;
     let mut prof_t = Instant::now();
     let mut dropped_at_log = 0u64;
     // Drops per second over the last 10 s, for a "dropping now" indicator.
@@ -1101,7 +1173,7 @@ fn video_thread(
         }
         if !hold {
             match dup.poll(&ctx, &mut desktop, &mut make_tex, &mut cursor)? {
-                Poll::Changed { desktop: d } => {
+                Poll::Changed { desktop: d, small, pointer } => {
                     if d {
                         // The copy replaced the whole image, a drawn cursor included.
                         if let Some(c) = cursor_r.as_mut() {
@@ -1116,8 +1188,15 @@ fn video_thread(
                     // Only the pointer changed: news only if it is drawn.
                     if d || cursor_r.is_some() {
                         dirty = true;
+                        // A moving pointer stays smooth.
+                        if !(d && small) || (pointer && cursor_r.is_some()) {
+                            big = true;
+                        }
                     }
                     prof_changes[usize::from(!d)] += 1;
+                    if d && small {
+                        prof_small += 1;
+                    }
                 }
                 Poll::Idle | Poll::Lost => {}
             }
@@ -1128,7 +1207,7 @@ fn video_thread(
                 desktop_raw = raw;
                 conv.reset_inputs();
                 if let Some(c) = cursor_r.as_mut() {
-                    c.forget();
+                    c.release_target();
                 }
             }
         }
@@ -1176,7 +1255,11 @@ fn video_thread(
                 }
                 input = Some(src.clone());
                 if std::mem::take(&mut dirty) {
-                    need = true;
+                    if std::mem::take(&mut big) {
+                        need = true;
+                    } else {
+                        need_small = true;
+                    }
                 }
             }
         }
@@ -1194,7 +1277,7 @@ fn video_thread(
                 || key_due
                 || tick < burst_until
                 || shared.force_key.load(Ordering::Relaxed)
-                || last_sent.is_none_or(|s| tick - s >= max_gap);
+                || last_sent.is_none_or(|s| tick - s >= max_gap || (need_small && tick - s >= small_gap));
             let mut sent = true;
             if send {
                 let tx = encoder.tx.as_ref().unwrap();
@@ -1235,6 +1318,7 @@ fn video_thread(
                 };
                 if sent {
                     need = false;
+                    need_small = false;
                     last_sent = Some(tick);
                 } else {
                     // Still `need`: sent at the next tick the queue has room.
@@ -1281,10 +1365,11 @@ fn video_thread(
                 format!("{:.1}/{:.1}", prof[i].0 as f64 / n as f64 / 1000.0, prof[i].1 as f64 / 1000.0)
             };
             log::info!(
-                "video: {:.1} ticks/s, {:.1} encoded/s (desktop changed {:.1}/s, pointer only {:.1}/s), dropped {} (encoder busy {}) | ms avg/max poll {} compose {} convert {} queue {}",
+                "video: {:.1} ticks/s, {:.1} encoded/s (desktop changed {:.1}/s of which small {:.1}/s, pointer only {:.1}/s), dropped {} (encoder busy {}) | ms avg/max poll {} compose {} convert {} queue {}",
                 prof_ticks as f64 / secs,
                 prof_frames as f64 / secs,
                 prof_changes[0] as f64 / secs,
+                prof_small as f64 / secs,
                 prof_changes[1] as f64 / secs,
                 d - dropped_at_log,
                 queue_drops,
@@ -1296,7 +1381,7 @@ fn video_thread(
             dropped_at_log = d;
             queue_drops = 0;
             prof = [(0, 0); 4];
-            (prof_ticks, prof_frames, prof_changes) = (0, 0, [0; 2]);
+            (prof_ticks, prof_frames, prof_changes, prof_small) = (0, 0, [0; 2], 0);
             prof_t = Instant::now();
         }
     }

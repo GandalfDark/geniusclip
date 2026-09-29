@@ -8,7 +8,7 @@ use crate::cursor::{convert_shape, CursorState};
 use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 use windows::core::{Interface, HRESULT};
-use windows::Win32::Foundation::{E_ACCESSDENIED, LUID};
+use windows::Win32::Foundation::{E_ACCESSDENIED, LUID, RECT};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
@@ -142,13 +142,21 @@ pub struct Duplicator {
     /// A long wait was logged for the current failure streak.
     wait_logged: bool,
     shape_buf: Vec<u8>,
+    /// Dirty and move rectangles of the last frame.
+    meta_buf: Vec<u8>,
 }
+
+/// A frame whose changed area is at most this share of the screen changed
+/// only a sliver of it: a blinking caret, a spinner, a chat's typing dots.
+pub const SMALL_CHANGE: f64 = 0.01;
 
 pub enum Poll {
     /// Nothing changed since the last poll.
     Idle,
-    /// Desktop image and/or cursor changed. `desktop` is true when the image was copied.
-    Changed { desktop: bool },
+    /// Desktop image and/or cursor changed. `desktop` is true when the image
+    /// was copied, `small` when only a sliver of it changed (see
+    /// `SMALL_CHANGE`), `pointer` when the cursor moved or changed.
+    Changed { desktop: bool, small: bool, pointer: bool },
     /// Duplication is temporarily unavailable (secure desktop, mode change…).
     Lost,
 }
@@ -177,6 +185,7 @@ impl Duplicator {
             lost_since: None,
             wait_logged: false,
             shape_buf: Vec::new(),
+            meta_buf: Vec::new(),
         };
         if let Err(e) = me.start() {
             log::warn!("desktop duplication not available yet: {e:#}");
@@ -249,6 +258,7 @@ impl Duplicator {
 
         let result = (|| -> Result<Poll> {
             let mut desktop = false;
+            let mut small = false;
             let mut cur = false;
             if info.LastPresentTime != 0 {
                 if let Some(res) = res.as_ref() {
@@ -267,6 +277,7 @@ impl Duplicator {
                     }
                     unsafe { ctx.CopyResource(dst.as_ref().unwrap(), &tex) };
                     desktop = true;
+                    small = self.changed_share(&dup, info.TotalMetadataBufferSize).is_some_and(|s| s <= SMALL_CHANGE);
                 }
             }
             if info.LastMouseUpdateTime != 0 {
@@ -297,7 +308,7 @@ impl Duplicator {
                 cursor.shape_gen += 1;
                 cur = true;
             }
-            Ok(if desktop || cur { Poll::Changed { desktop } } else { Poll::Idle })
+            Ok(if desktop || cur { Poll::Changed { desktop, small, pointer: cur } } else { Poll::Idle })
         })();
 
         unsafe {
@@ -315,6 +326,33 @@ impl Duplicator {
                 self.lost(e, Duration::from_millis(100))
             }
         }
+    }
+
+    /// Share of the screen the frame's dirty and move rectangles cover (an
+    /// overestimate where they overlap), if Windows reports them.
+    fn changed_share(&mut self, dup: &IDXGIOutputDuplication, meta_size: u32) -> Option<f64> {
+        if meta_size == 0 {
+            log::trace!("changed: no metadata");
+            return None;
+        }
+        let area = |r: &RECT| ((r.right - r.left).max(0) as f64) * ((r.bottom - r.top).max(0) as f64);
+        self.meta_buf.resize(meta_size as usize, 0);
+        let mut total = 0.0;
+        let mut used = 0u32;
+        let ok = unsafe {
+            dup.GetFrameMoveRects(meta_size, self.meta_buf.as_mut_ptr() as *mut DXGI_OUTDUPL_MOVE_RECT, &mut used)
+        };
+        ok.ok()?;
+        let moves = used as usize / std::mem::size_of::<DXGI_OUTDUPL_MOVE_RECT>();
+        let moved = unsafe { std::slice::from_raw_parts(self.meta_buf.as_ptr() as *const DXGI_OUTDUPL_MOVE_RECT, moves) };
+        total += moved.iter().map(|m| area(&m.DestinationRect)).sum::<f64>();
+        let ok = unsafe { dup.GetFrameDirtyRects(meta_size, self.meta_buf.as_mut_ptr() as *mut RECT, &mut used) };
+        ok.ok()?;
+        let dirty = unsafe { std::slice::from_raw_parts(self.meta_buf.as_ptr() as *const RECT, used as usize / std::mem::size_of::<RECT>()) };
+        total += dirty.iter().map(area).sum::<f64>();
+        let screen = self.width as f64 * self.height as f64;
+        log::trace!("changed: {} moves, {} dirty rects, {:.3} of the screen, first {:?}", moves, dirty.len(), total / screen.max(1.0), dirty.first().map(|r| (r.left, r.top, r.right, r.bottom)));
+        (screen > 0.0).then(|| total / screen)
     }
 
     fn recovered(&mut self) {

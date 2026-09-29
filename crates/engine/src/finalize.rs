@@ -530,20 +530,26 @@ pub fn finalize_file(f: &mut File) -> Result<Outcome> {
     Ok(Outcome::Finished)
 }
 
-/// Whether the file is a recording that isn't finished: its first `moov`
-/// is a fragmented header (with `mvex`). Reads only the first few boxes.
+/// Whether the file is a recording that isn't finished: it has fragments,
+/// or two `moov` (a finish cut short). From the box headers alone: a
+/// finished one is `ftyp free mdat moov`, and its index isn't read.
 pub fn needs_finish(f: &mut File) -> Result<bool> {
     let len = f.metadata()?.len();
     let mut at = 0;
+    let mut moovs = 0;
     for _ in 0..16 {
-        let Some((typ, hdr, size)) = box_header(f, at, len)? else { return Ok(false) };
-        if typ == *b"moov" {
-            ensure!(size <= MAX_HEADER && at + size <= len, "bad header");
-            return Ok(find(&read_at(f, at + hdr, size - hdr)?, b"mvex")?.is_some());
+        let Some((typ, _, size)) = box_header(f, at, len)? else { break };
+        match &typ {
+            b"moof" => return Ok(true),
+            b"moov" => moovs += 1,
+            _ => {}
         }
         at = at.checked_add(size).context("bad box size")?;
+        if at >= len {
+            break;
+        }
     }
-    Ok(false)
+    Ok(moovs > 1)
 }
 
 /// True if the file has no fragments (already regular). A finish that was
