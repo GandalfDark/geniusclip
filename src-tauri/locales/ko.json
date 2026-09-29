@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "마지막 클립 이후 새 장면이 없어요",
   "ov.replay-wait": "게임 대기 중",
   "ov.replay-wait.sub": "게임이 전체 화면이 되면 녹화를 시작합니다",
+  "ov.replay-paused": "리플레이 일시 정지됨",
+  "ov.replay-paused.sub": "노트북이 배터리로 작동 중이에요 — 충전기를 연결해 주세요",
   "ov.copied": "클립 복사됨",
   "ov.copied.sub": "채팅에 붙여넣기: Ctrl+V",
   "setup.title": "GeniusClip 설치",

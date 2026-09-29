@@ -143,6 +143,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
         "replay-off-hint" => t(lang, "ov.replay-off-hint.sub").to_string(),
         "already-saved" => t(lang, "ov.already-saved.sub").to_string(),
         "replay-wait" => t(lang, "ov.replay-wait.sub").to_string(),
+        "replay-paused" => t(lang, "ov.replay-paused.sub").to_string(),
         "copied" => t(lang, "ov.copied.sub").to_string(),
         "menu-unavailable" => t(lang, "ov.menu-unavailable.sub").to_string(),
         "disk-low" => {
@@ -162,7 +163,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     };
     let bar = match toast.kind.as_str() {
         "error" | "recording-start" => REC_RED,
-        "replay-off" | "replay-off-hint" | "already-saved" | "replay-wait" => MUTED,
+        "replay-off" | "replay-off-hint" | "already-saved" | "replay-wait" | "replay-paused" => MUTED,
         "disk-low" => WARNING,
         _ => accent(&s.accent),
     };

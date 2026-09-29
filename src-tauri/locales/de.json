@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "Nichts Neues seit dem letzten Clip",
   "ov.replay-wait": "Wartet auf ein Spiel",
   "ov.replay-wait.sub": "Die Aufnahme startet, sobald ein Spiel im Vollbild läuft",
+  "ov.replay-paused": "Replay pausiert",
+  "ov.replay-paused.sub": "Der Laptop läuft im Akkubetrieb — schließe das Ladegerät an",
   "ov.copied": "Clip kopiert",
   "ov.copied.sub": "In einen Chat einfügen: Strg+V",
   "setup.title": "GeniusClip-Setup",

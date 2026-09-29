@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "Son klipten beri yeni bir şey yok",
   "ov.replay-wait": "Oyun bekleniyor",
   "ov.replay-wait.sub": "Bir oyun tam ekrana geçtiğinde kayıt başlar",
+  "ov.replay-paused": "Anlık tekrar duraklatıldı",
+  "ov.replay-paused.sub": "Dizüstü pille çalışıyor — şarj cihazını tak",
   "ov.copied": "Klip kopyalandı",
   "ov.copied.sub": "Sohbete yapıştır: Ctrl+V",
   "setup.title": "GeniusClip Kurulumu",

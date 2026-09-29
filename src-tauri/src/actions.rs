@@ -98,6 +98,12 @@ fn save(app: &AppHandle, seconds: Option<u32>) {
         overlay::toast(app, Toast::simple("replay-wait"));
         return;
     }
+    // Only the battery pause can meet a key press (the others are a dark or
+    // locked screen); the replay is empty while paused.
+    if crate::power::system_paused() {
+        overlay::toast(app, Toast::simple("replay-paused"));
+        return;
+    }
     let g = current_game(app);
     let path = target_path(&s, &s.clips_dir, &g, "", "mp4");
     let res = ensure_dir(&path).and_then(|_| {
@@ -152,6 +158,12 @@ pub fn set_replay(app: &AppHandle, on: bool) {
     }
     // Game tracking runs only with replay on.
     crate::wake_ticker();
+    if on {
+        // "Only in games" decides first whether capture starts at all.
+        crate::power::sync(app);
+    } else {
+        forget_game();
+    }
     if let Err(e) = apply_replay(app) {
         fail(app, e);
     }
@@ -303,7 +315,9 @@ pub fn track_foreground(app: &AppHandle) {
     let (found, in_game) = {
         let mut tracked = TRACKED.lock();
         match tracked.as_ref() {
-            Some(t) if t.key == key && t.at.elapsed() < TRACK_REFRESH => (t.found.clone(), t.in_game),
+            // The periodic refresh is only for "Only in games": naming clips
+            // after a game that closed meanwhile is harmless.
+            Some(t) if t.key == key && (t.at.elapsed() < TRACK_REFRESH || !games_only(app)) => (t.found.clone(), t.in_game),
             _ => {
                 let fullscreen = fullscreen_on_capture_monitor(app);
                 let in_game = fullscreen.as_ref().is_some_and(game::is_game);
@@ -327,25 +341,50 @@ static GAME_SEEN: Mutex<Option<Instant>> = Mutex::new(None);
 /// goes on for the replay's length: a quick alt-tab keeps the game in the
 /// replay, and past that the replay would hold none of it anyway.
 fn games_gate(app: &AppHandle, in_game: bool) {
+    crate::power::set_waiting_for_game(games_waiting_for(app, in_game));
+}
+
+fn games_only(app: &AppHandle) -> bool {
+    app.state::<AppState>().settings.read().games_only
+}
+
+/// Whether "Only in games" holds capture, given whether a game is on the
+/// recorded monitor right now.
+fn games_waiting_for(app: &AppHandle, in_game: bool) -> bool {
     let st = app.state::<AppState>();
     let (on, secs) = {
         let s = st.settings.read();
         (s.games_only, s.replay_seconds)
     };
-    let waiting = on && {
+    on && {
         let mut seen = GAME_SEEN.lock();
         if in_game {
             *seen = Some(Instant::now());
         }
         seen.is_none_or(|t| t.elapsed() > Duration::from_secs(secs as u64))
-    };
-    crate::power::set_waiting_for_game(waiting);
+    }
 }
 
-/// The "Only in games" check right away (at startup, after the setting changed).
+/// The same with a fresh look at the recorded monitor, for when the tick
+/// loop isn't checking (replay off, a pause ending, startup).
+pub fn games_waiting(app: &AppHandle) -> bool {
+    if !games_only(app) {
+        return false;
+    }
+    let in_game = fullscreen_on_capture_monitor(app).as_ref().is_some_and(game::is_game);
+    games_waiting_for(app, in_game)
+}
+
+/// The replay that held the last game seen is gone (a pause, replay off):
+/// no grace after it any more.
+pub fn forget_game() {
+    *GAME_SEEN.lock() = None;
+}
+
+/// The "Only in games" check right away (after the setting changed).
 pub fn check_games_gate(app: &AppHandle) {
     *TRACKED.lock() = None;
-    track_foreground(app);
+    crate::power::set_waiting_for_game(games_waiting(app));
 }
 
 /// Copies the newest clip or recording to the clipboard (tray action).

@@ -346,18 +346,27 @@ fn check_media_path(st: &AppState, p: &Path) -> CmdResult<()> {
     }
 }
 
+/// Async: the recycle bin can take a while on a slow or network drive.
 #[tauri::command]
-pub fn delete_media(app: AppHandle, path: PathBuf) -> CmdResult<()> {
-    let st = app.state::<AppState>();
-    check_media_path(&st, &path)?;
-    trash::delete(&path).map_err(|e| file_failed("delete", &path, &e, None))?;
-    st.library.forget(&path);
-    crate::emit_library_changed(&app, &path, None, true);
-    Ok(())
+pub async fn delete_media(app: AppHandle, path: PathBuf) -> CmdResult<()> {
+    blocking(move || {
+        let st = app.state::<AppState>();
+        check_media_path(&st, &path)?;
+        trash::delete(&path).map_err(|e| file_failed("delete", &path, &e, None))?;
+        st.library.forget(&path);
+        crate::emit_library_changed(&app, &path, None, true);
+        Ok(())
+    })
+    .await?
 }
 
+/// Async: renaming on a slow or network drive must not hold the UI thread.
 #[tauri::command]
-pub fn rename_media(app: AppHandle, path: PathBuf, name: String) -> CmdResult<PathBuf> {
+pub async fn rename_media(app: AppHandle, path: PathBuf, name: String) -> CmdResult<PathBuf> {
+    blocking(move || rename_media_now(&app, path, name)).await?
+}
+
+fn rename_media_now(app: &AppHandle, path: PathBuf, name: String) -> CmdResult<PathBuf> {
     let st = app.state::<AppState>();
     check_media_path(&st, &path)?;
     let clean = geniusclip_engine::game::sanitize(&name);
@@ -374,9 +383,9 @@ pub fn rename_media(app: AppHandle, path: PathBuf, name: String) -> CmdResult<Pa
     }
     std::fs::rename(&path, &to).map_err(|e| file_failed("rename", &path, &e, Some(&e)))?;
     st.library.rename(&path, &to);
-    crate::emit_library_changed(&app, &path, None, true);
+    crate::emit_library_changed(app, &path, None, true);
     let entry = st.library.entry(&to);
-    crate::emit_library_changed(&app, &to, entry.as_ref(), false);
+    crate::emit_library_changed(app, &to, entry.as_ref(), false);
     Ok(to)
 }
 
@@ -719,10 +728,14 @@ pub async fn mic_test(app: AppHandle, on: bool) -> CmdResult<()> {
 }
 
 /// Shows a sample toast so the user can check the overlay position.
+/// Async: finding the game walks the windows and reads the exe's details.
 #[tauri::command]
-pub fn preview_toast(app: AppHandle) {
-    let game = crate::actions::current_game(&app).name;
-    crate::overlay::toast(&app, crate::overlay::Toast { kind: "clip".into(), game, seconds: 300.0, ..Default::default() });
+pub async fn preview_toast(app: AppHandle) {
+    let _ = blocking(move || {
+        let game = crate::actions::current_game(&app).name;
+        crate::overlay::toast(&app, crate::overlay::Toast { kind: "clip".into(), game, seconds: 300.0, ..Default::default() });
+    })
+    .await;
 }
 
 #[tauri::command]

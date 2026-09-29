@@ -28,7 +28,11 @@ pub fn spawn(app: AppHandle) {
         }
         let dir = app.state::<AppState>().settings.read().clips_dir.clone();
         for path in candidates(&dir) {
-            repair(&app, &path);
+            if is_recording(&path) {
+                repair(&app, &path);
+            } else {
+                drop_orphan(&path);
+            }
         }
     });
     if let Err(e) = spawned {
@@ -47,7 +51,8 @@ fn candidates(root: &Path) -> Vec<PathBuf> {
         let Ok(rd) = std::fs::read_dir(&dir) else { continue };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_lowercase();
-            if !(name.ends_with(" rec.mp4") || name.ends_with(" rec.mp4.part")) {
+            // Recordings, and clips whose writing was cut off (`.part`).
+            if !(name.ends_with(" rec.mp4") || name.ends_with(".mp4.part")) {
                 continue;
             }
             // Only in the cloud (OneDrive): reading would download it.
@@ -58,6 +63,22 @@ fn candidates(root: &Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+fn is_recording(path: &Path) -> bool {
+    let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    name.ends_with(" rec.mp4") || name.ends_with(" rec.mp4.part")
+}
+
+/// A clip's `.part` left by a crash: without its index it can't play, and
+/// it is deleted. One being written right now is open and skipped.
+fn drop_orphan(path: &Path) {
+    let Ok(f) = OpenOptions::new().read(true).write(true).share_mode(0).open(path) else { return };
+    drop(f);
+    match std::fs::remove_file(path) {
+        Ok(()) => log::info!("removed unfinished clip {}", path.display()),
+        Err(e) => log::warn!("unfinished clip {}: {e}", path.display()),
+    }
 }
 
 fn repair(app: &AppHandle, path: &Path) {
@@ -81,7 +102,11 @@ fn repair(app: &AppHandle, path: &Path) {
     drop(f);
     match result {
         Ok(finalize::Outcome::Empty) => {
+            // Cut off in its first second: nothing to keep.
             log::info!("recording {name}: nothing recorded");
+            if part {
+                let _ = std::fs::remove_file(path);
+            }
             return;
         }
         Ok(outcome) => log::info!("recording {name}: {outcome:?} in {:.1?}", started.elapsed()),

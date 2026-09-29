@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "Новых моментов пока нет",
   "ov.replay-wait": "Повтор ждёт игру",
   "ov.replay-wait.sub": "Запись начнётся, когда игра откроется на весь экран",
+  "ov.replay-paused": "Повтор на паузе",
+  "ov.replay-paused.sub": "Ноутбук работает от батареи — подключите зарядку",
   "ov.copied": "Клип скопирован",
   "ov.copied.sub": "Вставьте в чат: Ctrl+V",
   "setup.title": "Установка GeniusClip",

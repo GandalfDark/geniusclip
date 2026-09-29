@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "前回のクリップ以降、新しい場面はありません",
   "ov.replay-wait": "ゲームを待機中",
   "ov.replay-wait.sub": "ゲームが全画面になると録画を開始します",
+  "ov.replay-paused": "リプレイ一時停止中",
+  "ov.replay-paused.sub": "ノート PC がバッテリーで動作中です。充電器をつないでください",
   "ov.copied": "クリップをコピーしました",
   "ov.copied.sub": "チャットに貼り付け：Ctrl+V",
   "setup.title": "GeniusClip セットアップ",

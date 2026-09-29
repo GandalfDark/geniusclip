@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "上个片段之后没有新内容",
   "ov.replay-wait": "等待游戏",
   "ov.replay-wait.sub": "游戏全屏后开始录制",
+  "ov.replay-paused": "回放已暂停",
+  "ov.replay-paused.sub": "笔记本正在使用电池，请接上电源",
   "ov.copied": "片段已复制",
   "ov.copied.sub": "粘贴到聊天：Ctrl+V",
   "setup.title": "GeniusClip 安装程序",

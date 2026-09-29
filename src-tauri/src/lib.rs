@@ -287,7 +287,6 @@ pub fn run() {
             std::thread::spawn(move || {
                 actions::configure_engine(&h);
                 // "Only in games" with no game in front: capture doesn't start at all.
-                actions::check_games_gate(&h);
                 power::sync(&h);
                 if h.state::<AppState>().settings.read().replay_enabled {
                     if let Err(e) = actions::apply_replay(&h) {

@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "Соңғы клиптен бері жаңа сәт жоқ",
   "ov.replay-wait": "Қайталау ойынды күтуде",
   "ov.replay-wait.sub": "Ойын толық экранға ашылғанда жазу басталады",
+  "ov.replay-paused": "Қайталау кідіртілді",
+  "ov.replay-paused.sub": "Ноутбук батареядан жұмыс істеп тұр — зарядтағышты қосыңыз",
   "ov.copied": "Клип көшірілді",
   "ov.copied.sub": "Чатқа қойыңыз: Ctrl+V",
   "setup.title": "GeniusClip орнату",

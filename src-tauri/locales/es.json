@@ -24,6 +24,8 @@
   "ov.already-saved.sub": "Nada nuevo desde el último clip",
   "ov.replay-wait": "Esperando un juego",
   "ov.replay-wait.sub": "La captura empieza cuando un juego pasa a pantalla completa",
+  "ov.replay-paused": "Repetición en pausa",
+  "ov.replay-paused.sub": "El portátil funciona con batería: conecta el cargador",
   "ov.copied": "Clip copiado",
   "ov.copied.sub": "Pégalo en un chat: Ctrl+V",
   "setup.title": "Instalación de GeniusClip",

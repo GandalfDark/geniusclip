@@ -72,21 +72,37 @@ pub fn waiting_for_game() -> bool {
     WAITING_FOR_GAME.load(Ordering::Relaxed)
 }
 
+/// Serializes changes of the "waiting for a game" flag with their events, so
+/// the windows get them in the order they happened.
+static WAITING_LOCK: Mutex<()> = Mutex::new(());
+
 /// "Only in games": pauses capture (and empties the replay, which then holds
 /// no game any more) or lets it run again.
 pub fn set_waiting_for_game(waiting: bool) {
+    if store_waiting(waiting) {
+        apply();
+    }
+}
+
+/// Sets the flag; true if it changed (the caller applies it).
+fn store_waiting(waiting: bool) -> bool {
+    let _in_order = WAITING_LOCK.lock();
     if WAITING_FOR_GAME.swap(waiting, Ordering::Relaxed) == waiting {
-        return;
+        return false;
     }
     log::info!("{}", if waiting { "no game: capture waits for one" } else { "game: capture runs" });
     if let Some(app) = APP.get() {
+        // A recording made while waiting filled the replay with the desktop.
+        if !waiting {
+            app.state::<AppState>().engine.clear_replay();
+        }
         let _ = app.emit("capture://waiting", waiting);
     }
-    apply();
+    true
 }
 
-/// Applies the pause state now, on this thread (at startup, before replay
-/// starts, so it doesn't start only to stop a second later).
+/// Applies the pause state now, on this thread (at startup and before replay
+/// is turned on, so capture doesn't start only to stop a second later).
 pub fn sync(app: &AppHandle) {
     let _one_at_a_time = APPLY.lock();
     set_paused(app);
@@ -94,6 +110,15 @@ pub fn sync(app: &AppHandle) {
 
 fn set_paused(app: &AppHandle) {
     let st = app.state::<AppState>();
+    if paused_by_system(app) {
+        // Capture starts over after this pause, with a new replay: the game
+        // seen before it gives no grace.
+        crate::actions::forget_game();
+    } else {
+        // "Only in games" isn't checked during a pause: before capture
+        // resumes, it looks at the monitor.
+        store_waiting(crate::actions::games_waiting(app));
+    }
     let paused = should_pause(app);
     if let Err(e) = st.engine.set_paused(paused) {
         log::warn!("resume capture: {e:#}");
