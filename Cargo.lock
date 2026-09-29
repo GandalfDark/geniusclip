@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "geniusclip"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1674,7 +1674,7 @@ dependencies = [
 
 [[package]]
 name = "geniusclip-engine"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -1700,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "geniusclip-setup"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "embed-resource",
  "serde_json",
