@@ -38,6 +38,8 @@
 - **Audio** from the game and the microphone on separate tracks, with microphone noise
   suppression ([DeepFilterNet 3](https://github.com/Rikorose/DeepFilterNet)).
 - **Gallery** sorted by game, with favorites and a trim editor with per-track volume.
+- **Only in games** (optional): capture pauses while no game is on the recorded monitor,
+  so the PC isn't loaded outside games.
 - **In-game menu** (<kbd>Alt</kbd> + <kbd>X</kbd>) with recent clips, a player and quick
   settings. It is a separate always-on-top window: nothing is injected into games, so it
   is safe with anti-cheat systems.
