@@ -69,6 +69,7 @@ const locale: Locale = {
   'gallery.setIn': '시작 [I]',
   'gallery.setOut': '끝 [O]',
   'trim.video': '영상',
+  'trim.audio': '사운드',
   'trim.game': '게임',
   'trim.mic': '마이크',
   'trim.track': '트랙 {n}',

@@ -389,6 +389,13 @@ fn rename_media_now(app: &AppHandle, path: PathBuf, name: String) -> CmdResult<P
     Ok(to)
 }
 
+#[derive(Serialize, Clone)]
+struct ClipAudioProgress<'a> {
+    path: &'a Path,
+    /// 0..1
+    done: f32,
+}
+
 #[derive(Serialize)]
 pub struct ClipAudio {
     /// Track titles in file order.
@@ -412,8 +419,15 @@ pub async fn clip_audio(app: AppHandle, path: PathBuf) -> CmdResult<ClipAudio> {
         }
         // The mix track is rebuilt from the game and mic tracks, so it is never shown.
         let skip: &[usize] = if mix { &[0] } else { &[] };
-        let (files, peaks) =
-            app.state::<AppState>().library.clip_audio(&path, titles.len(), skip).map_err(|e| file_failed("clip audio", &path, &e, io_cause(&e)))?;
+        // A long recording takes a while: the editor shows how far along.
+        let mut progress = |done: f32| {
+            let _ = app.emit("clip-audio://progress", ClipAudioProgress { path: &path, done });
+        };
+        let (files, peaks) = app
+            .state::<AppState>()
+            .library
+            .clip_audio(&path, titles.len(), skip, &mut progress)
+            .map_err(|e| file_failed("clip audio", &path, &e, io_cause(&e)))?;
         Ok(ClipAudio { titles, mix, files, peaks })
     })
     .await

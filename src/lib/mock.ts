@@ -368,6 +368,13 @@ export function installMock() {
         case "clip_audio": {
           if (args.path !== "/dev-clip.mp4")
             return { titles: [], mix: false, files: [], peaks: [] };
+          // ?slowAudio: a long recording's tracks, prepared with progress.
+          if (new URLSearchParams(location.search).has("slowAudio")) {
+            for (let i = 1; i <= 20; i++) {
+              await new Promise((r) => setTimeout(r, 250));
+              emit("clip-audio://progress", { path: args.path, done: i / 20 });
+            }
+          }
           const peaks = await fetch("/dev-clip.peaks.json").then((r) =>
             r.json(),
           );

@@ -69,6 +69,7 @@ export const strings = {
   'gallery.setIn': 'Начало [I]',
   'gallery.setOut': 'Конец [O]',
   'trim.video': 'Видео',
+  'trim.audio': 'Звук',
   'trim.game': 'Игра',
   'trim.mic': 'Микрофон',
   'trim.track': 'Дорожка {n}',

@@ -69,6 +69,7 @@ const locale: Locale = {
   'gallery.setIn': 'Басы [I]',
   'gallery.setOut': 'Соңы [O]',
   'trim.video': 'Бейне',
+  'trim.audio': 'Дыбыс',
   'trim.game': 'Ойын',
   'trim.mic': 'Микрофон',
   'trim.track': 'Жолақ {n}',

@@ -69,6 +69,7 @@ const locale: Locale = {
   'gallery.setIn': '起点 [I]',
   'gallery.setOut': '终点 [O]',
   'trim.video': '视频',
+  'trim.audio': '声音',
   'trim.game': '游戏',
   'trim.mic': '麦克风',
   'trim.track': '音轨 {n}',

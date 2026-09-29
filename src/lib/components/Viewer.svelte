@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import { listen } from '@tauri-apps/api/event';
   import { onDestroy, onMount, tick } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { fade } from 'svelte/transition';
@@ -139,6 +140,7 @@
     lanes = [];
     peaks = {};
     audioFor = '';
+    audioPending = false;
   });
 
   // --- Audio lanes: per-track volume, heard live before saving.
@@ -149,9 +151,18 @@
   // reactive lanes so they aren't wrapped in proxies.
   let peaks = $state.raw<Record<number, number[]>>({});
   let audioFor = '';
+  // Preparing the tracks of a long recording takes a while: a stand-in lane
+  // shows how far along (not for a quick or cached one, which would flash).
+  let audioPending = $state(false);
+  let audioDone = $state(0);
 
   async function loadAudio(path: string) {
     audioFor = path;
+    audioDone = 0;
+    const shown = setTimeout(() => entry.path === path && (audioPending = true), 300);
+    const off = await listen<{ path: string; done: number }>('clip-audio://progress', (e) => {
+      if (e.payload.path === path) audioDone = e.payload.done;
+    });
     try {
       const a = await api.clipAudio(path);
       if (entry.path !== path) return;
@@ -177,6 +188,10 @@
         });
     } catch (e) {
       console.warn('clip audio', e);
+    } finally {
+      clearTimeout(shown);
+      off();
+      if (audioFor === path) audioPending = false;
     }
   }
 
@@ -630,6 +645,12 @@
         <div class="timeline" in:rise={{ y: 6, duration: 240 }}>
           <div class="heads">
             <div class="lane-head video-head"><Icon name="film" size={16} />{app.t('trim.video')}</div>
+            {#if audioPending && !lanes.length}
+              <div class="lane-head pending" out:fade={{ duration: 150 }}>
+                <Icon name="speaker" size={17} /><span class="name">{app.t('trim.audio')}</span>
+                <span class="val mono">{Math.round(audioDone * 100)}%</span>
+              </div>
+            {/if}
             {#each lanes as l (l.track)}
               <div class="lane-head" in:fade={{ duration: 200 }}>
                 <button class="mute" class:off={l.muted} title={app.t(l.muted ? 'trim.unmute' : 'trim.mute')} onclick={() => (l.muted = !l.muted)}>
@@ -672,6 +693,11 @@
               onkeydown={(e) => handleKey('end', e)}
             ></div>
           </div>
+          {#if audioPending && !lanes.length}
+            <div class="lane pending" out:fade={{ duration: 150 }} role="progressbar" aria-label={app.t('trim.audio')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(audioDone * 100)}>
+              <div class="fill" style:width="{audioDone * 100}%"></div>
+            </div>
+          {/if}
           {#each lanes as l (l.track)}
             <div
               class="lane"
@@ -973,6 +999,20 @@
   }
   .lane:focus-visible {
     border-color: var(--accent);
+  }
+  .lane-head.pending {
+    color: var(--text-3);
+  }
+  .lane.pending {
+    border-style: dashed;
+    cursor: default;
+  }
+  .lane.pending .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-bottom: 2px solid var(--accent);
+    transition: width 0.3s linear;
   }
   .track {
     position: relative;

@@ -32,37 +32,140 @@ pub fn is_mix_layout(titles: &[String]) -> bool {
     titles.len() == 3 && titles[1] == "Game" && titles[2] == "Mic"
 }
 
-/// Copies each audio track into its own .m4a (no re-encode) for preview.
-pub fn extract_tracks(path: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathBuf>> {
+/// A waveform slice gets about this many decoded packets at most (a slice
+/// of a four-hour recording spans over 500 per track: every few is enough
+/// to show its level).
+const PEAK_PACKETS_PER_SLICE: f64 = 48.0;
+
+/// The audio of a clip for the trim editor, in one read of the file: each
+/// track copied into its own .m4a (no re-encode) to preview volumes live,
+/// and its waveform, the peak level (0..1) in each of `buckets` equal
+/// slices. Only audio is read: the demuxer skips over the video's bytes,
+/// which are nearly all of the file. Tracks in `skip` get no file (an empty
+/// path) and an empty waveform. `progress` gets 0..1 as the file is read.
+pub fn prepare_tracks(
+    path: &Path,
+    out_dir: &Path,
+    stem: &str,
+    buckets: usize,
+    skip: &[usize],
+    progress: &mut dyn FnMut(f32),
+) -> Result<(Vec<PathBuf>, Vec<Vec<f32>>)> {
     std::fs::create_dir_all(out_dir)?;
     let input = Input::open(path)?;
     unsafe {
-        let mut muxers: Vec<(usize, Muxer, PathBuf)> = Vec::new();
+        let duration = (*input.0).duration as f64 / ff::AV_TIME_BASE as f64;
+        if !(duration > 0.0) || buckets == 0 {
+            bail!("unknown duration");
+        }
+        let per_bucket = duration * RATE as f64 / buckets as f64;
+        let mut files = Vec::new();
+        let mut peaks: Vec<Vec<f32>> = Vec::new();
+        // Per read stream: its track, muxer, decoder, time base, decode stride.
+        struct Track {
+            stream: usize,
+            k: usize,
+            mux: Muxer,
+            dec: Option<CodecCtx>,
+            tb: ff::AVRational,
+            stride: u64,
+            count: u64,
+            next: i64,
+        }
+        let mut tracks: Vec<Track> = Vec::new();
         for (i, &st) in input.streams().iter().enumerate() {
             let par = (*st).codecpar;
             if (*par).codec_type != ff::AVMediaType::AVMEDIA_TYPE_AUDIO {
+                (*st).discard = ff::AVDiscard::AVDISCARD_ALL;
                 continue;
             }
-            let dst = out_dir.join(format!("{stem}_{}.m4a", muxers.len()));
+            let k = files.len();
+            files.push(PathBuf::new());
+            peaks.push(Vec::new());
+            if skip.contains(&k) {
+                (*st).discard = ff::AVDiscard::AVDISCARD_ALL;
+                continue;
+            }
+            let dst = out_dir.join(format!("{stem}_{k}.m4a"));
             let desc = StreamDesc { kind: StreamKind::Audio, params: CodecParams::from_params(par)?, time_base: (*st).time_base, title: String::new() };
-            muxers.push((i, Muxer::create(&dst, &[desc], false, "")?, dst));
+            let mux = Muxer::create(&dst, &[desc], false, "")?;
+            files[k] = dst;
+            let codec = ff::avcodec_find_decoder((*par).codec_id);
+            let dec = if codec.is_null() {
+                None
+            } else {
+                let dec = CodecCtx(ff::avcodec_alloc_context3(codec));
+                check(ff::avcodec_parameters_to_context(dec.0, par), "parameters_to_context")?;
+                (*dec.0).pkt_timebase = (*st).time_base;
+                check(ff::avcodec_open2(dec.0, codec, ptr::null_mut()), "open audio decoder")?;
+                peaks[k] = vec![0f32; buckets];
+                Some(dec)
+            };
+            let frame = if (*par).frame_size > 0 { (*par).frame_size } else { 1024 } as f64;
+            let rate = if (*par).sample_rate > 0 { (*par).sample_rate } else { RATE as c_int } as f64;
+            let per_slice = duration * rate / frame / buckets as f64;
+            let stride = (per_slice / PEAK_PACKETS_PER_SLICE).floor().max(1.0) as u64;
+            tracks.push(Track { stream: i, k, mux, dec, tb: (*st).time_base, stride, count: 0, next: 0 });
         }
         let pkt = AvPacket::new();
+        let frame = AvFrame::new();
+        let take = |f: *const ff::AVFrame, tb: ff::AVRational, slot: &mut Vec<f32>, next: &mut i64| {
+            let f = &*f;
+            if f.format != ff::AVSampleFormat::AV_SAMPLE_FMT_FLTP as c_int {
+                return;
+            }
+            let n = f.nb_samples as usize;
+            let idx = if f.pts == ff::AV_NOPTS_VALUE { *next } else { rescale(f.pts, tb, q(1, RATE as i32)) };
+            *next = idx + n as i64;
+            for c in 0..(f.ch_layout.nb_channels.clamp(1, 2) as usize) {
+                let s = std::slice::from_raw_parts(f.data[c] as *const f32, n);
+                for (j, v) in s.iter().enumerate() {
+                    let b = ((idx + j as i64).max(0) as f64 / per_bucket) as usize;
+                    if let Some(p) = slot.get_mut(b) {
+                        *p = p.max(v.abs());
+                    }
+                }
+            }
+        };
+        let mut reported = 0.0f32;
         while ff::av_read_frame(input.0, pkt.0) >= 0 {
             let si = (*pkt.0).stream_index as usize;
-            if let Some((_, m, _)) = muxers.iter_mut().find(|(i, _, _)| *i == si) {
-                let tb = (*input.streams()[si]).time_base;
-                let p = Packet::from_av(pkt.0, tb);
-                m.write(0, &p, 0)?;
+            if let Some(t) = tracks.iter_mut().find(|t| t.stream == si) {
+                let p = Packet::from_av(pkt.0, t.tb);
+                t.mux.write(0, &p, 0)?;
+                if let Some(dec) = &t.dec {
+                    if t.count % t.stride == 0 && ff::avcodec_send_packet(dec.0, pkt.0) >= 0 {
+                        while ff::avcodec_receive_frame(dec.0, frame.0) >= 0 {
+                            take(frame.0, t.tb, &mut peaks[t.k], &mut t.next);
+                            ff::av_frame_unref(frame.0);
+                        }
+                    }
+                }
+                t.count += 1;
+                let done = (p.time_us as f64 / 1e6 / duration).clamp(0.0, 1.0) as f32;
+                if done - reported >= 0.01 {
+                    reported = done;
+                    progress(done);
+                }
             }
             ff::av_packet_unref(pkt.0);
         }
-        let mut paths = Vec::new();
-        for (_, m, dst) in muxers {
-            m.finish()?;
-            paths.push(dst);
+        for t in &mut tracks {
+            if let Some(dec) = &t.dec {
+                ff::avcodec_send_packet(dec.0, ptr::null());
+                while ff::avcodec_receive_frame(dec.0, frame.0) >= 0 {
+                    take(frame.0, t.tb, &mut peaks[t.k], &mut t.next);
+                    ff::av_frame_unref(frame.0);
+                }
+            }
         }
-        Ok(paths)
+        for t in tracks {
+            t.mux.finish()?;
+        }
+        for p in peaks.iter_mut().flat_map(|t| t.iter_mut()) {
+            *p = (p.min(1.0) * 1000.0).round() / 1000.0;
+        }
+        Ok((files, peaks))
     }
 }
 
@@ -279,83 +382,3 @@ pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, g
     Ok(())
 }
 
-/// Waveform of every audio track: the peak level (0..1) in each of
-/// `buckets` equal slices of the file. Tracks listed in `skip` are left empty.
-pub fn peaks(path: &Path, buckets: usize, skip: &[usize]) -> Result<Vec<Vec<f32>>> {
-    let input = Input::open(path)?;
-    unsafe {
-        let duration = (*input.0).duration as f64 / ff::AV_TIME_BASE as f64;
-        if !(duration > 0.0) || buckets == 0 {
-            bail!("unknown duration");
-        }
-        let per_bucket = duration * RATE as f64 / buckets as f64;
-        // (stream, decoder, time base, output slot)
-        let mut decs: Vec<(usize, CodecCtx, ff::AVRational, usize)> = Vec::new();
-        let mut out = Vec::new();
-        for (i, &st) in input.streams().iter().enumerate() {
-            let par = (*st).codecpar;
-            if (*par).codec_type != ff::AVMediaType::AVMEDIA_TYPE_AUDIO {
-                continue;
-            }
-            let k = out.len();
-            out.push(Vec::new());
-            if skip.contains(&k) {
-                continue;
-            }
-            let codec = ff::avcodec_find_decoder((*par).codec_id);
-            if codec.is_null() {
-                continue;
-            }
-            let dec = CodecCtx(ff::avcodec_alloc_context3(codec));
-            check(ff::avcodec_parameters_to_context(dec.0, par), "parameters_to_context")?;
-            (*dec.0).pkt_timebase = (*st).time_base;
-            check(ff::avcodec_open2(dec.0, codec, ptr::null_mut()), "open audio decoder")?;
-            out[k] = vec![0f32; buckets];
-            decs.push((i, dec, (*st).time_base, k));
-        }
-        let pkt = AvPacket::new();
-        let frame = AvFrame::new();
-        let mut next = vec![0i64; out.len()];
-        let take = |f: *const ff::AVFrame, tb: ff::AVRational, slot: &mut Vec<f32>, next: &mut i64| {
-            let f = &*f;
-            if f.format != ff::AVSampleFormat::AV_SAMPLE_FMT_FLTP as c_int {
-                return;
-            }
-            let n = f.nb_samples as usize;
-            let idx = if f.pts == ff::AV_NOPTS_VALUE { *next } else { rescale(f.pts, tb, q(1, RATE as i32)) };
-            *next = idx + n as i64;
-            for c in 0..(f.ch_layout.nb_channels.clamp(1, 2) as usize) {
-                let s = std::slice::from_raw_parts(f.data[c] as *const f32, n);
-                for (j, v) in s.iter().enumerate() {
-                    let b = ((idx + j as i64).max(0) as f64 / per_bucket) as usize;
-                    if let Some(p) = slot.get_mut(b) {
-                        *p = p.max(v.abs());
-                    }
-                }
-            }
-        };
-        while ff::av_read_frame(input.0, pkt.0) >= 0 {
-            let si = (*pkt.0).stream_index as usize;
-            if let Some((_, dec, tb, k)) = decs.iter().find(|d| d.0 == si) {
-                if ff::avcodec_send_packet(dec.0, pkt.0) >= 0 {
-                    while ff::avcodec_receive_frame(dec.0, frame.0) >= 0 {
-                        take(frame.0, *tb, &mut out[*k], &mut next[*k]);
-                        ff::av_frame_unref(frame.0);
-                    }
-                }
-            }
-            ff::av_packet_unref(pkt.0);
-        }
-        for (_, dec, tb, k) in &decs {
-            ff::avcodec_send_packet(dec.0, ptr::null());
-            while ff::avcodec_receive_frame(dec.0, frame.0) >= 0 {
-                take(frame.0, *tb, &mut out[*k], &mut next[*k]);
-                ff::av_frame_unref(frame.0);
-            }
-        }
-        for p in out.iter_mut().flat_map(|t| t.iter_mut()) {
-            *p = (p.min(1.0) * 1000.0).round() / 1000.0;
-        }
-        Ok(out)
-    }
-}

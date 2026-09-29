@@ -340,14 +340,14 @@ impl Library {
     /// preview and computes their waveforms (empty for skipped tracks).
     /// Each clip gets its own folder under `tracks`; the most recently used
     /// few are kept (see `TRACK_SETS_KEPT`).
-    pub fn clip_audio(&self, path: &Path, count: usize, skip: &[usize]) -> anyhow::Result<(Vec<PathBuf>, Vec<Vec<f32>>)> {
+    pub fn clip_audio(&self, path: &Path, count: usize, skip: &[usize], progress: &mut dyn FnMut(f32)) -> anyhow::Result<(Vec<PathBuf>, Vec<Vec<f32>>)> {
         let (size, modified) = file_stamp(path).ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
         let mut h = std::collections::hash_map::DefaultHasher::new();
         (path, size, modified).hash(&mut h);
         let stem = format!("{:016x}", h.finish());
         let root = self.thumbs_dir.join("tracks");
         let dir = root.join(&stem);
-        if let Some(cached) = read_tracks(&dir, count) {
+        if let Some(cached) = read_tracks(&dir, count, skip) {
             return Ok(cached);
         }
         // Every request extracts into a folder of its own, moved into place
@@ -357,8 +357,7 @@ impl Library {
         static REQUEST: AtomicU64 = AtomicU64::new(0);
         let tmp = root.join(format!("{stem}.{}.{}.tmp", std::process::id(), REQUEST.fetch_add(1, Ordering::Relaxed)));
         let made = (|| -> anyhow::Result<(Vec<PathBuf>, Vec<Vec<f32>>)> {
-            let files = geniusclip_engine::remix::extract_tracks(path, &tmp, "track")?;
-            let peaks = geniusclip_engine::remix::peaks(path, PEAK_BUCKETS, skip)?;
+            let (files, peaks) = geniusclip_engine::remix::prepare_tracks(path, &tmp, "track", PEAK_BUCKETS, skip, progress)?;
             std::fs::write(tmp.join(PEAKS_FILE), serde_json::to_vec(&peaks)?)?;
             Ok((files, peaks))
         })();
@@ -373,7 +372,7 @@ impl Library {
         };
         if std::fs::rename(&tmp, &dir).is_err() {
             // Another request for the same clip finished first: use its files.
-            if let Some(done) = read_tracks(&dir, count) {
+            if let Some(done) = read_tracks(&dir, count, skip) {
                 let _ = std::fs::remove_dir_all(&tmp);
                 return Ok(done);
             }
@@ -404,9 +403,11 @@ const TRACK_SETS_KEPT: usize = 2;
 const STALE_TMP: Duration = Duration::from_secs(3600);
 
 /// A complete track folder: its files and waveforms. Marks it as just used.
-fn read_tracks(dir: &Path, count: usize) -> Option<(Vec<PathBuf>, Vec<Vec<f32>>)> {
-    let files: Vec<PathBuf> = (0..count).map(|k| dir.join(format!("track_{k}.m4a"))).collect();
-    if !files.iter().all(|p| p.is_file()) {
+/// A finished set: a file for every track but the skipped ones (an empty
+/// path stands for those), and the waveforms.
+fn read_tracks(dir: &Path, count: usize, skip: &[usize]) -> Option<(Vec<PathBuf>, Vec<Vec<f32>>)> {
+    let files: Vec<PathBuf> = (0..count).map(|k| if skip.contains(&k) { PathBuf::new() } else { dir.join(format!("track_{k}.m4a")) }).collect();
+    if !files.iter().all(|p| p.as_os_str().is_empty() || p.is_file()) {
         return None;
     }
     let peaks_path = dir.join(PEAKS_FILE);
@@ -562,8 +563,8 @@ mod tests {
     fn read_tracks_needs_every_file_and_marks_use() {
         let root = scratch("read");
         let d = track_set(&root, "a", 600);
-        assert!(read_tracks(&d, 2).is_none());
-        let (files, peaks) = read_tracks(&d, 1).unwrap();
+        assert!(read_tracks(&d, 2, &[]).is_none());
+        let (files, peaks) = read_tracks(&d, 1, &[]).unwrap();
         assert_eq!(files, vec![d.join("track_0.m4a")]);
         assert_eq!(peaks, vec![vec![0.5]]);
         let used = std::fs::metadata(d.join(PEAKS_FILE)).unwrap().modified().unwrap();

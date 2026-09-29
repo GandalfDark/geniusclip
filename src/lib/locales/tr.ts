@@ -69,6 +69,7 @@ const locale: Locale = {
   'gallery.setIn': 'Başlangıç [I]',
   'gallery.setOut': 'Bitiş [O]',
   'trim.video': 'Video',
+  'trim.audio': 'Ses',
   'trim.game': 'Oyun',
   'trim.mic': 'Mikrofon',
   'trim.track': 'Parça {n}',

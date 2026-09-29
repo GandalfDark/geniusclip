@@ -69,6 +69,7 @@ const locale: Locale = {
   'gallery.setIn': 'Początek [I]',
   'gallery.setOut': 'Koniec [O]',
   'trim.video': 'Wideo',
+  'trim.audio': 'Dźwięk',
   'trim.game': 'Gra',
   'trim.mic': 'Mikrofon',
   'trim.track': 'Ścieżka {n}',
