@@ -78,35 +78,41 @@ fn fail(app: &AppHandle, e: impl std::fmt::Display) {
 }
 
 pub fn save_clip(app: &AppHandle) {
-    save(app, None);
+    save(app, None, false);
 }
 
 /// The short-clip hotkey: only the last few seconds (setting), e.g. a quick joke.
 pub fn save_short_clip(app: &AppHandle) {
     let secs = app.state::<AppState>().settings.read().short_seconds;
-    save(app, Some(secs));
+    save(app, Some(secs), false);
 }
 
-/// A clip of the last `seconds` (auto clips).
+/// A clip of the last `seconds` (auto clips). Nobody pressed a key, so
+/// nothing is said when there is no replay to save from.
 pub fn save_seconds(app: &AppHandle, seconds: u32) {
-    save(app, Some(seconds));
+    save(app, Some(seconds), true);
 }
 
-fn save(app: &AppHandle, seconds: Option<u32>) {
+fn save(app: &AppHandle, seconds: Option<u32>, quiet: bool) {
     let st = app.state::<AppState>();
     let s = st.settings.read().clone();
+    let say = |what| {
+        if !quiet {
+            overlay::toast(app, Toast::simple(what));
+        }
+    };
     if !s.replay_enabled {
-        overlay::toast(app, Toast::simple("replay-off-hint"));
+        say("replay-off-hint");
         return;
     }
     if crate::power::waiting_for_game() {
-        overlay::toast(app, Toast::simple("replay-wait"));
+        say("replay-wait");
         return;
     }
     // Only the battery pause can meet a key press (the others are a dark or
     // locked screen); the replay is empty while paused.
     if crate::power::system_paused() {
-        overlay::toast(app, Toast::simple("replay-paused"));
+        say("replay-paused");
         return;
     }
     let g = current_game(app);
@@ -117,7 +123,7 @@ fn save(app: &AppHandle, seconds: Option<u32>) {
     });
     match res {
         Ok(geniusclip_engine::SaveOutcome::Started) => {}
-        Ok(geniusclip_engine::SaveOutcome::NothingNew) => overlay::toast(app, Toast::simple("already-saved")),
+        Ok(geniusclip_engine::SaveOutcome::NothingNew) => say("already-saved"),
         Err(e) => fail(app, e),
     }
 }

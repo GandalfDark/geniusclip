@@ -380,7 +380,9 @@ fn saver(app: AppHandle) {
         };
         if !due.is_empty() {
             drop(q);
-            for p in due {
+            // Events due together (a kill that is also a multi-kill's last)
+            // make one clip, the longest.
+            if let Some(p) = due.iter().min_by_key(|p| p.from) {
                 let secs = (now - p.from).min(MAX_CLIP).as_secs().max(8) as u32;
                 log::info!("auto clip ({:?} {}): {secs} s", p.key.0, p.key.1);
                 crate::actions::save_seconds(&app, secs);
