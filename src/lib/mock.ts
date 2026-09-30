@@ -157,6 +157,7 @@ function status() {
     paused: new URLSearchParams(location.search).has("waiting"),
     lastError: null,
     noiseUnavailable: false,
+    codecFallback: new URLSearchParams(location.search).has("noAv1") && settings.engine.codec === "av1" ? "av1" : null,
   };
 }
 
@@ -232,6 +233,7 @@ export function installMock() {
             update: null,
             whatsNew,
             waitingForGame: new URLSearchParams(location.search).has("waiting"),
+            supportedCodecs: new URLSearchParams(location.search).has("noAv1") ? ["h264", "hevc"] : ["h264", "hevc", "av1"],
             lang: navigator.language.startsWith("ru") ? "ru" : "en",
           };
         case "get_status":

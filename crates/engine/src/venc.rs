@@ -53,6 +53,9 @@ pub struct VideoEncoder {
     pub height: u32,
     pub time_base: ff::AVRational,
     pub params: Arc<CodecParams>,
+    /// The codec asked for, when the GPU has no encoder for it and H.264
+    /// is used instead.
+    pub fallback: Option<Codec>,
 }
 
 unsafe impl Send for VideoEncoder {}
@@ -89,16 +92,36 @@ pub fn target_bitrate(cfg: &EngineConfig, w: u32, h: u32, fps: u32) -> i64 {
 }
 
 impl VideoEncoder {
+    /// An encoder for the configured codec; if the GPU has none for it (an
+    /// older card and HEVC or AV1), H.264 instead: replay keeps working, and
+    /// `fallback` tells what was asked for.
     pub fn new(device: &ID3D11Device, vendor: u32, cfg: &EngineConfig, width: u32, height: u32) -> Result<Self> {
+        match Self::open_codec(device, vendor, cfg, width, height, true) {
+            Err(e) if cfg.codec != Codec::H264 => {
+                log::warn!("no {:?} encoder on this GPU ({e:#}); recording in H.264", cfg.codec);
+                let h264 = EngineConfig { codec: Codec::H264, ..cfg.clone() };
+                let mut enc = Self::open_codec(device, vendor, &h264, width, height, true)?;
+                enc.fallback = Some(cfg.codec);
+                Ok(enc)
+            }
+            r => r,
+        }
+    }
+
+    fn open_codec(device: &ID3D11Device, vendor: u32, cfg: &EngineConfig, width: u32, height: u32, log_it: bool) -> Result<Self> {
         let mut last_err = anyhow!("no encoder candidates");
         for name in candidates(cfg.codec, vendor) {
-            match unsafe { Self::open(device, name, cfg, width, height) } {
+            match unsafe { Self::open(device, name, cfg, width, height, log_it) } {
                 Ok(e) => {
-                    log::info!("video encoder: {name} {width}x{height}@{} {} kbps", cfg.fps, e.bitrate() / 1000);
+                    if log_it {
+                        log::info!("video encoder: {name} {width}x{height}@{} {} kbps", cfg.fps, e.bitrate() / 1000);
+                    }
                     return Ok(e);
                 }
                 Err(e) => {
-                    log::warn!("encoder {name} failed: {e:#}");
+                    if log_it {
+                        log::warn!("encoder {name} failed: {e:#}");
+                    }
                     last_err = e;
                 }
             }
@@ -110,7 +133,7 @@ impl VideoEncoder {
         unsafe { (*self.ctx.0).bit_rate }
     }
 
-    unsafe fn open(device: &ID3D11Device, name: &str, cfg: &EngineConfig, width: u32, height: u32) -> Result<Self> {
+    unsafe fn open(device: &ID3D11Device, name: &str, cfg: &EngineConfig, width: u32, height: u32, log_it: bool) -> Result<Self> {
         let codec = ff::avcodec_find_encoder_by_name(cstr(name).as_ptr());
         if codec.is_null() {
             bail!("{name} not built into FFmpeg");
@@ -181,7 +204,9 @@ impl VideoEncoder {
                 r if r <= NVENC_P2_MAX => "p2",
                 _ => "p1",
             };
-            log::info!("{name}: preset {preset} ({:.0} Mpx/s)", rate as f64 / 1e6);
+            if log_it {
+                log::info!("{name}: preset {preset} ({:.0} Mpx/s)", rate as f64 / 1e6);
+            }
             set_opt(p, "preset", preset);
             set_opt(p, "tune", "hq");
             set_opt(p, "rc", "vbr");
@@ -197,7 +222,9 @@ impl VideoEncoder {
             // more for a difference nobody sees in a replay).
             let rate = width as u64 * height as u64 * fps as u64;
             let quality = if rate <= NVENC_P3_MAX { "balanced" } else { "speed" };
-            log::info!("{name}: quality preset {quality} ({:.0} Mpx/s)", rate as f64 / 1e6);
+            if log_it {
+                log::info!("{name}: quality preset {quality} ({:.0} Mpx/s)", rate as f64 / 1e6);
+            }
             set_opt(p, "usage", "transcoding");
             set_opt(p, "quality", quality);
             set_opt(p, "rc", "vbr_peak");
@@ -221,6 +248,7 @@ impl VideoEncoder {
             width,
             height,
             params,
+            fallback: None,
         })
     }
 
@@ -396,4 +424,20 @@ pub fn output_size(cfg: &EngineConfig, src_w: u32, src_h: u32) -> (u32, u32) {
         w = max_w;
     }
     (w & !1, h & !1)
+}
+
+/// The codecs the GPU of the monitor (None: the primary) can encode, found by
+/// opening a small encoder of each kind (no capture involved).
+pub fn supported_codecs(monitor: Option<&str>) -> Result<Vec<Codec>> {
+    let out = crate::d3d::find_output(monitor)?;
+    let (device, _ctx) = crate::d3d::create_device(&out.adapter)?;
+    let mut ok = Vec::new();
+    for codec in [Codec::H264, Codec::Hevc, Codec::Av1] {
+        let cfg = EngineConfig { codec, fps: 30, ..EngineConfig::default() };
+        if VideoEncoder::open_codec(&device, out.info.vendor_id, &cfg, 640, 360, false).is_ok() {
+            ok.push(codec);
+        }
+    }
+    log::info!("encodable codecs: {ok:?}");
+    Ok(ok)
 }

@@ -83,6 +83,8 @@ pub struct EngineStatus {
     pub last_error: Option<String>,
     /// Noise suppression is on but its model failed to load.
     pub noise_unavailable: bool,
+    /// The codec asked for, when the GPU can't encode it and capture runs in H.264.
+    pub codec_fallback: Option<crate::config::Codec>,
 }
 
 type EventSink = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -185,6 +187,7 @@ struct VideoInfo {
     encoder: String,
     width: u32,
     height: u32,
+    fallback: Option<crate::config::Codec>,
 }
 
 struct Pipeline {
@@ -557,6 +560,7 @@ impl Engine {
             paused: st.paused,
             last_error: st.last_error.clone(),
             noise_unavailable: st.cfg.noise_suppression && shared.denoise.failed(),
+            codec_fallback: p.and_then(|p| p.info.fallback),
         }
     }
 
@@ -1055,7 +1059,7 @@ fn video_thread(
         }
     };
     let desc = StreamDesc { kind: StreamKind::Video, params: enc.params.clone(), time_base: enc.time_base, title: "Video".into() };
-    let _ = init_tx.send(Ok(VideoInfo { desc, encoder: enc.name.clone(), width: enc.width, height: enc.height }));
+    let _ = init_tx.send(Ok(VideoInfo { desc, encoder: enc.name.clone(), width: enc.width, height: enc.height, fallback: enc.fallback }));
     if !go_rx.recv_timeout(Duration::from_secs(10)).unwrap_or(false) {
         return Ok(());
     }

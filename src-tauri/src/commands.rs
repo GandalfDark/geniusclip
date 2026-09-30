@@ -98,6 +98,8 @@ pub struct Snapshot {
     whats_new: Option<WhatsNew>,
     /// "Only in games" holds capture until a game shows up.
     waiting_for_game: bool,
+    /// Codecs the GPU can encode, once checked.
+    supported_codecs: Option<Vec<geniusclip_engine::Codec>>,
 }
 
 pub(crate) fn ram_total_mb() -> u64 {
@@ -126,6 +128,7 @@ pub async fn get_snapshot(app: AppHandle) -> CmdResult<Snapshot> {
             update: st.update.lock().clone(),
             whats_new: crate::updates::whats_new(&app),
             waiting_for_game: crate::power::waiting_for_game(),
+            supported_codecs: st.codecs.lock().clone(),
         };
         snapshot
     })

@@ -88,6 +88,8 @@ export interface EngineStatus {
   paused: boolean;
   lastError: string | null;
   noiseUnavailable: boolean;
+  /** The codec asked for, when the GPU can't encode it and capture runs in H.264. */
+  codecFallback: string | null;
 }
 
 export interface MonitorInfo {
@@ -133,6 +135,7 @@ export interface Snapshot {
   /** Set on the first start after an update, until dismissed. */
   whatsNew: WhatsNew | null;
   waitingForGame: boolean;
+  supportedCodecs: string[] | null;
 }
 
 export interface WhatsNew {

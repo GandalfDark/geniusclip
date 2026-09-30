@@ -142,6 +142,8 @@
 
     {#if st?.lastError && on}
       <div class="err"><Icon name="alert" size={16} />{app.t('home.error')}: {app.errorText(st.lastError)}</div>
+    {:else if on && st?.codecFallback}
+      <div class="err warn"><Icon name="alert" size={16} />{app.t('set.codecFallback', { codec: st.codecFallback === 'av1' ? 'AV1' : 'HEVC' })}</div>
     {:else if on && st && st.droppedRecent > 30}
       <!-- Only while frames are being lost right now (last 10 s), not a lifetime total. -->
       <div class="err warn"><Icon name="alert" size={16} />{app.t('home.dropped', { n: st.droppedRecent })}</div>

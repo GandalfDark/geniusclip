@@ -29,6 +29,8 @@
   let showSaved = $state(false);
   let scroller: HTMLElement;
 
+  const codecName = (c: string) => ({ h264: 'H.264', hevc: 'HEVC', av1: 'AV1' })[c] ?? c;
+
   const sections = [
     { id: 'capture', key: 'set.capture' },
     { id: 'audio', key: 'set.audio' },
@@ -236,16 +238,18 @@
         <Row label={app.t('set.fps')}>
           <Segmented mono value={s.engine.fps} onchange={(v) => app.change((x) => (x.engine.fps = v))} options={[30, 60, 120, 144].map((f) => ({ value: f, label: String(f) }))} />
         </Row>
-        <Row label={app.t('set.codec')} hint={s.engine.codec === 'av1' ? app.t('set.av1Warn') : app.t('set.codecHint')}>
+        <Row
+          label={app.t('set.codec')}
+          hint={app.status?.codecFallback ? app.t('set.codecFallback', { codec: codecName(app.status.codecFallback) }) : app.t('set.codecHint')}
+        >
           <Segmented
             mono
             value={s.engine.codec}
             onchange={(v) => app.change((x) => (x.engine.codec = v))}
-            options={[
-              { value: 'h264', label: 'H.264' },
-              { value: 'hevc', label: 'HEVC' },
-              { value: 'av1', label: 'AV1' },
-            ]}
+            options={(['h264', 'hevc', 'av1'] as const).map((c) => {
+              const off = !!app.supportedCodecs && !app.supportedCodecs.includes(c);
+              return { value: c, label: codecName(c), disabled: off, title: off ? app.t('set.codecUnsupported') : undefined };
+            })}
           />
         </Row>
         {#if snap.monitors.length > 1}

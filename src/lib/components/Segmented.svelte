@@ -7,7 +7,7 @@
     onchange,
     mono = false,
     label = '',
-  }: { value: T; options: { value: T; label: string }[]; onchange: (v: T) => void; mono?: boolean; label?: string } = $props();
+  }: { value: T; options: { value: T; label: string; disabled?: boolean; title?: string }[]; onchange: (v: T) => void; mono?: boolean; label?: string } = $props();
   const row = rowIds();
 
   let root: HTMLDivElement;
@@ -48,7 +48,15 @@
 >
   <span class="pill" class:animated style:transform="translateX({pill.x}px)" style:width="{pill.w}px"></span>
   {#each options as o, i}
-    <button bind:this={btns[i]} role="radio" aria-checked={o.value === value} class:active={o.value === value} onclick={() => onchange(o.value)}>
+    <button
+      bind:this={btns[i]}
+      role="radio"
+      aria-checked={o.value === value}
+      class:active={o.value === value}
+      disabled={o.disabled && o.value !== value}
+      title={o.title}
+      onclick={() => onchange(o.value)}
+    >
       {o.label}
     </button>
   {/each}
@@ -94,5 +102,9 @@
   }
   button.active {
     color: var(--accent-ink);
+  }
+  button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
 </style>

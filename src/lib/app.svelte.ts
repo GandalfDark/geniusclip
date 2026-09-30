@@ -35,6 +35,8 @@ class AppStore {
   #listedAt = 0;
   /** "Only in games" holds capture until a game shows up. */
   waitingForGame = $state(false);
+  /** Codecs the GPU can encode (null until checked). */
+  supportedCodecs = $state<string[] | null>(null);
   notices = $state<Notice[]>([]);
   savedPulse = $state(0);
   /** Bumped when a clip finishes saving (drives the button's "Saved" state). */
@@ -84,6 +86,7 @@ class AppStore {
       waitingEvent = true;
       this.waitingForGame = e.payload;
     });
+    await listen<string[]>('codecs://supported', (e) => (this.supportedCodecs = e.payload));
     const snap = await api.snapshot();
     this.#systemLang = isLang(snap.lang) ? snap.lang : matchLang(navigator.language);
     this.snapshot = snap;
@@ -91,6 +94,7 @@ class AppStore {
     this.update = snap.update;
     this.hotkeyErrors = snap.hotkeyErrors;
     if (!waitingEvent) this.waitingForGame = snap.waitingForGame;
+    this.supportedCodecs ??= snap.supportedCodecs;
     applyAccent(snap.settings.accent);
 
     await listen<EngineStatus>('engine://status', (e) => (this.status = e.payload));

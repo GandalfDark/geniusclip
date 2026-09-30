@@ -6,6 +6,8 @@ use parking_lot::{Mutex, RwLock};
 use std::time::Instant;
 
 pub struct AppState {
+    /// Codecs the GPU can encode (None until checked, shortly after start).
+    pub codecs: parking_lot::Mutex<Option<Vec<geniusclip_engine::Codec>>>,
     pub engine: Engine,
     pub settings: RwLock<Settings>,
     pub library: Library,

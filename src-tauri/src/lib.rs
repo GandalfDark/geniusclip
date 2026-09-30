@@ -145,6 +145,22 @@ fn init_async_runtime() {
     }
 }
 
+/// Finds which codecs the GPU can encode (a few small encoders opened
+/// once, a little after start), for the codec choice in settings.
+fn spawn_codec_check(app: AppHandle) {
+    let _ = std::thread::Builder::new().name("gc-codecs".into()).spawn(move || {
+        std::thread::sleep(Duration::from_secs(8));
+        let monitor = app.state::<AppState>().settings.read().engine.monitor.clone();
+        match geniusclip_engine::supported_codecs(monitor.as_deref()) {
+            Ok(codecs) => {
+                *app.state::<AppState>().codecs.lock() = Some(codecs.clone());
+                let _ = app.emit("codecs://supported", &codecs);
+            }
+            Err(e) => log::warn!("codec check: {e:#}"),
+        }
+    });
+}
+
 pub fn emit_settings(app: &AppHandle) {
     let s = app.state::<AppState>().settings.read().clone();
     let _ = app.emit("settings://changed", &s);
@@ -298,6 +314,7 @@ pub fn run() {
                 last_game: Mutex::new(None),
                 hotkey_errors: Mutex::new(Vec::new()),
                 update: Mutex::new(None),
+                codecs: Mutex::new(None),
             });
             log::info!("GeniusClip {} (FFmpeg {})", app.package_info().version, geniusclip_engine::ffmpeg_version());
 
@@ -338,6 +355,7 @@ pub fn run() {
             }
             updates::spawn_periodic(handle.clone());
             recordings::spawn(handle.clone());
+            spawn_codec_check(handle.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
