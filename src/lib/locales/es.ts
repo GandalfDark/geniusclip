@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Guarda también el juego y el micrófono por separado, para editar',
   'set.voiceSeparate': 'Voces de Discord en su propia pista',
   'set.voiceSeparateHint': 'Baja o silencia a tus amigos al recortar',
+  'set.voiceSeparateDevice': 'Mientras Discord está abierto, el sonido del juego sale del dispositivo predeterminado de Windows',
 
   'set.clipsDir': 'Clips y grabaciones',
   'set.shotsDir': 'Capturas de pantalla',

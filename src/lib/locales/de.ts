@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Spiel und Mikro zusätzlich einzeln speichern, zum Schneiden',
   'set.voiceSeparate': 'Discord-Stimmen auf eigener Spur',
   'set.voiceSeparateHint': 'Freunde beim Zuschneiden leiser stellen oder stummschalten',
+  'set.voiceSeparateDevice': 'Solange Discord läuft, kommt der Spielsound vom Windows-Standardgerät',
 
   'set.clipsDir': 'Clips und Aufnahmen',
   'set.shotsDir': 'Screenshots',

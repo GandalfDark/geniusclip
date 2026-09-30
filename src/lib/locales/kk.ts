@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Ойын мен микрофон бөлек те сақталады — монтаж үшін',
   'set.voiceSeparate': 'Discord дауыстары — бөлек жолда',
   'set.voiceSeparateHint': 'Кесу кезінде достардың дауысын азайтуға не өшіруге болады',
+  'set.voiceSeparateDevice': 'Discord іске қосулы кезде ойын дыбысы Windows әдепкі құрылғысынан алынады',
 
   'set.clipsDir': 'Клиптер мен жазбалар',
   'set.shotsDir': 'Скриншоттар',

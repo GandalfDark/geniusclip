@@ -163,6 +163,7 @@ export const strings = {
   'set.separateHint': 'Игра и микрофон ещё и по отдельности — для монтажа',
   'set.voiceSeparate': 'Голоса Discord — отдельной дорожкой',
   'set.voiceSeparateHint': 'Друзей можно приглушить или убрать при обрезке',
+  'set.voiceSeparateDevice': 'Пока Discord запущен, звук игры идёт с устройства Windows по умолчанию',
 
   'set.clipsDir': 'Клипы и записи',
   'set.shotsDir': 'Скриншоты',

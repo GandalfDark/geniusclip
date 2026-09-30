@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Düzenleme için oyun ve mikrofonu ayrı ayrı da kaydeder',
   'set.voiceSeparate': 'Discord sesleri ayrı parçada',
   'set.voiceSeparateHint': 'Kırparken arkadaşlarının sesini kıs veya kapat',
+  'set.voiceSeparateDevice': 'Discord açıkken oyun sesi Windows varsayılan cihazından alınır',
 
   'set.clipsDir': 'Klipler ve kayıtlar',
   'set.shotsDir': 'Ekran görüntüleri',

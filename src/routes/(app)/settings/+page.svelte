@@ -383,7 +383,8 @@
           </Row>
         {/if}
         {#if s.engine.systemAudio}
-          <Row label={app.t('set.voiceSeparate')} hint={app.t('set.voiceSeparateHint')}>
+          <!-- Process loopback always captures the Windows default device. -->
+          <Row label={app.t('set.voiceSeparate')} hint={app.t(s.engine.voiceSeparate && s.engine.systemDevice ? 'set.voiceSeparateDevice' : 'set.voiceSeparateHint')}>
             <Switch
               checked={!!s.engine.voiceSeparate && s.engine.separateTracks}
               onchange={(v) =>

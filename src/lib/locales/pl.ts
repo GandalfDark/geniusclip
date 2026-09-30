@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Gra i mikrofon także osobno — do montażu',
   'set.voiceSeparate': 'Głosy z Discorda na osobnej ścieżce',
   'set.voiceSeparateHint': 'Przycisz lub wycisz znajomych podczas przycinania',
+  'set.voiceSeparateDevice': 'Gdy Discord działa, dźwięk gry pochodzi z domyślnego urządzenia Windows',
 
   'set.clipsDir': 'Klipy i nagrania',
   'set.shotsDir': 'Zrzuty ekranu',

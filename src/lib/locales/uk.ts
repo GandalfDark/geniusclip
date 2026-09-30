@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Гра й мікрофон ще й окремо — для монтажу',
   'set.voiceSeparate': 'Голоси Discord — окремою доріжкою',
   'set.voiceSeparateHint': 'Друзів можна приглушити або прибрати під час обрізки',
+  'set.voiceSeparateDevice': 'Поки Discord запущено, звук гри йде з пристрою Windows за замовчуванням',
 
   'set.clipsDir': 'Кліпи та записи',
   'set.shotsDir': 'Скриншоти',

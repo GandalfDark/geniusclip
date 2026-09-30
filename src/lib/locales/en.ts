@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': 'Also keep game and mic apart, for editing',
   'set.voiceSeparate': 'Discord voices on their own track',
   'set.voiceSeparateHint': 'Turn friends down or mute them when trimming',
+  'set.voiceSeparateDevice': 'While Discord runs, game sound comes from the Windows default device',
 
   'set.clipsDir': 'Clips and recordings',
   'set.shotsDir': 'Screenshots',

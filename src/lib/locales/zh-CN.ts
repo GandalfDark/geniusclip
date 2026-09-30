@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': '另外单独保存游戏和麦克风音轨，方便后期剪辑',
   'set.voiceSeparate': 'Discord 语音单独一条音轨',
   'set.voiceSeparateHint': '剪辑时可调低或静音好友的声音',
+  'set.voiceSeparateDevice': 'Discord 运行时，游戏声音取自 Windows 默认设备',
 
   'set.clipsDir': '片段和录像',
   'set.shotsDir': '截图',

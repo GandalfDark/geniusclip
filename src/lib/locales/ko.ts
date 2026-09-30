@@ -163,6 +163,7 @@ const locale: Locale = {
   'set.separateHint': '편집하기 좋게 게임과 마이크를 별도 트랙으로도 저장해요',
   'set.voiceSeparate': 'Discord 음성을 별도 트랙으로',
   'set.voiceSeparateHint': '자를 때 친구 목소리를 줄이거나 끌 수 있습니다',
+  'set.voiceSeparateDevice': 'Discord 실행 중에는 게임 소리를 Windows 기본 장치에서 가져옵니다',
 
   'set.clipsDir': '클립 및 녹화',
   'set.shotsDir': '스크린샷',
