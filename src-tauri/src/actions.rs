@@ -87,6 +87,11 @@ pub fn save_short_clip(app: &AppHandle) {
     save(app, Some(secs));
 }
 
+/// A clip of the last `seconds` (auto clips).
+pub fn save_seconds(app: &AppHandle, seconds: u32) {
+    save(app, Some(seconds));
+}
+
 fn save(app: &AppHandle, seconds: Option<u32>) {
     let st = app.state::<AppState>();
     let s = st.settings.read().clone();

@@ -48,6 +48,32 @@ impl Default for OverlaySettings {
     }
 }
 
+/// Clips saved by game events (see `autoclip`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AutoClips {
+    pub cs2: bool,
+    /// "kill", "multikill", "ace", "roundWin"
+    pub cs2_events: Vec<String>,
+    pub dota: bool,
+    /// "kill", "multikill", "rampage", "death"
+    pub dota_events: Vec<String>,
+    /// Sent back by the games with every post (in their config file).
+    pub token: String,
+}
+
+impl Default for AutoClips {
+    fn default() -> Self {
+        AutoClips {
+            cs2: false,
+            cs2_events: vec!["multikill".into(), "ace".into()],
+            dota: false,
+            dota_events: vec!["multikill".into(), "rampage".into()],
+            token: String::new(),
+        }
+    }
+}
+
 /// "First steps" checklist on the home page.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -85,6 +111,7 @@ pub struct Settings {
     pub pause_on_battery: bool,
     /// Replay only while a game is on the recorded monitor (see `actions::games_gate`).
     pub games_only: bool,
+    pub auto_clips: AutoClips,
     pub onboarding: Onboarding,
 }
 
@@ -107,6 +134,7 @@ impl Default for Settings {
             auto_update: true,
             pause_on_battery: false,
             games_only: false,
+            auto_clips: AutoClips::default(),
             onboarding: Onboarding::default(),
         }
     }
@@ -227,6 +255,9 @@ impl Settings {
     /// lengths stay within what the UI offers.
     pub fn validate(&mut self, app: &AppHandle) {
         self.fill_defaults(app);
+        if self.auto_clips.token.len() < 16 {
+            self.auto_clips.token = crate::autoclip::new_token();
+        }
         let max = if self.engine.disk_buffer { 3600 } else { 1200 };
         self.replay_seconds = self.replay_seconds.clamp(60, max);
         self.short_seconds = self.short_seconds.clamp(10, 60);

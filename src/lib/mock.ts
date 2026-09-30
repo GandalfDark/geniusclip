@@ -114,6 +114,7 @@ let settings: Settings = {
   autoUpdate: true,
   pauseOnBattery: false,
   gamesOnly: false,
+  autoClips: { cs2: true, cs2Events: ["multikill", "ace"], dota: false, dotaEvents: ["multikill", "rampage"], token: "mock" },
   onboarding: { clipSaved: false, menuOpened: false, dismissed: false },
 };
 
@@ -392,6 +393,11 @@ export function installMock() {
           await new Promise((r) => setTimeout(r, 600));
           console.log("[mock] trim_media", args);
           return null;
+        case "autoclip_status":
+          return {
+            cs2: { found: true, installed: true, connected: true, failed: false },
+            dota: { found: true, installed: false, connected: false, failed: false },
+          };
         case "plugin:event|listen":
           return Math.floor(Math.random() * 1e6);
         default:

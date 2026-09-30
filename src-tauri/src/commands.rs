@@ -231,6 +231,10 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
     if old.pause_on_battery != new.pause_on_battery {
         crate::power::refresh();
     }
+    if old.auto_clips != new.auto_clips {
+        let h = app.clone();
+        std::thread::spawn(move || crate::autoclip::sync(&h));
+    }
     if old.games_only != new.games_only {
         let h = app.clone();
         std::thread::spawn(move || crate::actions::check_games_gate(&h));
@@ -801,4 +805,11 @@ mod tests {
         assert_eq!(io_cause(&chained).and_then(io_code), Some(code::DISK_FULL));
         assert!([code::NOT_FOUND, code::IN_USE, code::DISK_FULL, code::NAME_TAKEN].iter().all(|c| c.starts_with("err.")));
     }
+}
+
+/// Auto clips: whether each game is installed, set up and sending its state.
+/// Async: it looks through the Steam libraries.
+#[tauri::command]
+pub async fn autoclip_status() -> CmdResult<crate::autoclip::Status> {
+    blocking(crate::autoclip::status).await
 }

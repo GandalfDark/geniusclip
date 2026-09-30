@@ -61,6 +61,7 @@ export interface Settings {
   autoUpdate: boolean;
   pauseOnBattery: boolean;
   gamesOnly: boolean;
+  autoClips: AutoClips;
   /** First-steps card on Home; the backend ticks the steps as they happen. */
   onboarding: Onboarding;
 }
@@ -187,3 +188,24 @@ export type EngineEvent =
   | { type: 'screenshotFailed'; error: string }
   | { type: 'error'; message: string }
   | ({ type: 'status' } & EngineStatus);
+
+/** Clips saved by game events (CS2 and Dota 2 Game State Integration). */
+export interface AutoClips {
+  cs2: boolean;
+  cs2Events: string[];
+  dota: boolean;
+  dotaEvents: string[];
+  token: string;
+}
+
+export interface AutoGameStatus {
+  found: boolean;
+  installed: boolean;
+  connected: boolean;
+  failed: boolean;
+}
+
+export interface AutoStatus {
+  cs2: AutoGameStatus;
+  dota: AutoGameStatus;
+}

@@ -17,7 +17,7 @@
   import { ACCENTS } from '$lib/accents';
   import { LANGS, LOCALES } from '$lib/i18n';
   import { bytes } from '$lib/format';
-  import type { Estimate, Hotkeys } from '$lib/types';
+  import type { Estimate, Hotkeys, AutoStatus, AutoGameStatus } from '$lib/types';
   import type { TKey } from '$lib/i18n';
 
   let s = $derived(app.settings!);
@@ -31,10 +31,52 @@
 
   const codecName = (c: string) => ({ h264: 'H.264', hevc: 'HEVC', av1: 'AV1' })[c] ?? c;
 
+  // --- Auto clips: what each game reports is checked while this page is open.
+  let autoStatus = $state<AutoStatus | null>(null);
+  $effect(() => {
+    const check = () =>
+      api
+        .autoclipStatus()
+        .then((r) => (autoStatus = r))
+        .catch(() => {});
+    check();
+    const t = setInterval(check, 3000);
+    return () => clearInterval(t);
+  });
+  const autoGames = [
+    { id: 'cs2', name: 'Counter-Strike 2', events: ['kill', 'multikill', 'ace', 'roundWin'] },
+    { id: 'dota', name: 'Dota 2', events: ['kill', 'multikill', 'rampage', 'death'] },
+  ] as const;
+  const eventKey = (game: string, e: string): TKey =>
+    game === 'dota' && e === 'kill' ? 'auto.dotaKill' : (`auto.${e}` as TKey);
+  function autoHint(on: boolean, st: AutoGameStatus | undefined): string | undefined {
+    if (!st) return undefined;
+    if (!st.found) return app.t('auto.notFound');
+    if (!on) return undefined;
+    if (st.failed) return app.t('auto.noAccess');
+    return app.t(st.connected ? 'auto.connected' : 'auto.restart');
+  }
+  function toggleEvent(game: 'cs2' | 'dota', e: string) {
+    app.change((x) => {
+      const list = game === 'cs2' ? x.autoClips.cs2Events : x.autoClips.dotaEvents;
+      const i = list.indexOf(e);
+      if (i >= 0) list.splice(i, 1);
+      else list.push(e);
+    }, 0);
+  }
+  let launchCopied = $state(false);
+  function copyLaunch() {
+    navigator.clipboard.writeText('-gamestateintegration').then(() => {
+      launchCopied = true;
+      setTimeout(() => (launchCopied = false), 1500);
+    });
+  }
+
   const sections = [
     { id: 'capture', key: 'set.capture' },
     { id: 'audio', key: 'set.audio' },
     { id: 'hotkeys', key: 'set.hotkeys' },
+    { id: 'autoclips', key: 'set.autoclips' },
     { id: 'folders', key: 'set.folders' },
     { id: 'overlay', key: 'set.overlay' },
     { id: 'appearance', key: 'set.appearance' },
@@ -375,6 +417,36 @@
       </div>
     </section>
 
+    <section id="autoclips" in:rise|global={{ delay: cascade(3) }}>
+      <h2>{app.t('set.autoclips')}</h2>
+      <div class="panel body">
+        <p class="restart-note"><Icon name="info" size={14} />{app.t('auto.hint')}</p>
+        {#each autoGames as g (g.id)}
+          {@const on = s.autoClips[g.id]}
+          {@const events = g.id === 'cs2' ? s.autoClips.cs2Events : s.autoClips.dotaEvents}
+          <Row label={g.name} hint={autoHint(on, autoStatus?.[g.id])}>
+            <Switch checked={on} onchange={(v) => app.change((x) => (x.autoClips[g.id] = v), 0)} />
+          </Row>
+          {#if on}
+            <div class="chips" role="group" aria-label={g.name}>
+              {#each g.events as e}
+                <button class="chip" class:on={events.includes(e)} aria-pressed={events.includes(e)} onclick={() => toggleEvent(g.id, e)}>
+                  <Icon name="check" size={13} stroke={2.2} />{app.t(eventKey(g.id, e))}
+                </button>
+              {/each}
+            </div>
+            {#if g.id === 'dota'}
+              <div class="launch">
+                <span>{app.t('auto.dotaLaunch')}</span>
+                <code class="mono">-gamestateintegration</code>
+                <button class="btn sm ghost" onclick={copyLaunch}>{app.t(launchCopied ? 'auto.copied' : 'auto.copy')}</button>
+              </div>
+            {/if}
+          {/if}
+        {/each}
+      </div>
+    </section>
+
     <section id="folders" in:rise|global={{ delay: cascade(3) }}>
       <h2>{app.t('set.folders')}</h2>
       <div class="panel body">
@@ -552,6 +624,54 @@
   }
   .panel.body > .restart-note:first-child {
     border-top: none;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 2px 0 12px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 14px;
+    border: 1px solid var(--line-2);
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  /* Filter chips: the check shows only on a picked one. */
+  .chip :global(.ic) {
+    display: none;
+  }
+  .chip.on {
+    padding-left: 8px;
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text);
+  }
+  .chip.on :global(.ic) {
+    display: block;
+    color: var(--accent);
+  }
+  .launch {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 0 12px;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .launch code {
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    color: var(--text);
+    user-select: all;
   }
   .memwarn {
     display: flex;
