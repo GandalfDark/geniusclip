@@ -254,6 +254,7 @@ pub fn hide(app: &AppHandle, restore_focus: bool) {
     }
     // The page stops the player and stats polling while hidden.
     let _ = app.emit_to(LABEL, "menu://hidden", ());
+    crate::stats::release();
     let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     // Still this hide, not a newer open (which holds its own frame).
     let current = move || GENERATION.load(Ordering::Relaxed) == generation && !OPEN.load(Ordering::Relaxed);

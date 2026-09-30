@@ -18,6 +18,9 @@ use windows::Win32::Graphics::Dxgi::*;
 /// only mean "not now" (see `is_waiting`) are waited out instead, as long as
 /// the output is still there; it is checked again this often.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(5);
+/// How long after duplication is lost restarts are tried every 150 ms
+/// (later every 500 ms).
+const FAST_RETRY_FOR: Duration = Duration::from_secs(3);
 
 /// States that last as long as something else does: the secure desktop
 /// (UAC, lock screen), a mode change or a mode duplication cannot handle,
@@ -235,7 +238,11 @@ impl Duplicator {
             }
             if let Err(e) = self.start() {
                 log::debug!("duplication retry failed: {e:#}");
-                return self.lost(e, Duration::from_millis(500));
+                // Right after a loss (a game going fullscreen, UAC) the new
+                // mode usually settles within a second or two: tried often,
+                // the frozen stretch in the replay stays short.
+                let soon = self.lost_since.is_some_and(|t| t.elapsed() < FAST_RETRY_FOR);
+                return self.lost(e, Duration::from_millis(if soon { 150 } else { 500 }));
             }
             *dst = None;
         }

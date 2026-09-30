@@ -321,8 +321,16 @@ pub async fn thumbnail(app: AppHandle, path: PathBuf) -> CmdResult<PathBuf> {
 /// strings FFmpeg would read as a protocol.
 fn check_media_path(st: &AppState, p: &Path) -> CmdResult<()> {
     let denied = || code::NOT_IN_LIBRARY.to_string();
-    // Absolute means a drive or UNC path, never "proto:…".
-    if !p.is_absolute() || !crate::library::is_media(p) {
+    // A drive path, nothing else: not a network (UNC) path, which opening
+    // would connect to, no ".." and no ":" past the drive (a stream name).
+    use std::path::{Component, Prefix};
+    let plain = p.components().enumerate().all(|(i, c)| match c {
+        Component::Prefix(pre) => i == 0 && matches!(pre.kind(), Prefix::Disk(_)),
+        Component::RootDir => i == 1,
+        Component::Normal(n) => !n.to_string_lossy().contains(':'),
+        _ => false,
+    });
+    if !plain || !p.is_absolute() || !crate::library::is_media(p) {
         return Err(denied());
     }
     let (clips, shots) = {
@@ -682,6 +690,10 @@ static PENDING_OPEN: parking_lot::Mutex<Option<PathBuf>> = parking_lot::Mutex::n
 // synchronous command on Windows.
 #[tauri::command]
 pub async fn open_in_app(app: AppHandle, route: String, path: Option<PathBuf>) {
+    // A page of the app, never an address of any other kind.
+    if !["", "gallery", "settings"].contains(&route.as_str()) {
+        return;
+    }
     *PENDING_OPEN.lock() = path;
     // On a blocking thread: both wait for the UI thread, which would tie up
     // one of the few async workers meanwhile.

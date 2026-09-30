@@ -434,6 +434,9 @@ pub type Chunk = (i64, Vec<f32>, Instant);
 /// the mixer applies the volume only when it reads, ≈125 ms later, so
 /// unprocessed audio would be heard just after unmuting. The thread ends
 /// when the sender is dropped.
+/// How long the model stays loaded with suppression off.
+const MODEL_IDLE: Duration = Duration::from_secs(30);
+
 pub fn spawn(
     control: Arc<DenoiseControl>,
     levels: Option<Arc<Levels>>,
@@ -457,7 +460,25 @@ pub fn spawn(
         // What queued up while the model loaded is expected: no warning.
         let mut load_backlog = false;
         let mut warned: Option<Instant> = None;
-        for (idx, samples, queued) in rx.iter() {
+        // Suppression is off (chunks arrive only for the mic check then, see
+        // `capture_thread`): the model is let go after a while.
+        let mut off_since: Option<Instant> = None;
+        loop {
+            let (idx, samples, queued) = match rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(chunk) => chunk,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    if control.get().0 {
+                        off_since = None;
+                    } else if model.is_some() && off_since.get_or_insert_with(Instant::now).elapsed() > MODEL_IDLE {
+                        log::info!("noise suppression model unloaded (off)");
+                        model = None;
+                        skipped = false;
+                        off_since = None;
+                    }
+                    continue;
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            };
             let was_behind = behind;
             behind = queued.elapsed() > MAX_WAIT || (behind && !rx.is_empty());
             load_backlog &= behind;

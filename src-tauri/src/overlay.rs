@@ -234,7 +234,9 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
     // Toasts never end up in clips or screenshots.
     let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
 
-    let mut renderer = Renderer::new().map_err(|e| log::error!("overlay renderer: {e}")).ok();
+    // Made for each toast and let go after it: Direct2D keeps a GPU device
+    // (driver memory and threads) for as long as a renderer lives.
+    let mut renderer: Option<Renderer> = None;
     let _ = ready.send((GetCurrentThreadId(), hwnd.0 as isize));
 
     let mut active: Option<(Spec, Instant)> = None;
@@ -246,8 +248,7 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
                     SetTimer(Some(hwnd), 1, 15, None);
                     let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                     if renderer.is_none() {
-                        // Creation failed before; the GPU may be back.
-                        renderer = Renderer::new().ok();
+                        renderer = Renderer::new().map_err(|e| log::error!("overlay renderer: {e}")).ok();
                     }
                     if let Some((spec, t0)) = active.as_ref() {
                         if let Err(e) = draw(&mut renderer, hwnd, spec, t0.elapsed().as_millis() as f32) {
@@ -269,6 +270,7 @@ unsafe fn run(ready: std::sync::mpsc::Sender<(u32, isize)>) {
                     let _ = KillTimer(Some(hwnd), 1);
                     let _ = ShowWindow(hwnd, SW_HIDE);
                     active = None;
+                    renderer = None;
                 }
             }
             _ => {

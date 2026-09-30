@@ -62,7 +62,7 @@ impl MicMonitor {
             let (ring, stop) = (ring.clone(), stop.clone());
             std::thread::Builder::new()
                 .name("gc-monitor-mic".into())
-                .spawn(move || capture_thread(SourceKind::Mic, device, ring, Some(tx), t0, stop))?;
+                .spawn(move || capture_thread(SourceKind::Mic, device, ring, Some(tx), None, t0, stop))?;
         }
         {
             let stop = stop.clone();

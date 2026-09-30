@@ -227,12 +227,17 @@ pub fn sanitize(name: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    s = s.trim_end_matches(['.', ' ']).to_string();
     if s.chars().count() > 60 {
-        s = s.chars().take(60).collect::<String>().trim_end().to_string();
+        s = s.chars().take(60).collect();
     }
-    const RESERVED: &[&str] = &["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2", "LPT3"];
-    if s.is_empty() || RESERVED.contains(&s.to_uppercase().as_str()) {
+    s = s.trim_end_matches(['.', ' ']).to_string();
+    // Device names are reserved with any extension too ("NUL.txt").
+    let stem = s.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem[3..].chars().all(|c| c.is_ascii_digit() || "¹²³".contains(c)));
+    if s.is_empty() || device {
         s = format!("_{s}");
     }
     s

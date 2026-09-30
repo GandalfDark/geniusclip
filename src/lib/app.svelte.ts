@@ -75,6 +75,8 @@ class AppStore {
   t = (key: TKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars);
 
   async init() {
+    // Dropping a file on a window would open it in place of the app.
+    for (const type of ['dragover', 'drop']) window.addEventListener(type, (e) => e.preventDefault());
     // Registered before the snapshot is taken: this event only fires on a
     // change, so one sent meanwhile is newer than the snapshot's value.
     let waitingEvent = false;

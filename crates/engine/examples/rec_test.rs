@@ -1,7 +1,7 @@
 //! Records the screen (no audio devices are opened) and checks that the
 //! recording comes out as a regular MP4.
 //!
-//!   cargo run -p geniusclip-engine --example rec_test -- [seconds] [out.mp4] [monitor, e.g. \.\DISPLAY2]
+//!   cargo run -p geniusclip-engine --example rec_test -- [seconds] [out.mp4] [monitor, e.g. \\.\DISPLAY2]
 
 use geniusclip_engine::*;
 use std::path::PathBuf;

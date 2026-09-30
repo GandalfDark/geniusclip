@@ -62,7 +62,9 @@ else
 fi
 
 echo "== Updater signature"
-npx tauri signer sign -f "$KEY" -p "" "$OUT/$UPDATE_NAME" >/dev/null
+# Bound to the version: a tampered latest.json can't pair a new version
+# number with an older release (the app requires it, requireSignedVersion).
+npx tauri signer sign -f "$KEY" -p "" --app-version "$VERSION" "$OUT/$UPDATE_NAME" >/dev/null
 [ -s "$OUT/$UPDATE_NAME.sig" ] || { echo "signing failed" >&2; exit 1; }
 
 echo "== latest.json"

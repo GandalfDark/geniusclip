@@ -27,7 +27,16 @@ pub struct Stats {
 struct Nvml {
     _lib: libloading::Library,
     temperature: unsafe extern "C" fn(*mut c_void, u32, *mut u32) -> i32,
+    shutdown: unsafe extern "C" fn() -> i32,
     device: *mut c_void,
+}
+
+impl Drop for Nvml {
+    fn drop(&mut self) {
+        unsafe {
+            (self.shutdown)();
+        }
+    }
 }
 
 impl Nvml {
@@ -44,7 +53,8 @@ impl Nvml {
                 return None;
             }
             let temperature = *lib.get(b"nvmlDeviceGetTemperature\0").ok()?;
-            Some(Nvml { _lib: lib, temperature, device })
+            let shutdown = *lib.get(b"nvmlShutdown\0").ok()?;
+            Some(Nvml { _lib: lib, temperature, shutdown, device })
         }
     }
 
@@ -64,7 +74,23 @@ struct State {
 // PDH handles and the NVML device are only used under the mutex.
 unsafe impl Send for State {}
 
+impl Drop for State {
+    fn drop(&mut self) {
+        if let Some((query, _)) = self.gpu.take() {
+            unsafe {
+                let _ = PdhCloseQuery(query);
+            }
+        }
+    }
+}
+
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+/// Lets go of the GPU counters and NVML (a driver library with threads of
+/// its own) once the in-game menu, the only one asking, is hidden.
+pub fn release() {
+    STATE.lock().take();
+}
 
 fn ft(f: FILETIME) -> u64 {
     ((f.dwHighDateTime as u64) << 32) | f.dwLowDateTime as u64

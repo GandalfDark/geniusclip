@@ -51,8 +51,10 @@ fn candidates(root: &Path) -> Vec<PathBuf> {
         let Ok(rd) = std::fs::read_dir(&dir) else { continue };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_lowercase();
-            // Recordings, and clips whose writing was cut off (`.part`).
-            if !(name.ends_with(" rec.mp4") || name.ends_with(".mp4.part")) {
+            // Recordings, and clips whose writing was cut off (`.part`), named
+            // the app's way: the folder may be one other programs use too
+            // (a browser's unfinished download is `name.mp4.part`).
+            if !(name.ends_with(" rec.mp4") || name.ends_with(".mp4.part")) || !has_timestamp(&name) {
                 continue;
             }
             // Only in the cloud (OneDrive): reading would download it.
@@ -70,12 +72,26 @@ fn is_recording(path: &Path) -> bool {
     name.ends_with(" rec.mp4") || name.ends_with(" rec.mp4.part")
 }
 
+/// Whether a file name holds the date and time the app puts in every name
+/// ("2026-09-27 21-58-04").
+fn has_timestamp(name: &str) -> bool {
+    let b = name.as_bytes();
+    let digit = |i: usize| b[i].is_ascii_digit();
+    b.windows(19).enumerate().any(|(i, _)| {
+        (0..19).all(|k| match k {
+            4 | 7 | 13 | 16 => b[i + k] == b'-',
+            10 => b[i + k] == b' ',
+            _ => digit(i + k),
+        })
+    })
+}
+
 /// A clip's `.part` left by a crash: without its index it can't play, and
-/// it is deleted. One being written right now is open and skipped.
+/// it goes to the Recycle Bin. One being written right now is open and skipped.
 fn drop_orphan(path: &Path) {
     let Ok(f) = OpenOptions::new().read(true).write(true).share_mode(0).open(path) else { return };
     drop(f);
-    match std::fs::remove_file(path) {
+    match trash::delete(path) {
         Ok(()) => log::info!("removed unfinished clip {}", path.display()),
         Err(e) => log::warn!("unfinished clip {}: {e}", path.display()),
     }
@@ -105,7 +121,7 @@ fn repair(app: &AppHandle, path: &Path) {
             // Cut off in its first second: nothing to keep.
             log::info!("recording {name}: nothing recorded");
             if part {
-                let _ = std::fs::remove_file(path);
+                let _ = trash::delete(path);
             }
             return;
         }
@@ -145,4 +161,17 @@ fn free_name(path: &Path) -> PathBuf {
         .map(|i| path.with_file_name(format!("{base} ({i}) REC.mp4")))
         .find(|p| !p.exists())
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_timestamp;
+
+    #[test]
+    fn only_the_apps_names() {
+        assert!(has_timestamp("cs2 2026-09-27 21-25-00 rec.mp4.part"));
+        assert!(has_timestamp("brawlhalla 2026-09-27 00-48-38 (обрезка).mp4.part"));
+        assert!(!has_timestamp("movie.mp4.part"));
+        assert!(!has_timestamp("2026-09-27.mp4.part"));
+    }
 }

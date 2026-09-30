@@ -356,7 +356,18 @@ unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<Capt
 
 /// `denoise`: when set, chunks go through the denoise thread, which writes
 /// them to the ring itself (unless its queue is full).
-pub(crate) fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: Arc<SourceRing>, denoise: Option<Sender<Chunk>>, t0_us: i64, stop: Arc<AtomicBool>) {
+/// `bypass`: while its suppression is off, chunks skip the denoise thread
+/// (a copy and a thread hop for each, 100 times a second, for nothing).
+/// The mic check leaves it out: its meters need every chunk.
+pub(crate) fn capture_thread(
+    kind: SourceKind,
+    device_id: Option<String>,
+    ring: Arc<SourceRing>,
+    denoise: Option<Sender<Chunk>>,
+    bypass: Option<Arc<DenoiseControl>>,
+    t0_us: i64,
+    stop: Arc<AtomicBool>,
+) {
     let _com = ComInit::new();
     let label = if kind == SourceKind::Loopback { "system audio" } else { "microphone" };
     let mut scratch: Vec<u8> = Vec::new();
@@ -429,7 +440,8 @@ pub(crate) fn capture_thread(kind: SourceKind, device_id: Option<String>, ring: 
                     match converted {
                         Ok((samples, delay)) => {
                             let idx = (ts_us - t0_us) * RATE / 1_000_000 - delay;
-                            match &denoise {
+                            let off = bypass.as_ref().is_some_and(|c| !c.get().0);
+                            match denoise.as_ref().filter(|_| !off) {
                                 Some(tx) => {
                                     // Queue full (denoise thread starved) or gone:
                                     // unprocessed audio beats none.
@@ -666,17 +678,18 @@ impl AudioPipeline {
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-system".into())
-                    .spawn(move || capture_thread(SourceKind::Loopback, dev, ring, None, t0_us, stop))?,
+                    .spawn(move || capture_thread(SourceKind::Loopback, dev, ring, None, None, t0_us, stop))?,
             );
         }
         if cfg.mic {
             let (ring, stop, dev) = (mic_ring.clone(), stop.clone(), cfg.mic_device.clone());
             let (r, live) = (mic_ring.clone(), live.clone());
+            let bypass = Some(denoise.clone());
             let tx = denoise::spawn(denoise, None, move || live.mic_silent(), move |idx, s| r.write(idx, s))?;
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-mic".into())
-                    .spawn(move || capture_thread(SourceKind::Mic, dev, ring, Some(tx), t0_us, stop))?,
+                    .spawn(move || capture_thread(SourceKind::Mic, dev, ring, Some(tx), bypass, t0_us, stop))?,
             );
         }
 

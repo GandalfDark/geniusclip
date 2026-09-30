@@ -288,7 +288,8 @@ impl Privacy {
                 names.push(n.to_string_lossy().into_owned());
             }
         }
-        let computers = std::env::var("COMPUTERNAME").ok().into_iter().collect();
+        // The computer's name, and the Windows domain (a company's, or the computer's again).
+        let computers = ["COMPUTERNAME", "USERDOMAIN"].iter().filter_map(|v| std::env::var(v).ok()).collect();
         Privacy::new(&[profile, short].into_iter().flatten().collect::<Vec<_>>(), names, computers)
     }
 

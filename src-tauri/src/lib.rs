@@ -160,6 +160,32 @@ pub fn sync_autostart(app: &AppHandle, on: bool) {
     let res = if on { al.enable() } else { al.disable() };
     if let Err(e) = res {
         log::warn!("autostart: {e}");
+    } else if on {
+        quote_autostart();
+    }
+}
+
+/// The autostart plugin writes the Run entry without quotes: with a space
+/// in the install path ("D:\My Games\…"), Windows would try "D:\My.exe"
+/// first at logon. Rewritten quoted.
+fn quote_autostart() {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
+    let Ok(exe) = std::env::current_exe() else { return };
+    let command = format!("\"{}\" --autostart", exe.display());
+    let data: Vec<u16> = command.encode_utf16().chain(std::iter::once(0)).collect();
+    let res = unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(r"Software\Microsoft\Windows\CurrentVersion\Run"),
+            &HSTRING::from("GeniusClip"),
+            REG_SZ.0,
+            Some(data.as_ptr().cast()),
+            (data.len() * 2) as u32,
+        )
+    };
+    if res.is_err() {
+        log::warn!("autostart entry: {res:?}");
     }
 }
 
