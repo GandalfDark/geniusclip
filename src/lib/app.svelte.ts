@@ -278,7 +278,7 @@ class AppStore {
    *  details), shown translated; a code this version doesn't know becomes
    *  err.unknown. Any other text is shown as is. */
   errorText(msg: string): string {
-    const code = /^(?:Error:\s*)?(err\.[\w-]+)/.exec(msg.trim())?.[1];
+    const code = /^(?:Error:\s*)?(err\.[\w-]+)/.exec(msg.trim())?.[1] ?? friendlyError(msg);
     if (!code) return msg;
     return this.t(isKey(code) ? code : 'err.unknown');
   }
@@ -291,6 +291,20 @@ class AppStore {
     this.notices.push({ id, text, tone });
     setTimeout(() => (this.notices = this.notices.filter((n) => n.id !== id)), 4500);
   }
+}
+
+/** The error code for a technical message from the engine, the updater
+ *  or the system (kept in English in the log), when there is one. */
+function friendlyError(msg: string): string | undefined {
+  const m = msg.toLowerCase();
+  const has = (...parts: string[]) => parts.some((p) => m.includes(p));
+  if (has('replay buffer is empty', 'replay buffer is off', 'nothing was recorded')) return 'err.buffer-empty';
+  if (has('disk is too slow', "can't keep up")) return 'err.disk-slow';
+  if (has('no space', 'disk full', 'os error 112', 'storagefull')) return 'err.disk-full';
+  if (has('avcodec_open2', 'encoder not found', 'no hardware encoder')) return 'err.encoder';
+  if (has('capture', 'duplication', 'duplicateoutput', 'video pipeline', 'graphics device')) return 'err.capture';
+  if (has('error sending request', 'dns', 'connection', 'github', 'network', 'timed out')) return 'err.network';
+  return undefined;
 }
 
 export const app = new AppStore();

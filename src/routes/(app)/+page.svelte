@@ -129,7 +129,7 @@
             <p>{app.t('home.pausedBattery')}</p>
           {:else}
             <h1>{on ? app.t('home.on') : app.t('home.off')}</h1>
-            <p>{on ? readyLine(app.lang, s.replaySeconds) : app.t('home.offHint')}</p>
+            <p>{on ? (running ? readyLine(app.lang, s.replaySeconds) : app.t('home.starting')) : app.t('home.offHint')}</p>
           {/if}
         </div>
       {/key}

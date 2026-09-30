@@ -193,7 +193,7 @@
     { key: 'toggleMenu', label: 'hk.toggleMenu' },
   ];
 
-  type Action = { icon: IconName; label: string; on?: boolean; alert?: boolean; run: () => void };
+  type Action = { icon: IconName; label: string; on?: boolean; alert?: boolean; disabled?: boolean; run: () => void };
   let actions = $derived<Action[]>(
     s && st
       ? [
@@ -203,6 +203,8 @@
             icon: s.engine.micMuted ? 'micOff' : 'mic',
             label: app.t('menu.mic'),
             alert: s.engine.micMuted || !s.engine.mic,
+            // Muting does nothing while the mic isn't recorded at all.
+            disabled: !s.engine.mic,
             run: () => app.change((x) => (x.engine.micMuted = !x.engine.micMuted), 0),
           },
           { icon: 'replay', label: app.t('menu.replay'), on: s.replayEnabled, alert: !s.replayEnabled, run: () => api.setReplay(!s.replayEnabled) },
@@ -234,7 +236,7 @@
 
           <div class="actions">
             {#each actions as a (a.label)}
-              <button class="act" class:on={a.on} class:alert={a.alert} onclick={a.run} title={a.label}>
+              <button class="act" class:on={a.on} class:alert={a.alert} disabled={a.disabled} onclick={a.run} title={a.label}>
                 <Icon name={a.icon} size={20} />
                 <span>{a.label}</span>
               </button>

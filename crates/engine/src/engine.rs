@@ -300,6 +300,9 @@ impl Engine {
                 // Failed starts in a row: sets the back-off; the failure is
                 // logged once until it works again.
                 let mut failures = 0u32;
+                // A crash's reason stays on screen until capture has run fine
+                // again for `ERROR_SHOWN`.
+                let mut clear_error_at: Option<Instant> = None;
                 while alive.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(500));
                     let mut st = state.lock();
@@ -381,8 +384,10 @@ impl Engine {
                                     log::info!("capture started");
                                 }
                                 failures = 0;
-                                // A crash's reason stays visible; an earlier start error is stale now.
-                                if !died {
+                                // A crash's reason stays visible a while; an earlier start error is stale now.
+                                if died {
+                                    clear_error_at = Some(Instant::now() + ERROR_SHOWN);
+                                } else {
                                     st.last_error = None;
                                 }
                             }
@@ -394,12 +399,19 @@ impl Engine {
                                 }
                                 failures += 1;
                                 st.last_error = Some(format!("{e:#}"));
+                                clear_error_at = None;
                             }
                             None => {}
                         }
                         last_start = Instant::now();
                     }
-                    if died || retry || rec_ended {
+                    let alive_now = st.pipeline.as_ref().is_some_and(|p| p.is_alive());
+                    let cleared = clear_error_at.is_some_and(|t| Instant::now() >= t) && alive_now;
+                    if cleared {
+                        st.last_error = None;
+                        clear_error_at = None;
+                    }
+                    if died || retry || rec_ended || cleared {
                         drop(st);
                         events(EngineEvent::Status(Engine::status_of(&state, &shared)));
                     }
@@ -788,6 +800,9 @@ fn retry_delay(failures: u32) -> Duration {
         _ => 60,
     })
 }
+
+/// How long a crash's reason stays shown once capture works again.
+const ERROR_SHOWN: Duration = Duration::from_secs(60);
 
 /// How long stopping capture waits for the capture thread.
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(5);

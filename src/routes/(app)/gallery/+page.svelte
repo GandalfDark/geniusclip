@@ -161,6 +161,7 @@
   .tabs button {
     position: relative;
     height: 32px;
+    white-space: nowrap;
     font-size: 14px;
     font-weight: 500;
     color: var(--text-3);
@@ -209,7 +210,8 @@
     align-items: center;
     gap: 6px;
     height: 32px;
-    width: 220px;
+    flex: 0 1 220px;
+    min-width: 110px;
     padding: 0 9px;
     border-radius: var(--r);
     background: var(--bg);

@@ -24,9 +24,26 @@
   import Keys from './Keys.svelte';
   import { rowIds } from './Row.svelte';
 
-  let { value, onchange, conflict = false, label = '' }: { value: string; onchange: (v: string) => void; conflict?: boolean; label?: string } =
-    $props();
+  let {
+    value,
+    onchange,
+    conflict = false,
+    label = '',
+    taken,
+  }: {
+    value: string;
+    onchange: (v: string) => void;
+    conflict?: boolean;
+    label?: string;
+    /** The action another field already binds this combo to, if any. */
+    taken?: (accel: string) => string | null;
+  } = $props();
   let listening = $state(false);
+  // Why the last key pressed wasn't taken (shown until the next one).
+  let hint = $state('');
+  $effect(() => {
+    if (!listening) hint = '';
+  });
 
   // Read as "<action> <combo>": the name (`label`, else the settings row's)
   // followed by the field's own content.
@@ -78,10 +95,18 @@
     // Keys that don't type text work alone (numpad, F-keys, Insert, Home…);
     // letters, digits and the like need a modifier, or they'd fire while
     // typing in a game's chat.
-    if (!mods.length && !SOLO.test(e.code)) return;
+    if (!mods.length && !SOLO.test(e.code)) {
+      hint = app.t('hk.needMod');
+      return;
+    }
     const accel = [...mods, e.code].join('+');
     // Windows' own shortcuts: bound, they would stop working everywhere.
     if (RESERVED.includes(accel)) return;
+    const other = taken?.(accel);
+    if (other) {
+      hint = app.t('hk.taken', { action: other });
+      return;
+    }
     onchange(accel);
     listening = false;
   }
@@ -100,7 +125,7 @@
     onblur={() => (listening = false)}
   >
     {#if listening}
-      <span class="listen">{app.t('hk.press')}</span>
+      <span class="listen" class:hint={!!hint}>{hint || app.t('hk.press')}</span>
     {:else if value}
       <Keys accel={value} />
     {:else}
@@ -144,6 +169,9 @@
   }
   .warn {
     display: flex;
+    color: var(--warn);
+  }
+  .listen.hint {
     color: var(--warn);
   }
 </style>

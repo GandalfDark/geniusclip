@@ -345,7 +345,15 @@
             label={app.t(r.label)}
             hint={app.hotkeyErrors.includes(r.key) ? app.t('home.hotkeyConflict') : r.key === 'saveShort' && !s.hotkeys.saveShort ? app.t('hk.saveShortHint') : ''}
           >
-            <HotkeyInput value={s.hotkeys[r.key]} conflict={app.hotkeyErrors.includes(r.key)} onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)} />
+            <HotkeyInput
+              value={s.hotkeys[r.key]}
+              conflict={app.hotkeyErrors.includes(r.key)}
+              taken={(a) => {
+                const other = hkRows.find((o) => o.key !== r.key && s.hotkeys[o.key] === a);
+                return other ? app.t(other.label) : null;
+              }}
+              onchange={(v) => app.change((x) => (x.hotkeys[r.key] = v), 0)}
+            />
           </Row>
           {#if r.key === 'saveShort' && s.hotkeys.saveShort}
             <Row label={app.t('set.shortLength')}>

@@ -24,8 +24,13 @@ const kkRel: Rel = {
     return unit === 'minute' ? `${n} мин бұрын` : `${n} сағ бұрын`;
   },
 };
+// Kazakh can be listed as supported and still come out in English, so the
+// check is on what it actually says.
+let kkFallback: boolean | undefined;
+const kkMissing = () =>
+  (kkFallback ??= new Intl.RelativeTimeFormat('kk', { numeric: 'auto' }).format(0, 'day') === 'today');
 const relFmt = (lang: Lang, style: 'long' | 'short'): Rel =>
-  lang === 'kk' && !Intl.RelativeTimeFormat.supportedLocalesOf('kk').length
+  lang === 'kk' && kkMissing()
     ? kkRel
     : memo(`r:${lang}:${style}`, () => new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style }));
 

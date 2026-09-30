@@ -127,6 +127,30 @@ pub fn window() -> Option<HWND> {
     WORKER.get().filter(|w| w.hwnd != 0).map(|w| HWND(w.hwnd as *mut _))
 }
 
+/// A technical error (kept in English in the log) in words a player
+/// understands, when it is one of the known kinds. Mirrors `friendlyError`
+/// in the UI.
+fn friendly_error(lang: &str, msg: &str) -> Option<String> {
+    let m = msg.to_lowercase();
+    let has = |parts: &[&str]| parts.iter().any(|p| m.contains(p));
+    let key = if has(&["replay buffer is empty", "replay buffer is off", "nothing was recorded"]) {
+        "err.buffer-empty"
+    } else if has(&["disk is too slow", "can't keep up"]) {
+        "err.disk-slow"
+    } else if has(&["no space", "disk full", "os error 112", "storagefull"]) {
+        "err.disk-full"
+    } else if has(&["avcodec_open2", "encoder not found", "no hardware encoder"]) {
+        "err.encoder"
+    } else if has(&["capture", "duplication", "duplicateoutput", "video pipeline", "graphics device"]) {
+        "err.capture"
+    } else if has(&["error sending request", "dns", "connection", "github", "network", "timed out"]) {
+        "err.network"
+    } else {
+        return None;
+    };
+    Some(t(lang, key).to_string())
+}
+
 pub fn toast(app: &AppHandle, toast: Toast) {
     let st = app.state::<AppState>();
     let s = st.settings.read().clone();
@@ -139,7 +163,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     let lang = s.lang();
     let title = t(lang, &format!("ov.{}", toast.kind)).to_string();
     let sub = match toast.kind.as_str() {
-        "error" => toast.message.clone(),
+        "error" => friendly_error(lang, &toast.message).unwrap_or_else(|| toast.message.clone()),
         "replay-off-hint" => t(lang, "ov.replay-off-hint.sub").to_string(),
         "already-saved" => t(lang, "ov.already-saved.sub").to_string(),
         "replay-wait" => t(lang, "ov.replay-wait.sub").to_string(),
