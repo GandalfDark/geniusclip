@@ -914,6 +914,51 @@ impl Drop for AudioPipeline {
 mod tests {
     use super::*;
 
+    /// Process loopback on the running Discord: its tree only, everything
+    /// but it, then both at once, as the pipeline opens them. Reads packets
+    /// for a moment each; opens no render stream. Needs Discord running:
+    ///   cargo test -p geniusclip-engine discord_process_loopback -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn discord_process_loopback() {
+        let pid = crate::voice::Discord::default().target();
+        assert!(pid != 0, "Discord isn't running");
+        let stop = AtomicBool::new(false);
+        let run = |include: bool| {
+            let _com = ComInit::new();
+            let mut sess = unsafe { open_process_session(pid, include, &stop) }.expect("open");
+            eprintln!("include={include}: opened");
+            let (mut packets, mut frames_total, mut qpc_zero, mut silent) = (0, 0u64, 0, 0);
+            let until = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < until {
+                unsafe {
+                    let _ = WaitForSingleObject(sess.event, 20);
+                    while sess.capture.GetNextPacketSize().expect("GetNextPacketSize") > 0 {
+                        let mut data = ptr::null_mut();
+                        let (mut frames, mut flags, mut qpc) = (0u32, 0u32, 0u64);
+                        sess.capture.GetBuffer(&mut data, &mut frames, &mut flags, None, Some(&mut qpc)).expect("GetBuffer");
+                        packets += 1;
+                        frames_total += frames as u64;
+                        qpc_zero += (qpc == 0) as u32;
+                        if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
+                            silent += 1;
+                        } else {
+                            sess.resampler.convert(data, frames as usize).expect("convert");
+                        }
+                        sess.capture.ReleaseBuffer(frames).expect("ReleaseBuffer");
+                    }
+                }
+            }
+            eprintln!("include={include}: {packets} packets, {frames_total} frames, qpc 0: {qpc_zero}, silent: {silent}");
+        };
+        run(true);
+        run(false);
+        std::thread::scope(|s| {
+            s.spawn(|| run(true));
+            s.spawn(|| run(false));
+        });
+    }
+
     /// The live encoder uses the fast AAC coder (no devices involved).
     #[test]
     fn live_aac_encoder_is_fast() {

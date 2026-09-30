@@ -116,7 +116,9 @@ pub(crate) unsafe fn process_loopback(pid: u32, include: bool, stop: &AtomicBool
         },
     };
     // Borrows `params`, which outlives the activation (waited for below).
-    let prop = PROPVARIANT {
+    // Never dropped: PROPVARIANT's Drop (PropVariantClear) would free the
+    // blob, which is `params` on the stack, with CoTaskMemFree.
+    let prop = ManuallyDrop::new(PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
                 vt: VT_BLOB,
@@ -126,10 +128,10 @@ pub(crate) unsafe fn process_loopback(pid: u32, include: bool, stop: &AtomicBool
                 ..Default::default()
             }),
         },
-    };
+    });
     let (tx, rx) = crossbeam_channel::bounded(1);
     let handler: IActivateAudioInterfaceCompletionHandler = Completion(tx).into();
-    let op = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, &IAudioClient::IID, Some(&prop as *const _), &handler)
+    let op = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, &IAudioClient::IID, Some(&*prop as *const PROPVARIANT), &handler)
         .context("ActivateAudioInterfaceAsync")?;
     let deadline = Instant::now() + ACTIVATE_TIMEOUT;
     while rx.recv_timeout(Duration::from_millis(50)).is_err() {
