@@ -382,12 +382,16 @@ export function installMock() {
           const peaks = await fetch("/dev-clip.peaks.json").then((r) =>
             r.json(),
           );
-          const titles = ["Game + Mic", "Game", "Mic"];
+          // ?voice: Discord's voices on a track of their own (4 tracks).
+          const voice = new URLSearchParams(location.search).has("voice");
+          const titles = voice
+            ? ["Game + Voice + Mic", "Game", "Mic", "Voice"]
+            : ["Game + Mic", "Game", "Mic"];
           return {
             titles,
             mix: true,
-            files: titles.map((_, k) => `/dev-clip_${k}.m4a`),
-            peaks,
+            files: titles.map((_, k) => `/dev-clip_${Math.min(k, 2)}.m4a`),
+            peaks: voice ? [...peaks, peaks[1]] : peaks,
           };
         }
         case "trim_media":

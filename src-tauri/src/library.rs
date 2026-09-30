@@ -384,7 +384,7 @@ impl Library {
             }
         }
         prune_tracks(&root);
-        let files = files.iter().filter_map(|f| f.file_name()).map(|n| dir.join(n)).collect();
+        let files = moved_to(&files, &dir);
         Ok((files, peaks))
     }
 
@@ -405,6 +405,13 @@ const STALE_TMP: Duration = Duration::from_secs(3600);
 /// A complete track folder: its files and waveforms. Marks it as just used.
 /// A finished set: a file for every track but the skipped ones (an empty
 /// path stands for those), and the waveforms.
+/// Extracted track files as they are once their folder is moved to `dir`.
+/// A skipped track keeps its empty path, so `files[k]` stays track k (as
+/// `read_tracks` gives them from the cache).
+fn moved_to(files: &[PathBuf], dir: &Path) -> Vec<PathBuf> {
+    files.iter().map(|f| f.file_name().map_or_else(PathBuf::new, |n| dir.join(n))).collect()
+}
+
 fn read_tracks(dir: &Path, count: usize, skip: &[usize]) -> Option<(Vec<PathBuf>, Vec<Vec<f32>>)> {
     let files: Vec<PathBuf> = (0..count).map(|k| if skip.contains(&k) { PathBuf::new() } else { dir.join(format!("track_{k}.m4a")) }).collect();
     if !files.iter().all(|p| p.as_os_str().is_empty() || p.is_file()) {
@@ -569,6 +576,25 @@ mod tests {
         assert_eq!(peaks, vec![vec![0.5]]);
         let used = std::fs::metadata(d.join(PEAKS_FILE)).unwrap().modified().unwrap();
         assert!(used.elapsed().unwrap() < Duration::from_secs(60));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Freshly extracted and cached tracks come in the same places, with
+    /// the skipped mix track's place kept.
+    #[test]
+    fn extracted_tracks_keep_their_places() {
+        let root = scratch("places");
+        let (tmp, dir) = (root.join("x.1.1.tmp"), root.join("x"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let extracted: Vec<PathBuf> = (0..4).map(|k| if k == 0 { PathBuf::new() } else { tmp.join(format!("track_{k}.m4a")) }).collect();
+        for k in 1..4 {
+            std::fs::write(dir.join(format!("track_{k}.m4a")), b"x").unwrap();
+        }
+        std::fs::write(dir.join(PEAKS_FILE), b"[[],[0.1],[0.2],[0.3]]").unwrap();
+        let (cached, _) = read_tracks(&dir, 4, &[0]).unwrap();
+        assert_eq!(moved_to(&extracted, &dir), cached);
+        assert_eq!(cached[0], PathBuf::new());
+        assert_eq!(cached[3], dir.join("track_3.m4a"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
