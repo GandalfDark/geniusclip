@@ -74,6 +74,12 @@ pub struct EngineConfig {
     pub mic_volume: f32,
     /// Also store game and microphone as separate audio tracks (for editing).
     pub separate_tracks: bool,
+    /// With separate tracks: Discord's audio (voice chat) gets a track of
+    /// its own and is left out of the game track (Windows 10 2004 or later;
+    /// while Discord runs, system audio comes from the default output
+    /// device whatever `system_device` says). Without separate tracks it
+    /// changes nothing: voices are in the single mix either way.
+    pub voice_separate: bool,
     /// Keep the replay buffer in temporary files instead of RAM.
     pub disk_buffer: bool,
     /// Microphone noise suppression; applies live (no pipeline restart).
@@ -100,6 +106,11 @@ impl EngineConfig {
         a.mic_muted = other.mic_muted;
         a == *other
     }
+
+    /// Discord's audio gets a track of its own (see `voice_separate`).
+    pub fn voice_track(&self) -> bool {
+        self.voice_separate && self.system_audio && self.separate_tracks
+    }
 }
 
 impl Default for EngineConfig {
@@ -119,6 +130,7 @@ impl Default for EngineConfig {
             mic_device: None,
             mic_volume: 1.0,
             separate_tracks: true,
+            voice_separate: false,
             disk_buffer: false,
             noise_suppression: false,
             noise_strength: 80,

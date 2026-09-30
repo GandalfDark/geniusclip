@@ -17,6 +17,8 @@ crossbeam-channel = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ffmpeg-sys-next = { version = "9", default-features = false, features = ["avcodec", "avformat", "swresample", "swscale"] }
+# `#[implement]` (COM objects written in Rust) expands to `windows_core` paths.
+windows-core = "0.62"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -40,6 +42,7 @@ windows = { version = "0.62", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_DataExchange",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",

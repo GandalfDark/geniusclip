@@ -22,6 +22,7 @@ pub mod remix;
 pub mod finalize;
 mod mux;
 mod venc;
+mod voice;
 
 pub use audio::{list_devices as list_audio_devices, AudioDevice};
 pub use card::HoldCard;

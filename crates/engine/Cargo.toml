@@ -15,6 +15,7 @@ crossbeam-channel.workspace = true
 serde.workspace = true
 ffmpeg-sys-next.workspace = true
 windows.workspace = true
+windows-core.workspace = true
 # Microphone noise suppression (DeepFilterNet 3, model embedded). Not on
 # crates.io with the realtime engine, so pinned to a commit; tract must match
 # the version it was built against (newer tract uses another ndarray).

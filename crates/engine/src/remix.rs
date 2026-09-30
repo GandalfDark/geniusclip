@@ -26,10 +26,13 @@ pub fn audio_tracks(path: &Path) -> Result<Vec<String>> {
     Ok(out)
 }
 
-/// GeniusClip's own layout: a mixed track followed by game and mic tracks.
-/// For it, the mix is rebuilt from the separate tracks.
+/// GeniusClip's own layout: a mixed track followed by the tracks it is the
+/// sum of (game, mic if recorded, and Discord's voices when split off).
+/// For it, the mix is rebuilt from the separate tracks. The mix's own title
+/// is not checked: it names what went into it.
 pub fn is_mix_layout(titles: &[String]) -> bool {
-    titles.len() == 3 && titles[1] == "Game" && titles[2] == "Mic"
+    let parts: Vec<&str> = titles.iter().skip(1).map(String::as_str).collect();
+    matches!(parts[..], ["Game", "Mic"] | ["Game", "Voice"] | ["Game", "Mic", "Voice"])
 }
 
 /// A waveform slice gets about this many decoded packets at most (a slice
@@ -235,7 +238,8 @@ impl Source {
 
 /// Lossless video trim with re-encoded audio at the given per-track gains
 /// (1.0 = unchanged, 0.0 = muted). With GeniusClip's mix layout, the mix
-/// track is rebuilt as game × gains[1] + mic × gains[2].
+/// track is rebuilt as the sum of the tracks after it, each at its gain
+/// (game × gains[1] + mic × gains[2] + …); gains[0] is not used.
 pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, gains: &[f32]) -> Result<()> {
     if end <= start {
         bail!("empty selection");
@@ -274,7 +278,7 @@ pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, g
         }
         let Some((vidx, vdesc)) = video else { bail!("no video stream") };
         let remix = is_mix_layout(&titles);
-        let gain = |k: usize| gains.get(k).copied().unwrap_or(1.0).clamp(0.0, 4.0);
+        let gain: Vec<f32> = (0..titles.len()).map(|k| gains.get(k).copied().unwrap_or(1.0).clamp(0.0, 4.0)).collect();
 
         let mut encoders = Vec::new();
         let mut descs = vec![vdesc];
@@ -304,7 +308,7 @@ pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, g
                     s.take(*pos, &mut blocks[k]);
                 }
                 for k in 0..n {
-                    let (src, g) = if remix && k == 0 { (None, 0.0) } else { (Some(k), gain(k)) };
+                    let (src, g) = if remix && k == 0 { (None, 0.0) } else { (Some(k), gain[k]) };
                     if let Some(src) = src {
                         for i in 0..BLOCK * 2 {
                             outs[k][i] = (blocks[src][i] * g).clamp(-1.0, 1.0);
@@ -312,9 +316,9 @@ pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, g
                     }
                 }
                 if remix {
-                    let (g1, g2) = (gain(1), gain(2));
                     for i in 0..BLOCK * 2 {
-                        outs[0][i] = (blocks[1][i] * g1 + blocks[2][i] * g2).clamp(-1.0, 1.0);
+                        let sum = (2..n).fold(blocks[1][i] * gain[1], |s, k| s + blocks[k][i] * gain[k]);
+                        outs[0][i] = sum.clamp(-1.0, 1.0);
                     }
                 }
                 for (k, enc) in encoders.iter_mut().enumerate() {
@@ -553,5 +557,23 @@ mod stretch_tests {
         assert_eq!(v, vec![0.0, 0.25, 0.5, 0.75, 1.0, 1.25]);
         assert_eq!(out[1], -0.0);
         assert_eq!(out[3], -0.25);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mix_layouts() {
+        let is_mix = |t: &[&str]| is_mix_layout(&t.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert!(is_mix(&["Game + Mic", "Game", "Mic"]));
+        assert!(is_mix(&["Game + Voice + Mic", "Game", "Mic", "Voice"]));
+        assert!(is_mix(&["Game + Voice", "Game", "Voice"]));
+        assert!(!is_mix(&[]));
+        assert!(!is_mix(&["Game"]));
+        assert!(!is_mix(&["Game", "Mic"]));
+        assert!(!is_mix(&["SoundHandler", "SoundHandler", "SoundHandler"]));
+        assert!(!is_mix(&["Game + Mic", "Game", "Mic", "Mic"]));
     }
 }

@@ -1696,6 +1696,7 @@ dependencies = [
  "tract-pulse",
  "tract-pulse-opl",
  "windows 0.62.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

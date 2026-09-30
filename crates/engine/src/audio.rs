@@ -1,5 +1,6 @@
-//! Audio: WASAPI capture (system loopback + microphone), resampling to
-//! 48 kHz stereo, timestamp-driven mixing and AAC encoding.
+//! Audio: WASAPI capture (system loopback + microphone, and optionally
+//! Discord's voices split off the system audio by process loopback),
+//! resampling to 48 kHz stereo, timestamp-driven mixing and AAC encoding.
 //!
 //! Each capture thread writes samples into a [`SourceRing`] at positions
 //! derived from WASAPI's QPC timestamps. The mixer pulls fixed 1024-sample
@@ -10,6 +11,7 @@ use crate::clock;
 use crate::config::EngineConfig;
 use crate::denoise::{self, Chunk, DenoiseControl};
 use crate::ffutil::*;
+use crate::voice::{self, Discord};
 use crossbeam_channel::Sender;
 use anyhow::{bail, Context, Result};
 use ffmpeg_sys_next as ff;
@@ -39,6 +41,9 @@ const MIX_LATENCY: i64 = RATE / 8;
 const RESYNC_TOLERANCE: i64 = RATE / 40;
 /// Longest wait for the audio threads when the pipeline stops.
 const JOIN_TIMEOUT: Duration = Duration::from_secs(2);
+/// How often the game and voice captures ask whether Discord's process
+/// tree changed.
+const DISCORD_POLL: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,6 +84,10 @@ pub(crate) fn enumerator() -> Result<IMMDeviceEnumerator> {
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).context("MMDeviceEnumerator") }
 }
 
+fn default_id(en: &IMMDeviceEnumerator, flow: EDataFlow) -> Option<String> {
+    unsafe { en.GetDefaultAudioEndpoint(flow, eConsole).ok().and_then(|d| d.GetId().ok()).map(|p| pwstr_take(p)) }
+}
+
 /// Lists active output (`capture == false`) or input devices.
 pub fn list_devices(capture: bool) -> Result<Vec<AudioDevice>> {
     let _com = ComInit::new();
@@ -86,7 +95,7 @@ pub fn list_devices(capture: bool) -> Result<Vec<AudioDevice>> {
     let mut out = Vec::new();
     unsafe {
         let en = enumerator()?;
-        let default_id = en.GetDefaultAudioEndpoint(flow, eConsole).ok().and_then(|d| d.GetId().ok()).map(|p| pwstr_take(p));
+        let default_id = default_id(&en, flow);
         let coll = en.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)?;
         for i in 0..coll.GetCount()? {
             let dev = coll.Item(i)?;
@@ -250,10 +259,16 @@ unsafe impl Send for Resampler {}
 // ---------------------------------------------------------------------------
 // WASAPI capture thread
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone)]
 pub(crate) enum SourceKind {
     Loopback,
     Mic,
+    /// System audio without Discord's process tree; plain loopback while
+    /// Discord isn't running or process loopback is unavailable.
+    Game(Arc<Discord>),
+    /// Discord's process tree only; nothing (a silent track) while Discord
+    /// isn't running or process loopback is unavailable.
+    Voice(Arc<Discord>),
 }
 
 pub(crate) fn sample_format(wf: &WAVEFORMATEX) -> Option<(ff::AVSampleFormat, bool)> {
@@ -300,9 +315,9 @@ impl Drop for CaptureSession {
     }
 }
 
-unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<CaptureSession> {
+unsafe fn open_session(loopback: bool, device_id: Option<&str>) -> Result<CaptureSession> {
     let en = enumerator()?;
-    let flow = if kind == SourceKind::Loopback { eRender } else { eCapture };
+    let flow = if loopback { eRender } else { eCapture };
     let device = match device_id {
         Some(id) => en.GetDevice(&HSTRING::from(id)).context("GetDevice")?,
         None => en.GetDefaultAudioEndpoint(flow, eConsole).context("no default audio device")?,
@@ -314,14 +329,13 @@ unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<Capt
     let parsed = sample_format(&*fmt);
     let res = (|| -> Result<CaptureSession> {
         let (in_fmt, widen24) = parsed.context("unsupported mix format")?;
-        let flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-            | if kind == SourceKind::Loopback { AUDCLNT_STREAMFLAGS_LOOPBACK } else { 0 };
+        let flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | if loopback { AUDCLNT_STREAMFLAGS_LOOPBACK } else { 0 };
         client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2_000_000, 0, fmt, None).context("IAudioClient::Initialize")?;
         let event = CreateEventW(None, false, false, None)?;
         client.SetEventHandle(event)?;
         let capture: IAudioCaptureClient = client.GetService()?;
 
-        let silence = if kind == SourceKind::Loopback {
+        let silence = if loopback {
             (|| -> Result<_> {
                 let rc: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
                 rc.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 2_000_000, 0, fmt, None)?;
@@ -354,6 +368,40 @@ unsafe fn open_session(kind: SourceKind, device_id: Option<&str>) -> Result<Capt
     res
 }
 
+/// Process loopback: the process tree of `pid` only (`include`) or all but
+/// it. It has no endpoint of its own: it captures the mix of the default
+/// output device, so a pinned `system_device` does not apply to it. Nor has
+/// it a mix format: it converts to the one asked for.
+unsafe fn open_process_session(pid: u32, include: bool, stop: &AtomicBool) -> Result<CaptureSession> {
+    let client = voice::process_loopback(pid, include, stop)?;
+    let wf = WAVEFORMATEX {
+        wFormatTag: WAVE_FORMAT_IEEE_FLOAT as u16,
+        nChannels: 2,
+        nSamplesPerSec: RATE as u32,
+        nAvgBytesPerSec: RATE as u32 * 8,
+        nBlockAlign: 8,
+        wBitsPerSample: 32,
+        cbSize: 0,
+    };
+    let flags = AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+    client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 2_000_000, 0, &wf, None).context("IAudioClient::Initialize")?;
+    let resampler = Resampler::new(ff::AVSampleFormat::AV_SAMPLE_FMT_FLT, 2, RATE as u32)?;
+    let event = CreateEventW(None, false, false, None)?;
+    let started = (|| -> Result<IAudioCaptureClient> {
+        client.SetEventHandle(event)?;
+        let capture: IAudioCaptureClient = client.GetService()?;
+        client.Start()?;
+        Ok(capture)
+    })();
+    let capture = started.inspect_err(|_| {
+        let _ = CloseHandle(event);
+    })?;
+    // The default device's id: when it changes, the session is reopened
+    // like a plain loopback one.
+    let device_id = enumerator().ok().and_then(|en| default_id(&en, eRender)).unwrap_or_default();
+    Ok(CaptureSession { client, capture, event, resampler, channels: 2, widen24: false, device_id, silence: None })
+}
+
 /// `denoise`: when set, chunks go through the denoise thread, which writes
 /// them to the ring itself (unless its queue is full).
 /// `bypass`: while its suppression is off, chunks skip the denoise thread
@@ -369,14 +417,46 @@ pub(crate) fn capture_thread(
     stop: Arc<AtomicBool>,
 ) {
     let _com = ComInit::new();
-    let label = if kind == SourceKind::Loopback { "system audio" } else { "microphone" };
+    let loopback = !matches!(kind, SourceKind::Mic);
+    let voice = matches!(kind, SourceKind::Voice(_));
+    let label = match kind {
+        SourceKind::Mic => "microphone",
+        SourceKind::Voice(_) => "Discord voices",
+        _ => "system audio",
+    };
+    let discord = match &kind {
+        SourceKind::Game(d) | SourceKind::Voice(d) => Some(d.clone()),
+        _ => None,
+    };
     let mut scratch: Vec<u8> = Vec::new();
     let mut zeros: Vec<u8> = Vec::new();
     while !stop.load(Ordering::Relaxed) {
-        let mut sess = match unsafe { open_session(kind, device_id.as_deref()) } {
+        // Root of Discord's process tree this session splits off (0: none).
+        let target = discord.as_ref().map_or(0, |d| d.target());
+        let opened = match (target, voice) {
+            (0, true) => {
+                // No Discord: the voice track stays silent until it starts.
+                sleep_unless(&stop, DISCORD_POLL);
+                continue;
+            }
+            (0, false) => unsafe { open_session(loopback, device_id.as_deref()) },
+            (pid, _) => unsafe { open_process_session(pid, voice, &stop) },
+        };
+        let mut sess = match opened {
             Ok(s) => {
-                log::info!("{label}: capturing from {}", s.device_id);
+                match (target, voice) {
+                    (0, _) => log::info!("{label}: capturing from {}", s.device_id),
+                    (pid, true) => log::info!("{label}: capturing Discord (pid {pid})"),
+                    (pid, false) => log::info!("{label}: capturing all but Discord (pid {pid})"),
+                }
                 s
+            }
+            Err(e) if target != 0 => {
+                // Falls back right away: the next round sees no target.
+                if let Some(d) = discord.as_ref().filter(|_| !stop.load(Ordering::Relaxed)) {
+                    d.failed(target, &e);
+                }
+                continue;
             }
             Err(e) => {
                 log::warn!("{label}: {e:#}");
@@ -386,6 +466,7 @@ pub(crate) fn capture_thread(
         };
         let en = enumerator().ok();
         let mut next_default_check = Instant::now() + Duration::from_secs(2);
+        let mut next_discord_check = Instant::now() + DISCORD_POLL;
 
         'run: while !stop.load(Ordering::Relaxed) {
             unsafe {
@@ -457,17 +538,24 @@ pub(crate) fn capture_thread(
                     }
                 }
             }
-            // Follow the Windows default device when none is pinned.
-            if device_id.is_none() && Instant::now() >= next_default_check {
+            // Follow the Windows default device when none is pinned (process
+            // loopback always captures the default one).
+            if (device_id.is_none() || target != 0) && Instant::now() >= next_default_check {
                 next_default_check = Instant::now() + Duration::from_secs(2);
-                let flow = if kind == SourceKind::Loopback { eRender } else { eCapture };
-                let cur = en
-                    .as_ref()
-                    .and_then(|en| unsafe { en.GetDefaultAudioEndpoint(flow, eConsole).ok() })
-                    .and_then(|d| unsafe { d.GetId().ok() })
-                    .map(|p| unsafe { pwstr_take(p) });
+                let flow = if loopback { eRender } else { eCapture };
+                let cur = en.as_ref().and_then(|en| default_id(en, flow));
                 if cur.is_some_and(|c| c != sess.device_id) {
                     log::info!("{label}: default device changed");
+                    break 'run;
+                }
+            }
+            // Discord started, restarted or closed. Asked often (the scan
+            // itself runs every few seconds) so that the game and voice
+            // captures switch at nearly the same moment.
+            if let Some(d) = discord.as_ref().filter(|_| Instant::now() >= next_discord_check) {
+                next_discord_check = Instant::now() + DISCORD_POLL;
+                if d.target() != target {
+                    log::info!("{label}: Discord started or closed, reopening");
                     break 'run;
                 }
             }
@@ -504,7 +592,7 @@ pub(crate) struct AudioEncoder {
 unsafe impl Send for AudioEncoder {}
 
 impl AudioEncoder {
-    /// `fast`: live capture, where up to three tracks are encoded all the
+    /// `fast`: live capture, where up to four tracks are encoded all the
     /// time. The fast coder takes well under half the CPU of the default
     /// (two-loop) one, with no audible difference at these bitrates.
     pub fn new(bitrate: i64, fast: bool) -> Result<Self> {
@@ -594,6 +682,35 @@ enum TrackMix {
     Mix,
     System,
     Mic,
+    Voice,
+}
+
+/// The audio tracks for the config: (content, title, bitrate). A mix comes
+/// first, followed by the tracks it is made of when they are kept apart;
+/// `remix::is_mix_layout` must recognize every such layout.
+fn layout(cfg: &EngineConfig) -> Vec<(TrackMix, &'static str, i64)> {
+    let voice = cfg.voice_track();
+    let mut tracks = Vec::new();
+    match (cfg.system_audio, cfg.mic) {
+        (true, true) => {
+            tracks.push((TrackMix::Mix, if voice { "Game + Voice + Mic" } else { "Game + Mic" }, 192_000));
+            if cfg.separate_tracks {
+                tracks.push((TrackMix::System, "Game", 160_000));
+                tracks.push((TrackMix::Mic, "Mic", 128_000));
+            }
+        }
+        (true, false) if voice => {
+            tracks.push((TrackMix::Mix, "Game + Voice", 192_000));
+            tracks.push((TrackMix::System, "Game", 160_000));
+        }
+        (true, false) => tracks.push((TrackMix::System, "Game", 192_000)),
+        (false, true) => tracks.push((TrackMix::Mic, "Mic", 160_000)),
+        (false, false) => {}
+    }
+    if voice {
+        tracks.push((TrackMix::Voice, "Voice", 128_000));
+    }
+    tracks
 }
 
 pub struct AudioPipeline {
@@ -636,21 +753,13 @@ impl LiveAudio {
 }
 
 impl AudioPipeline {
-    /// Builds the track layout for the config. Returns (pipeline, stream descriptions).
-    /// Packets are delivered to `sink` with the index into the returned streams.
+    /// Builds the track layout for the config (see `layout`). Returns
+    /// (pipeline, stream descriptions). Packets are delivered to `sink` with
+    /// the index into the returned streams.
     pub fn start(cfg: &EngineConfig, t0_us: i64, sink: AudioSink, denoise: Arc<DenoiseControl>, live: Arc<LiveAudio>) -> Result<Option<(AudioPipeline, Vec<StreamDesc>)>> {
-        let mut tracks: Vec<(TrackMix, &str, i64)> = Vec::new();
-        match (cfg.system_audio, cfg.mic) {
-            (true, true) => {
-                tracks.push((TrackMix::Mix, "Game + Mic", 192_000));
-                if cfg.separate_tracks {
-                    tracks.push((TrackMix::System, "Game", 160_000));
-                    tracks.push((TrackMix::Mic, "Mic", 128_000));
-                }
-            }
-            (true, false) => tracks.push((TrackMix::System, "Game", 192_000)),
-            (false, true) => tracks.push((TrackMix::Mic, "Mic", 160_000)),
-            (false, false) => return Ok(None),
+        let tracks = layout(cfg);
+        if tracks.is_empty() {
+            return Ok(None);
         }
 
         let mut encoders = Vec::new();
@@ -673,12 +782,26 @@ impl AudioPipeline {
         let threads = &mut pipeline.threads;
         let sys_ring = Arc::new(SourceRing::default());
         let mic_ring = Arc::new(SourceRing::default());
+        let voice_ring = Arc::new(SourceRing::default());
+        let discord = cfg.voice_track().then(|| Arc::new(Discord::default()));
         if cfg.system_audio {
             let (ring, stop, dev) = (sys_ring.clone(), stop.clone(), cfg.system_device.clone());
+            let kind = match &discord {
+                Some(d) => SourceKind::Game(d.clone()),
+                None => SourceKind::Loopback,
+            };
             threads.push(
                 std::thread::Builder::new()
                     .name("gc-audio-system".into())
-                    .spawn(move || capture_thread(SourceKind::Loopback, dev, ring, None, None, t0_us, stop))?,
+                    .spawn(move || capture_thread(kind, dev, ring, None, None, t0_us, stop))?,
+            );
+        }
+        if let Some(d) = discord {
+            let (ring, stop) = (voice_ring.clone(), stop.clone());
+            threads.push(
+                std::thread::Builder::new()
+                    .name("gc-audio-voice".into())
+                    .spawn(move || capture_thread(SourceKind::Voice(d), None, ring, None, None, t0_us, stop))?,
             );
         }
         if cfg.mic {
@@ -693,13 +816,14 @@ impl AudioPipeline {
             );
         }
 
-        let (use_sys, use_mic) = (cfg.system_audio, cfg.mic);
+        let (use_sys, use_mic, use_voice) = (cfg.system_audio, cfg.mic, cfg.voice_track());
         let stop2 = stop.clone();
         threads.push(std::thread::Builder::new().name("gc-audio-mix".into()).spawn(move || {
             let now_idx = || (clock::now_us() - t0_us) * RATE / 1_000_000;
             let mut pos = (now_idx() - MIX_LATENCY).max(0);
             let mut sys = vec![0f32; BLOCK * 2];
             let mut mic = vec![0f32; BLOCK * 2];
+            let mut voice = vec![0f32; BLOCK * 2];
             let mut mix = vec![0f32; BLOCK * 2];
             while !stop2.load(Ordering::Relaxed) {
                 // Sleep until the next block is due (≈21 ms) rather than
@@ -723,14 +847,20 @@ impl AudioPipeline {
                         mic_ring.read(pos, &mut mic);
                         mic.iter_mut().for_each(|s| *s *= mic_vol);
                     }
+                    if use_voice {
+                        voice_ring.read(pos, &mut voice);
+                        // Split off the system audio, so at its volume.
+                        voice.iter_mut().for_each(|s| *s *= sys_vol);
+                    }
                     for i in 0..mix.len() {
-                        mix[i] = (sys[i] + mic[i]).clamp(-1.0, 1.0);
+                        mix[i] = (sys[i] + mic[i] + voice[i]).clamp(-1.0, 1.0);
                     }
                     for (idx, (kind, enc)) in encoders.iter_mut().enumerate() {
                         let buf = match kind {
                             TrackMix::Mix => &mix,
                             TrackMix::System => &sys,
                             TrackMix::Mic => &mic,
+                            TrackMix::Voice => &voice,
                         };
                         let sink = &sink;
                         if let Err(e) = enc.encode(buf, pos, &mut |p| sink(idx, p)) {
@@ -803,5 +933,34 @@ mod tests {
             timing.push(t.elapsed());
         }
         println!("500 AAC blocks: two-loop {:?}, fast {:?}", timing[0], timing[1]);
+    }
+
+    /// Without the voice track the layouts are what they always were, and
+    /// the trim editor rebuilds the mix of every layout that has one.
+    #[test]
+    fn track_layouts() {
+        let titles = |system_audio, mic, separate_tracks, voice_separate| {
+            let cfg = EngineConfig { system_audio, mic, separate_tracks, voice_separate, ..Default::default() };
+            layout(&cfg).iter().map(|t| t.1.to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(titles(true, true, true, false), ["Game + Mic", "Game", "Mic"]);
+        assert_eq!(titles(true, true, false, false), ["Game + Mic"]);
+        assert_eq!(titles(true, false, true, false), ["Game"]);
+        assert_eq!(titles(false, true, true, false), ["Mic"]);
+        assert!(titles(false, false, true, false).is_empty());
+        assert_eq!(titles(true, true, true, true), ["Game + Voice + Mic", "Game", "Mic", "Voice"]);
+        assert_eq!(titles(true, false, true, true), ["Game + Voice", "Game", "Voice"]);
+        // Without separate tracks (or system audio) the setting changes nothing.
+        assert_eq!(titles(true, true, false, true), ["Game + Mic"]);
+        assert_eq!(titles(true, false, false, true), ["Game"]);
+        assert_eq!(titles(false, true, true, true), ["Mic"]);
+        for sys in [true, false] {
+            for mic in [true, false] {
+                for voice in [true, false] {
+                    let t = titles(sys, mic, true, voice);
+                    assert_eq!(crate::remix::is_mix_layout(&t), t.len() > 1, "{t:?}");
+                }
+            }
+        }
     }
 }
