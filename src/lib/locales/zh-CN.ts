@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': '声音',
   'trim.game': '游戏',
   'trim.mic': '麦克风',
+  'trim.voice': 'Discord',
   'trim.track': '音轨 {n}',
   'trim.mute': '静音音轨',
   'trim.unmute': '取消静音',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': '麦克风',
   'set.separate': '分离音轨',
   'set.separateHint': '另外单独保存游戏和麦克风音轨，方便后期剪辑',
+  'set.voiceSeparate': 'Discord 语音单独一条音轨',
+  'set.voiceSeparateHint': '剪辑时可调低或静音好友的声音',
 
   'set.clipsDir': '片段和录像',
   'set.shotsDir': '截图',

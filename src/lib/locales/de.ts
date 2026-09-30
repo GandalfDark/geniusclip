@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Ton',
   'trim.game': 'Spiel',
   'trim.mic': 'Mikro',
+  'trim.voice': 'Discord',
   'trim.track': 'Spur {n}',
   'trim.mute': 'Spur stummschalten',
   'trim.unmute': 'Spur einschalten',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Mikrofon',
   'set.separate': 'Getrennte Spuren',
   'set.separateHint': 'Spiel und Mikro zusätzlich einzeln speichern, zum Schneiden',
+  'set.voiceSeparate': 'Discord-Stimmen auf eigener Spur',
+  'set.voiceSeparateHint': 'Freunde beim Zuschneiden leiser stellen oder stummschalten',
 
   'set.clipsDir': 'Clips und Aufnahmen',
   'set.shotsDir': 'Screenshots',

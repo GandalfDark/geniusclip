@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Dźwięk',
   'trim.game': 'Gra',
   'trim.mic': 'Mikrofon',
+  'trim.voice': 'Discord',
   'trim.track': 'Ścieżka {n}',
   'trim.mute': 'Wycisz ścieżkę',
   'trim.unmute': 'Włącz ścieżkę',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Mikrofon',
   'set.separate': 'Osobne ścieżki',
   'set.separateHint': 'Gra i mikrofon także osobno — do montażu',
+  'set.voiceSeparate': 'Głosy z Discorda na osobnej ścieżce',
+  'set.voiceSeparateHint': 'Przycisz lub wycisz znajomych podczas przycinania',
 
   'set.clipsDir': 'Klipy i nagrania',
   'set.shotsDir': 'Zrzuty ekranu',

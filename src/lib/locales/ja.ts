@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'サウンド',
   'trim.game': 'ゲーム',
   'trim.mic': 'マイク',
+  'trim.voice': 'Discord',
   'trim.track': 'トラック {n}',
   'trim.mute': 'トラックをミュート',
   'trim.unmute': 'ミュートを解除',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'マイク',
   'set.separate': 'トラックを分ける',
   'set.separateHint': '編集用に、ゲームとマイクを別々のトラックにも保存します',
+  'set.voiceSeparate': 'Discord の音声を別トラックに',
+  'set.voiceSeparateHint': 'トリミング時にフレンドの声を下げたり消したりできます',
 
   'set.clipsDir': 'クリップと録画',
   'set.shotsDir': 'スクリーンショット',

@@ -167,20 +167,23 @@
     try {
       const a = await api.clipAudio(path);
       if (entry.path !== path) return;
-      // GeniusClip clips: show game and mic; the mix is rebuilt from them.
-      const tracks = a.mix ? [1, 2] : a.titles.map((_, k) => k);
+      // GeniusClip clips: show the separate tracks (game, mic, Discord);
+      // the mix, track 0, is rebuilt from them.
+      const tracks = a.titles.map((_, k) => k).slice(a.mix ? 1 : 0);
       audio = a;
       peaks = Object.fromEntries(tracks.map((k) => [k, a.peaks[k] ?? []]));
       lanes = tracks
         .filter((k) => a.files[k])
         .map((k, n) => {
-          const game = a.mix && k === 1;
-          const mic = a.mix && k === 2;
+          const kind = a.mix ? a.titles[k] : '';
+          const game = kind === 'Game';
+          const mic = kind === 'Mic';
+          const voice = kind === 'Voice';
           const title = a.titles[k] && a.titles[k] !== 'SoundHandler' ? a.titles[k] : app.t('trim.track', { n: n + 1 });
           return {
             track: k,
-            label: game ? app.t('trim.game') : mic ? app.t('trim.mic') : title,
-            icon: game ? 'game' : mic ? 'mic' : 'speaker',
+            label: game ? app.t('trim.game') : mic ? app.t('trim.mic') : voice ? app.t('trim.voice') : title,
+            icon: game ? 'game' : mic ? 'mic' : voice ? 'headphones' : 'speaker',
             offIcon: mic ? 'micOff' : 'speakerOff',
             file: a.files[k],
             gain: 1,

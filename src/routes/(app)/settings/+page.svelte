@@ -382,6 +382,18 @@
             <Switch checked={s.engine.separateTracks} onchange={(v) => app.change((x) => (x.engine.separateTracks = v))} />
           </Row>
         {/if}
+        {#if s.engine.systemAudio}
+          <Row label={app.t('set.voiceSeparate')} hint={app.t('set.voiceSeparateHint')}>
+            <Switch
+              checked={!!s.engine.voiceSeparate && s.engine.separateTracks}
+              onchange={(v) =>
+                app.change((x) => {
+                  x.engine.voiceSeparate = v;
+                  if (v) x.engine.separateTracks = true;
+                })}
+            />
+          </Row>
+        {/if}
       </div>
     </section>
 

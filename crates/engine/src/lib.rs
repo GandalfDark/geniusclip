@@ -24,7 +24,7 @@ mod mux;
 mod venc;
 mod voice;
 
-pub use audio::{list_devices as list_audio_devices, AudioDevice};
+pub use audio::{audio_bitrate, list_devices as list_audio_devices, AudioDevice};
 pub use card::HoldCard;
 pub use config::{Codec, EngineConfig, Quality, Resolution};
 pub use d3d::{list_monitors, MonitorInfo};

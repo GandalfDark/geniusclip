@@ -87,6 +87,7 @@ let settings: Settings = {
     micDevice: null,
     micVolume: 1,
     separateTracks: true,
+    voiceSeparate: false,
     diskBuffer: false,
     noiseSuppression: false,
     noiseStrength: 80,

@@ -19,6 +19,8 @@ export interface EngineConfig {
   micDevice: string | null;
   micVolume: number;
   separateTracks: boolean;
+  /** Discord's audio on a track of its own (with separate tracks). */
+  voiceSeparate: boolean;
   diskBuffer: boolean;
   noiseSuppression: boolean;
   noiseStrength: number;

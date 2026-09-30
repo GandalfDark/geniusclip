@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Дыбыс',
   'trim.game': 'Ойын',
   'trim.mic': 'Микрофон',
+  'trim.voice': 'Discord',
   'trim.track': 'Жолақ {n}',
   'trim.mute': 'Жолақты өшіру',
   'trim.unmute': 'Жолақты қосу',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Микрофон',
   'set.separate': 'Бөлек жолақтар',
   'set.separateHint': 'Ойын мен микрофон бөлек те сақталады — монтаж үшін',
+  'set.voiceSeparate': 'Discord дауыстары — бөлек жолда',
+  'set.voiceSeparateHint': 'Кесу кезінде достардың дауысын азайтуға не өшіруге болады',
 
   'set.clipsDir': 'Клиптер мен жазбалар',
   'set.shotsDir': 'Скриншоттар',

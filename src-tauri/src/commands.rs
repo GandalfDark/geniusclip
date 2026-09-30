@@ -164,11 +164,7 @@ pub(crate) fn estimate_for(settings: &Settings) -> Estimate {
     let (sw, sh) = m.map(|m| (m.width, m.height)).unwrap_or((1920, 1080));
     let (w, h) = geniusclip_engine::output_size(&settings.engine, sw, sh);
     let bps = geniusclip_engine::target_bitrate(&settings.engine, w, h, settings.engine.fps);
-    let audio_bps: i64 = match (settings.engine.system_audio, settings.engine.mic) {
-        (true, true) if settings.engine.separate_tracks => 480_000,
-        (false, false) => 0,
-        _ => 192_000,
-    };
+    let audio_bps = geniusclip_engine::audio_bitrate(&settings.engine);
     let bytes = (bps + audio_bps) as f64 / 8.0 * settings.replay_seconds as f64;
     Estimate { width: w, height: h, bitrate_kbps: (bps / 1000) as u32, buffer_mb: (bytes / 1_048_576.0).round() as u32 }
 }
@@ -415,7 +411,8 @@ struct ClipAudioProgress<'a> {
 pub struct ClipAudio {
     /// Track titles in file order.
     titles: Vec<String>,
-    /// GeniusClip layout: track 0 is the game+mic mix of tracks 1 and 2.
+    /// GeniusClip layout: track 0 is the mix of the separate tracks after it
+    /// (game, mic, Discord voices).
     mix: bool,
     /// One playable file per track, for the preview.
     files: Vec<PathBuf>,

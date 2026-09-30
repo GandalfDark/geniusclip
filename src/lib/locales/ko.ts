@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': '사운드',
   'trim.game': '게임',
   'trim.mic': '마이크',
+  'trim.voice': 'Discord',
   'trim.track': '트랙 {n}',
   'trim.mute': '트랙 음소거',
   'trim.unmute': '음소거 해제',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': '마이크',
   'set.separate': '트랙 분리',
   'set.separateHint': '편집하기 좋게 게임과 마이크를 별도 트랙으로도 저장해요',
+  'set.voiceSeparate': 'Discord 음성을 별도 트랙으로',
+  'set.voiceSeparateHint': '자를 때 친구 목소리를 줄이거나 끌 수 있습니다',
 
   'set.clipsDir': '클립 및 녹화',
   'set.shotsDir': '스크린샷',

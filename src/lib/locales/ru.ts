@@ -75,6 +75,7 @@ export const strings = {
   'trim.audio': 'Звук',
   'trim.game': 'Игра',
   'trim.mic': 'Микрофон',
+  'trim.voice': 'Discord',
   'trim.track': 'Дорожка {n}',
   'trim.mute': 'Выключить дорожку',
   'trim.unmute': 'Включить дорожку',
@@ -160,6 +161,8 @@ export const strings = {
   'set.mic': 'Микрофон',
   'set.separate': 'Отдельные дорожки',
   'set.separateHint': 'Игра и микрофон ещё и по отдельности — для монтажа',
+  'set.voiceSeparate': 'Голоса Discord — отдельной дорожкой',
+  'set.voiceSeparateHint': 'Друзей можно приглушить или убрать при обрезке',
 
   'set.clipsDir': 'Клипы и записи',
   'set.shotsDir': 'Скриншоты',

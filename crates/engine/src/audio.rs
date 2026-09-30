@@ -685,6 +685,11 @@ enum TrackMix {
     Voice,
 }
 
+/// Bits per second of all the audio tracks for the config.
+pub fn audio_bitrate(cfg: &EngineConfig) -> i64 {
+    layout(cfg).iter().map(|t| t.2).sum()
+}
+
 /// The audio tracks for the config: (content, title, bitrate). A mix comes
 /// first, followed by the tracks it is made of when they are kept apart;
 /// `remix::is_mix_layout` must recognize every such layout.

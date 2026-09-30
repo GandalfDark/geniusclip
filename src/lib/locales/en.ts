@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Sound',
   'trim.game': 'Game',
   'trim.mic': 'Mic',
+  'trim.voice': 'Discord',
   'trim.track': 'Track {n}',
   'trim.mute': 'Mute track',
   'trim.unmute': 'Unmute track',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Microphone',
   'set.separate': 'Separate tracks',
   'set.separateHint': 'Also keep game and mic apart, for editing',
+  'set.voiceSeparate': 'Discord voices on their own track',
+  'set.voiceSeparateHint': 'Turn friends down or mute them when trimming',
 
   'set.clipsDir': 'Clips and recordings',
   'set.shotsDir': 'Screenshots',

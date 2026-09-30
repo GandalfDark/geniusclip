@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Звук',
   'trim.game': 'Гра',
   'trim.mic': 'Мікрофон',
+  'trim.voice': 'Discord',
   'trim.track': 'Доріжка {n}',
   'trim.mute': 'Вимкнути доріжку',
   'trim.unmute': 'Увімкнути доріжку',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Мікрофон',
   'set.separate': 'Окремі доріжки',
   'set.separateHint': 'Гра й мікрофон ще й окремо — для монтажу',
+  'set.voiceSeparate': 'Голоси Discord — окремою доріжкою',
+  'set.voiceSeparateHint': 'Друзів можна приглушити або прибрати під час обрізки',
 
   'set.clipsDir': 'Кліпи та записи',
   'set.shotsDir': 'Скриншоти',

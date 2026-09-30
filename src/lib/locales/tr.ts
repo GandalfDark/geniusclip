@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Ses',
   'trim.game': 'Oyun',
   'trim.mic': 'Mikrofon',
+  'trim.voice': 'Discord',
   'trim.track': 'Parça {n}',
   'trim.mute': 'Parçayı sessize al',
   'trim.unmute': 'Parçanın sesini aç',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Mikrofon',
   'set.separate': 'Ayrı parçalar',
   'set.separateHint': 'Düzenleme için oyun ve mikrofonu ayrı ayrı da kaydeder',
+  'set.voiceSeparate': 'Discord sesleri ayrı parçada',
+  'set.voiceSeparateHint': 'Kırparken arkadaşlarının sesini kıs veya kapat',
 
   'set.clipsDir': 'Klipler ve kayıtlar',
   'set.shotsDir': 'Ekran görüntüleri',

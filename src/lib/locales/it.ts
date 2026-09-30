@@ -75,6 +75,7 @@ const locale: Locale = {
   'trim.audio': 'Audio',
   'trim.game': 'Gioco',
   'trim.mic': 'Microfono',
+  'trim.voice': 'Discord',
   'trim.track': 'Traccia {n}',
   'trim.mute': 'Disattiva traccia',
   'trim.unmute': 'Riattiva traccia',
@@ -160,6 +161,8 @@ const locale: Locale = {
   'set.mic': 'Microfono',
   'set.separate': 'Tracce separate',
   'set.separateHint': 'Salva anche gioco e microfono separati, per il montaggio',
+  'set.voiceSeparate': 'Voci di Discord su una traccia a parte',
+  'set.voiceSeparateHint': 'Abbassa o silenzia gli amici quando tagli',
 
   'set.clipsDir': 'Clip e registrazioni',
   'set.shotsDir': 'Screenshot',
