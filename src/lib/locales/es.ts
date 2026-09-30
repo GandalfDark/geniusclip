@@ -34,7 +34,7 @@ const locale: Locale = {
   'hk.saveClip': 'Guardar clip',
   'hk.toggleReplay': 'Activar/desactivar repetición',
   'hk.screenshot': 'Captura de pantalla',
-  'hk.toggleRecording': 'Grabación',
+  'hk.toggleRecording': 'Iniciar/detener grabación',
   'hk.saveShort': 'Clip corto',
   'hk.saveShortHint': 'Solo los últimos segundos — sin asignar',
   'set.shortLength': 'Duración del clip corto',

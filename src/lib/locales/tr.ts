@@ -34,7 +34,7 @@ const locale: Locale = {
   'hk.saveClip': 'Klibi kaydet',
   'hk.toggleReplay': 'Anlık tekrarı aç/kapat',
   'hk.screenshot': 'Ekran görüntüsü',
-  'hk.toggleRecording': 'Kayıt',
+  'hk.toggleRecording': 'Kaydı başlat/durdur',
   'hk.saveShort': 'Kısa klip',
   'hk.saveShortHint': 'Sadece son birkaç saniye — atanmadı',
   'set.shortLength': 'Kısa klip süresi',
