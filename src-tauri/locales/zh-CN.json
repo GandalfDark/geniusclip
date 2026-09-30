@@ -11,6 +11,7 @@
   "quit": "退出",
   "desktop": "桌面",
   "trim_suffix": "修剪",
+  "slow_suffix": "慢动作",
   "ov.clip": "片段已保存",
   "ov.recording": "录像已保存",
   "ov.recording-start": "开始录制",

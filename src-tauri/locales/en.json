@@ -11,6 +11,7 @@
   "quit": "Quit",
   "desktop": "Desktop",
   "trim_suffix": "trim",
+  "slow_suffix": "slow-mo",
   "ov.clip": "Clip saved",
   "ov.recording": "Recording saved",
   "ov.recording-start": "Recording started",

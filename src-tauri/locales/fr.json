@@ -11,6 +11,7 @@
   "quit": "Quitter",
   "desktop": "Bureau",
   "trim_suffix": "extrait",
+  "slow_suffix": "ralenti",
   "ov.clip": "Clip sauvegardé",
   "ov.recording": "Enregistrement sauvegardé",
   "ov.recording-start": "Enregistrement lancé",

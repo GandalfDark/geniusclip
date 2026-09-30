@@ -19,8 +19,8 @@ export const api = {
   thumbnail: (path: string) => invoke<string>('thumbnail', { path }),
   deleteMedia: (path: string) => invoke<void>('delete_media', { path }),
   renameMedia: (path: string, name: string) => invoke<string>('rename_media', { path, name }),
-  trimMedia: (path: string, start: number, end: number, replace: boolean, gains: number[] | null = null) =>
-    invoke<MediaEntry | null>('trim_media', { path, start, end, replace, gains }),
+  trimMedia: (path: string, start: number, end: number, replace: boolean, gains: number[] | null = null, speed = 1) =>
+    invoke<MediaEntry | null>('trim_media', { path, start, end, replace, gains, speed }),
   clipAudio: (path: string) => invoke<ClipAudio>('clip_audio', { path }),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   /** Logs a built-in player failure with the file's format (for problem reports). */

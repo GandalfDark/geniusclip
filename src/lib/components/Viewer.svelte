@@ -9,6 +9,7 @@
   import { fade } from 'svelte/transition';
   import { DUR, EASE, reduced, rise } from '$lib/motion';
   import Icon, { type IconName } from './Icon.svelte';
+  import Segmented from './Segmented.svelte';
   import Waveform from './Waveform.svelte';
   import { api, fileUrl, type ClipAudio } from '$lib/api';
   import { app } from '$lib/app.svelte';
@@ -480,13 +481,26 @@
     window.addEventListener('pointerup', up);
   }
 
+  // Playback speed; a trim saved below 1× is slowed down the same way.
+  // The pitch drops with it, as in the saved file.
+  let speed = $state(1);
+  function setSpeed(v: number) {
+    speed = v;
+    if (video) applySpeed(video);
+  }
+  function applySpeed(el: HTMLMediaElement) {
+    el.playbackRate = speed;
+    el.preservesPitch = speed === 1;
+  }
+  const speedLabel = (v: number) => `${new Intl.NumberFormat(app.lang).format(v)}×`;
+
   async function trim(replace: boolean) {
     if (busy) return;
     const path = entry.path;
     busy = true;
     try {
       video?.pause();
-      const res = await api.trimMedia(path, start, end, replace, trackGains());
+      const res = await api.trimMedia(path, start, end, replace, trackGains(), speed);
       app.notify(app.t('gallery.trimmed'), 'ok');
       await app.refreshMedia();
       if (!still(path)) return;
@@ -632,6 +646,7 @@
     <div class="trim">
       <div class="trim-head">
         <button class="btn sm" class:on={trimming} onclick={() => (trimming = !trimming)}><Icon name="trim" size={16} />{app.t('gallery.trim')}</button>
+        <Segmented mono label={app.t('player.speed')} value={speed} onchange={setSpeed} options={[1, 0.5, 0.25].map((v) => ({ value: v, label: speedLabel(v) }))} />
         {#if trimming}
           <span class="times mono">{preciseTime(start)} – {preciseTime(end)} <span class="len">{preciseTime(end - start)}</span></span>
           <span class="grow"></span>

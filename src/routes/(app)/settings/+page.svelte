@@ -225,6 +225,7 @@
             <Switch checked={s.pauseOnBattery} onchange={(v) => app.change((x) => (x.pauseOnBattery = v), 0)} />
           </Row>
         {/if}
+        <p class="restart-note"><Icon name="info" size={14} />{app.t('set.restartNote')}</p>
         <Row label={app.t('set.quality')}>
           <Segmented
             value={s.engine.quality}
@@ -289,6 +290,7 @@
     <section id="audio" in:rise|global={{ delay: cascade(1) }}>
       <h2>{app.t('set.audio')}</h2>
       <div class="panel body">
+        <p class="restart-note"><Icon name="info" size={14} />{app.t('set.restartNoteAudio')}</p>
         <Row label={app.t('set.system_audio')}>
           <Switch checked={s.engine.systemAudio} onchange={(v) => app.change((x) => (x.engine.systemAudio = v))} />
         </Row>
@@ -536,6 +538,20 @@
   }
   .body {
     padding: 2px 18px;
+  }
+  /* Capture restarts with a new, empty replay when these change. */
+  .restart-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 -18px;
+    padding: 9px 18px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .panel.body > .restart-note:first-child {
+    border-top: none;
   }
   .memwarn {
     display: flex;

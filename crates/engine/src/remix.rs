@@ -382,3 +382,176 @@ pub fn trim_with_gains(input_path: &Path, output: &Path, start: f64, end: f64, g
     Ok(())
 }
 
+
+/// A slowed-down copy of a clip, `factor` (2 or 4) times longer. The video's
+/// frames are copied as they are and only shown longer (a 120 fps recording
+/// at half speed plays at 60), the audio is stretched with it, so it sounds
+/// lower, like slow motion in a film, and re-encoded.
+pub fn slow_down(input_path: &Path, output: &Path, factor: u32) -> Result<()> {
+    if !(2..=8).contains(&factor) {
+        bail!("slow-down factor {factor}");
+    }
+    let input = Input::open(input_path)?;
+    unsafe {
+        struct Track {
+            stream: usize,
+            out: usize,
+            dec: CodecCtx,
+            enc: AudioEncoder,
+            stretch: Stretch,
+            /// Stretched samples waiting for a whole block, interleaved stereo.
+            queue: VecDeque<f32>,
+            /// Next output sample's position (48 kHz), the encoder's pts.
+            pts: i64,
+        }
+        let mut descs = Vec::new();
+        let mut video: Option<(usize, ff::AVRational)> = None;
+        let mut tracks: Vec<Track> = Vec::new();
+        for (i, &st) in input.streams().iter().enumerate() {
+            let par = (*st).codecpar;
+            match (*par).codec_type {
+                ff::AVMediaType::AVMEDIA_TYPE_VIDEO if video.is_none() => {
+                    video = Some((i, (*st).time_base));
+                    descs.push(StreamDesc { kind: StreamKind::Video, params: CodecParams::from_params(par)?, time_base: (*st).time_base, title: String::new() });
+                }
+                ff::AVMediaType::AVMEDIA_TYPE_AUDIO => {
+                    let codec = ff::avcodec_find_decoder((*par).codec_id);
+                    if codec.is_null() {
+                        bail!("no audio decoder");
+                    }
+                    let dec = CodecCtx(ff::avcodec_alloc_context3(codec));
+                    check(ff::avcodec_parameters_to_context(dec.0, par), "parameters_to_context")?;
+                    (*dec.0).pkt_timebase = (*st).time_base;
+                    check(ff::avcodec_open2(dec.0, codec, ptr::null_mut()), "open audio decoder")?;
+                    let bitrate = if (*par).bit_rate > 0 { (*par).bit_rate } else { 160_000 };
+                    let enc = AudioEncoder::new(bitrate.clamp(96_000, 256_000), false)?;
+                    let title = dict_get((*st).metadata, "handler_name").unwrap_or_default();
+                    descs.push(StreamDesc { kind: StreamKind::Audio, params: enc.params.clone(), time_base: enc.time_base, title });
+                    tracks.push(Track { stream: i, out: descs.len() - 1, dec, enc, stretch: Stretch::new(factor), queue: VecDeque::new(), pts: 0 });
+                }
+                _ => {}
+            }
+        }
+        let Some((vidx, vtb)) = video else { bail!("no video stream") };
+        let comment = dict_get((*input.0).metadata, "comment").unwrap_or_default();
+        let mut mux = Muxer::create(output, &descs, false, &comment)?;
+        let k = factor as i64;
+
+        let pkt = AvPacket::new();
+        let frame = AvFrame::new();
+        let mut block = vec![0f32; BLOCK * 2];
+        // Encodes the whole blocks the track has queued (the rest too at the end).
+        let drain = |t: &mut Track, mux: &mut Muxer, block: &mut Vec<f32>, last: bool| -> Result<()> {
+            while t.queue.len() >= BLOCK * 2 || (last && !t.queue.is_empty()) {
+                let n = t.queue.len().min(BLOCK * 2);
+                block.fill(0.0);
+                for (i, v) in t.queue.drain(..n).enumerate() {
+                    block[i] = v;
+                }
+                let mut res = Ok(());
+                t.enc.encode(block, t.pts, &mut |p| {
+                    if res.is_ok() {
+                        res = mux.write(t.out, &p, 0);
+                    }
+                })?;
+                res?;
+                t.pts += BLOCK as i64;
+            }
+            Ok(())
+        };
+        let decoded = |t: &mut Track| {
+            while ff::avcodec_receive_frame(t.dec.0, frame.0) >= 0 {
+                let f = &*frame.0;
+                if f.format == ff::AVSampleFormat::AV_SAMPLE_FMT_FLTP as c_int {
+                    let n = f.nb_samples as usize;
+                    let l = std::slice::from_raw_parts(f.data[0] as *const f32, n);
+                    let r = if f.ch_layout.nb_channels > 1 { std::slice::from_raw_parts(f.data[1] as *const f32, n) } else { l };
+                    for i in 0..n {
+                        t.stretch.push(l[i], r[i], &mut t.queue);
+                    }
+                }
+                ff::av_frame_unref(frame.0);
+            }
+        };
+        while ff::av_read_frame(input.0, pkt.0) >= 0 {
+            let si = (*pkt.0).stream_index as usize;
+            if si == vidx {
+                let mut p = Packet::from_av(pkt.0, vtb);
+                p.pts *= k;
+                p.dts *= k;
+                p.duration *= k;
+                p.time_us *= k;
+                mux.write(0, &p, 0)?;
+            } else if let Some(t) = tracks.iter_mut().find(|t| t.stream == si) {
+                if ff::avcodec_send_packet(t.dec.0, pkt.0) >= 0 {
+                    decoded(t);
+                }
+                drain(t, &mut mux, &mut block, false)?;
+            }
+            ff::av_packet_unref(pkt.0);
+        }
+        for t in tracks.iter_mut() {
+            ff::avcodec_send_packet(t.dec.0, ptr::null());
+            decoded(t);
+            drain(t, &mut mux, &mut block, true)?;
+            let mut res = Ok(());
+            let out = t.out;
+            t.enc.flush(&mut |p| {
+                if res.is_ok() {
+                    res = mux.write(out, &p, 0);
+                }
+            });
+            res?;
+        }
+        mux.finish()?;
+    }
+    Ok(())
+}
+
+/// Stretches stereo audio `factor` times by linear interpolation: the
+/// samples are played slower, so the pitch drops with the speed.
+struct Stretch {
+    step: f64,
+    /// Position of the next output sample, in input samples after `prev`.
+    at: f64,
+    prev: Option<(f32, f32)>,
+}
+
+impl Stretch {
+    fn new(factor: u32) -> Stretch {
+        Stretch { step: 1.0 / factor as f64, at: 0.0, prev: None }
+    }
+
+    /// Takes the next input sample; queues the output samples that fall
+    /// between the previous one and it.
+    fn push(&mut self, l: f32, r: f32, out: &mut VecDeque<f32>) {
+        let Some((pl, pr)) = self.prev.replace((l, r)) else { return };
+        while self.at < 1.0 {
+            let t = self.at as f32;
+            out.push_back(pl + (l - pl) * t);
+            out.push_back(pr + (r - pr) * t);
+            self.at += self.step;
+        }
+        self.at -= 1.0;
+    }
+}
+
+#[cfg(test)]
+mod stretch_tests {
+    use super::*;
+
+    #[test]
+    fn stretches_by_the_factor_and_interpolates() {
+        let mut s = Stretch::new(4);
+        let mut out = VecDeque::new();
+        for i in 0..101 {
+            s.push(i as f32, -(i as f32), &mut out);
+        }
+        // 100 intervals, 4 output samples each.
+        assert_eq!(out.len() / 2, 400);
+        let v: Vec<f32> = out.iter().step_by(2).copied().take(6).collect();
+        assert_eq!(v, vec![0.0, 0.25, 0.5, 0.75, 1.0, 1.25]);
+        assert_eq!(out[1], -0.0);
+        assert_eq!(out[3], -0.25);
+    }
+}

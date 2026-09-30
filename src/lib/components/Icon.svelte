@@ -25,6 +25,7 @@
     search: '<g class="m1"><circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l4.5 4.5"/></g>',
     check: '<path class="draw" pathLength="1" d="M5.5 12.5l4 4 9-9"/>',
     alert: '<path d="M12 4.5l8.5 14.5h-17z"/><path d="M12 10v4"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/>',
+    info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".9" fill="currentColor" stroke="none"/>',
     game: '<path d="M8 7.5h8a4.5 4.5 0 0 1 4.4 3.5l.9 3.9a2.5 2.5 0 0 1-4.3 2.2L15.2 15H8.8L7 17.1a2.5 2.5 0 0 1-4.3-2.2l.9-3.9A4.5 4.5 0 0 1 8 7.5z"/><path d="M8.5 10v3M7 11.5h3"/><g class="m1"><circle cx="15.3" cy="10.6" r=".9" fill="currentColor" stroke="none"/><circle cx="17" cy="12.4" r=".9" fill="currentColor" stroke="none"/></g>',
     mic: '<g class="m1"><rect x="9" y="3.5" width="6" height="10.5" rx="3"/></g><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3"/>',
     micOff: '<rect x="9" y="3.5" width="6" height="10.5" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3"/><path d="M4.5 4.5l15 15" stroke="var(--danger)"/>',

@@ -446,13 +446,16 @@ pub async fn clip_audio(app: AppHandle, path: PathBuf) -> CmdResult<ClipAudio> {
 }
 
 #[tauri::command]
-pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, replace: bool, gains: Option<Vec<f32>>) -> CmdResult<Option<Entry>> {
+/// `speed` below 1 (0.5, 0.25) also slows the result down (see `remix::slow_down`).
+pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, replace: bool, gains: Option<Vec<f32>>, speed: Option<f64>) -> CmdResult<Option<Entry>> {
     tauri::async_runtime::spawn_blocking(move || {
         let st = app.state::<AppState>();
         check_media_path(&st, &path)?;
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let lang = st.settings.read().lang();
-        let suffix = crate::i18n::t(lang, "trim_suffix");
+        // Slowed down: 2 or 4 times as long.
+        let factor = speed.filter(|s| *s > 0.0 && *s < 0.99).map(|s| (1.0 / s).round().clamp(2.0, 4.0) as u32);
+        let suffix = crate::i18n::t(lang, if factor.is_some() { "slow_suffix" } else { "trim_suffix" });
         let mut out = path.with_file_name(format!("{stem} ({suffix}).mp4"));
         let mut n = 2;
         while out.exists() {
@@ -468,10 +471,21 @@ pub async fn trim_media(app: AppHandle, path: PathBuf, start: f64, end: f64, rep
         });
         // A trim that replaces the original keeps its star; a copy starts without.
         let favorite = replace && st.library.is_favorite(&path);
-        let trimmed = match gains.filter(|g| g.iter().any(|&x| (x - 1.0).abs() > 0.005)) {
+        let mut trimmed = match gains.filter(|g| g.iter().any(|&x| (x - 1.0).abs() > 0.005)) {
             Some(g) => geniusclip_engine::remix::trim_with_gains(&path, &out, start, end, &g),
             None => media::trim(&path, &out, start, end),
         };
+        if let (Ok(()), Some(k)) = (&trimmed, factor) {
+            let slow = out.with_extension("slow.mp4");
+            trimmed = geniusclip_engine::remix::slow_down(&out, &slow, k).and_then(|()| {
+                std::fs::remove_file(&out)?;
+                std::fs::rename(&slow, &out)?;
+                Ok(())
+            });
+            if trimmed.is_err() {
+                let _ = std::fs::remove_file(&slow);
+            }
+        }
         if let Err(e) = trimmed {
             // Checked before the partial output is removed, which frees the space again.
             let full = crate::library::disk_nearly_full(&out) || io_cause(&e).and_then(io_code) == Some(code::DISK_FULL);
