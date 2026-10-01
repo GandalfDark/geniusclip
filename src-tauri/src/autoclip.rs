@@ -147,8 +147,12 @@ fn apply(dir: Option<PathBuf>, on: bool, config: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The game sent its state lately (it posts every few seconds while running).
+fn recent(seen: Option<Instant>) -> bool {
+    seen.is_some_and(|t| t.elapsed() < Duration::from_secs(90))
+}
+
 pub fn status() -> Status {
-    let recent = |t: Option<Instant>| t.is_some_and(|t| t.elapsed() < Duration::from_secs(90));
     let games = GAMES.lock();
     let failed = *FAILED.lock();
     let game = |dir: Option<PathBuf>, seen: Option<Instant>, failed: bool| GameStatus {
@@ -275,6 +279,9 @@ fn on_cs2(s: &AutoClips, json: &Value) {
     let now = Instant::now();
     let mut games = GAMES.lock();
     let g = games.cs2.get_or_insert_with(Cs2::default);
+    if !recent(g.seen) {
+        log::info!("auto clips: Counter-Strike 2 is sending its state");
+    }
     g.seen = Some(now);
     if !s.cs2 {
         return;
@@ -321,6 +328,9 @@ fn on_dota(s: &AutoClips, json: &Value) {
     let now = Instant::now();
     let mut games = GAMES.lock();
     let g = games.dota.get_or_insert_with(Dota::default);
+    if !recent(g.seen) {
+        log::info!("auto clips: Dota 2 is sending its state");
+    }
     g.seen = Some(now);
     if !s.dota {
         return;

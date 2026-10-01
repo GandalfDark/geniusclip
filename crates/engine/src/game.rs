@@ -241,7 +241,9 @@ fn app_for_window(hwnd: HWND) -> Option<AppInfo> {
         } else if HOST_EXES.contains(&lower.as_str()) {
             Some(window_title(hwnd)).filter(|t| !t.is_empty())
         } else {
-            file_description(&full)
+            // Without a description (Valve's cs2.exe, dota2.exe) the window
+            // title names the game, unless it's long (a document's name).
+            file_description(&full).or_else(|| Some(window_title(hwnd)).filter(|t| !t.is_empty() && t.chars().count() <= 40))
         }
         .unwrap_or(stem);
         Some(AppInfo { name, exe, is_desktop: false })
