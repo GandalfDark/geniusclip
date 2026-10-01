@@ -12,7 +12,7 @@ use crate::clock;
 use crate::config::EngineConfig;
 use crate::convert::Converter;
 use crate::cursor::{CursorRenderer, CursorState};
-use crate::d3d::{create_device, create_texture, find_output};
+use crate::d3d::{create_device, create_texture, display_setup, find_output};
 use crate::dup::{rotate_bgra, Duplicator, Poll, Rotation};
 use crate::ffutil::{Packet, StreamDesc, StreamKind};
 use crate::media;
@@ -303,11 +303,17 @@ impl Engine {
                 // Failed starts in a row: sets the back-off; the failure is
                 // logged once until it works again.
                 let mut failures = 0u32;
+                // The display setup when a start last failed: once it changes
+                // (monitors on after boot, the GPU back after a driver reset)
+                // the next try comes at once instead of after the back-off.
+                let mut failed_setup: Option<u64> = None;
                 // A crash's reason stays on screen until capture has run fine
                 // again for `ERROR_SHOWN`.
                 let mut clear_error_at: Option<Instant> = None;
                 while alive.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(500));
+                    // Looked up outside the lock: only while starts fail.
+                    let setup_changed = failed_setup.is_some_and(|f| last_start.elapsed() > Duration::from_secs(1) && display_setup() != f);
                     let mut st = state.lock();
                     if st.shutdown {
                         break;
@@ -342,11 +348,12 @@ impl Engine {
                     let want = st.replay_enabled && !st.paused;
                     if st.pipeline.is_some() || !want {
                         failures = 0;
+                        failed_setup = None;
                     }
                     let retry = want
                         && st.pipeline.is_none()
                         && st.stray.is_empty()
-                        && (died || last_start.elapsed() > retry_delay(failures));
+                        && (died || setup_changed || last_start.elapsed() > retry_delay(failures));
                     if retry {
                         let outcome = match Launch::start(st.cfg.clone(), &shared) {
                             Err(e) => Some(Err(e)),
@@ -387,6 +394,7 @@ impl Engine {
                                     log::info!("capture started");
                                 }
                                 failures = 0;
+                                failed_setup = None;
                                 // A crash's reason stays visible a while; an earlier start error is stale now.
                                 if died {
                                     clear_error_at = Some(Instant::now() + ERROR_SHOWN);
@@ -401,6 +409,10 @@ impl Engine {
                                     log::debug!("capture start retry failed: {e:#}");
                                 }
                                 failures += 1;
+                                if setup_changed {
+                                    log::info!("display setup changed, capture still failed to start: {e:#}");
+                                }
+                                failed_setup = Some(display_setup());
                                 st.last_error = Some(format!("{e:#}"));
                                 clear_error_at = None;
                             }

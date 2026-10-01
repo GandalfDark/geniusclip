@@ -137,6 +137,19 @@ fn enumerate() -> Result<Vec<OutputHandle>> {
     Ok(out)
 }
 
+/// A fingerprint of the monitors and the adapters driving them. It changes
+/// when a monitor comes or goes, or the GPU is back after a driver reset
+/// (meanwhile Windows drives the screens with its Basic Render Driver).
+pub(crate) fn display_setup() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for o in enumerate().unwrap_or_default() {
+        let i = &o.info;
+        (&i.id, i.x, i.y, i.width, i.height, &i.adapter, i.vendor_id).hash(&mut h);
+    }
+    h.finish()
+}
+
 pub fn list_monitors() -> Result<Vec<MonitorInfo>> {
     Ok(enumerate()?.into_iter().map(|o| o.info).collect())
 }
