@@ -66,6 +66,10 @@ echo "== Updater signature"
 # number with an older release (the app requires it, requireSignedVersion).
 npx tauri signer sign -f "$KEY" -p "" --app-version "$VERSION" "$OUT/$UPDATE_NAME" >/dev/null
 [ -s "$OUT/$UPDATE_NAME.sig" ] || { echo "signing failed" >&2; exit 1; }
+# Apps from 0.1.9 on refuse an update whose signature names another version
+# than latest.json (requireSignedVersion): they would be stuck on theirs.
+SIGNED=$(base64 -d "$OUT/$UPDATE_NAME.sig" | grep -a "^trusted comment:" | tr '\t' '\n' | sed -n 's/^version://p')
+[ "$SIGNED" = "$VERSION" ] || { echo "the update is signed for version '$SIGNED', not $VERSION" >&2; exit 1; }
 
 echo "== latest.json"
 node -e '
