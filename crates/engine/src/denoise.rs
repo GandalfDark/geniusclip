@@ -107,6 +107,11 @@ fn energy_db(samples: &[f32]) -> f32 {
 const NOISE_LSNR: f32 = -10.0;
 /// Noise-only hops in a row before the model sleeps (≈300 ms).
 const SLEEP_AFTER: u32 = 30;
+/// After a wake by a short sound the model called noise (a key, a mouse
+/// click): quiet noise-only hops before it sleeps again. Typing or a game's
+/// keys would otherwise keep it awake (a click every <300 ms resets the
+/// count above), though it only ever outputs them at the limit, as asleep.
+const RESLEEP_AFTER: u32 = 3;
 /// A hop this much louder (dB) than the noise floor wakes the model.
 const WAKE_DB: f32 = 6.0;
 /// Noise-only hops must also be within this (dB) of the floor to count
@@ -129,6 +134,8 @@ struct Gate {
     /// Running noise floor (hop energy, dB): hops the model called noise
     /// and, while asleep, every hop that did not wake it.
     floor: Option<f32>,
+    /// Woke and has heard only noise since: a key or a click woke it.
+    only_noise: bool,
 }
 
 impl Gate {
@@ -140,8 +147,9 @@ impl Gate {
             self.quiet = if energy < floor + QUIET_DB { self.quiet + 1 } else { 0 };
         } else {
             self.quiet = 0;
+            self.only_noise = false;
         }
-        if self.quiet >= SLEEP_AFTER {
+        if self.quiet >= SLEEP_AFTER || (self.only_noise && self.quiet >= RESLEEP_AFTER) {
             self.asleep = true;
             self.quiet = 0;
         }
@@ -161,6 +169,7 @@ impl Gate {
     fn wake(&mut self) {
         self.asleep = false;
         self.quiet = 0;
+        self.only_noise = true;
     }
 
     /// Follows falling noise quickly and rising noise slowly, so a burst of
@@ -630,22 +639,102 @@ mod tests {
         assert!(g.heard(-15.0, -50.0), "sleeps after ~300 ms of noise");
         assert!(!g.wakes(-47.0), "noise does not wake it");
         assert!(g.wakes(-42.0), "a hop 6+ dB above the floor wakes it");
-        // Speech restarts the count.
-        for _ in 1..SLEEP_AFTER {
-            g.heard(-15.0, -50.0);
+        // Woken by a short sound the model calls noise (a key): asleep again
+        // as soon as it has died away.
+        for _ in 1..RESLEEP_AFTER {
+            assert!(!g.heard(-15.0, -50.0));
         }
+        assert!(g.heard(-15.0, -50.0), "asleep again after a click");
+        assert!(g.wakes(-42.0));
+        // Speech: the full count after it.
         g.heard(5.0, -30.0);
         for _ in 1..SLEEP_AFTER {
             assert!(!g.heard(-15.0, -50.0));
         }
         assert!(g.heard(-15.0, -50.0));
         g.wakes(-20.0);
-        // Loud sounds the model calls noise (typing) keep it awake for a
-        // while, and hardly lift the floor.
+        // Loud sounds the model calls noise (a rustle, a fan up close) keep
+        // it awake while they last, and hardly lift the floor.
         for _ in 0..2 * SLEEP_AFTER {
             assert!(!g.heard(-15.0, -30.0));
         }
         assert!(g.floor.unwrap() < -35.0, "floor {:?}", g.floor);
+    }
+
+    /// Room noise with key clicks every 120..500 ms (typing, a game's keys).
+    fn typing(hops: usize, hop: usize, seed: &mut u32) -> (Vec<f32>, Vec<bool>) {
+        let mut rnd = || {
+            *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            *seed as f32 / u32::MAX as f32
+        };
+        let len = hops * hop;
+        let mut x: Vec<f32> = (0..len).map(|_| (rnd() - 0.5) * 0.006).collect();
+        let mut click_hop = vec![false; hops];
+        let mut at = (0.2 * RATE as f32) as usize;
+        while at < len {
+            // A 4 ms knock decaying over ~3 ms.
+            for i in 0..(0.012 * RATE as f32) as usize {
+                if let Some(s) = x.get_mut(at + i) {
+                    *s += (rnd() - 0.5) * 0.4 * (-(i as f32) / (0.003 * RATE as f32)).exp();
+                }
+            }
+            click_hop[at / hop] = true;
+            at += ((0.12 + 0.38 * rnd()) * RATE as f32) as usize;
+        }
+        (x, click_hop)
+    }
+
+    /// Typing (or a game's keys) between words: the model sleeps through
+    /// most of it, as each click is noise to it.
+    #[test]
+    fn typing_lets_the_model_sleep() {
+        let mut d = Denoiser::new(80).expect("model loads");
+        let hop = d.hop;
+        let hops = 2000;
+        let (mut input, clicks) = typing(hops, hop, &mut 7);
+        // A word in the middle of it.
+        let voice_at = 1000;
+        for (i, v) in vowel(100 * hop).into_iter().enumerate() {
+            input[voice_at * hop + i] += v;
+        }
+        let mut out = Vec::new();
+        let mut asleep = 0;
+        for (c, chunk) in input.chunks(hop).enumerate() {
+            let stereo: Vec<f32> = chunk.iter().flat_map(|&x| [x, x]).collect();
+            d.process((c * hop) as i64, &stereo, &mut out);
+            asleep += d.gate.asleep as usize;
+            if (voice_at..voice_at + 100).contains(&c) {
+                assert!(!d.gate.asleep, "asleep in the word, hop {}", c - voice_at);
+            }
+        }
+        let share = d.calls as f64 / hops as f64;
+        println!("typing: model ran on {:.0}% of hops, asleep {:.0}%", share * 100.0, asleep as f64 * 100.0 / hops as f64);
+        assert!(share < 0.5, "the model ran on {:.0}% of the hops", share * 100.0);
+        // What the model says about click hops and the noise between them.
+        let mut m = Denoiser::new(80).expect("model loads");
+        let (mut on_click, mut after, mut between) = (Vec::new(), Vec::new(), Vec::new());
+        for (c, chunk) in input.chunks(hop).enumerate() {
+            for (dst, s) in m.inp.iter_mut().zip(chunk) {
+                *dst = *s;
+            }
+            let lsnr = m.model.process(m.inp.view(), m.outp.view_mut()).unwrap();
+            if clicks[c] {
+                on_click.push(lsnr);
+            } else if c > 0 && clicks[c - 1] {
+                after.push(lsnr);
+            } else {
+                between.push(lsnr);
+            }
+        }
+        let stats = |v: &[f32]| {
+            let mut v = v.to_vec();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let below = v.iter().filter(|&&x| x < NOISE_LSNR).count() as f64 * 100.0 / v.len() as f64;
+            format!("n {} median {:.1} p90 {:.1} below -10: {below:.0}%", v.len(), v[v.len() / 2], v[v.len() * 9 / 10])
+        };
+        println!("lsnr on a click hop: {}", stats(&on_click));
+        println!("lsnr on the hop after: {}", stats(&after));
+        println!("lsnr between clicks: {}", stats(&between));
     }
 
     /// A sung vowel ("ah"): a glottal pulse train with a gliding pitch
