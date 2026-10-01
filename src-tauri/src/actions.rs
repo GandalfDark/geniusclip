@@ -28,14 +28,18 @@ pub fn current_game(app: &AppHandle) -> AppInfo {
         return a;
     }
     let fg = game::foreground_app();
-    if let Some(a) = fg.as_ref().filter(|a| !a.is_desktop) {
+    if let Some(a) = fg.as_ref().filter(|a| !a.is_desktop && !game::is_launcher(a)) {
         return a.clone();
     }
+    // The desktop or a launcher (Steam between matches): the last game.
     let window = Duration::from_secs(st.settings.read().replay_seconds as u64);
     if let Some((a, seen)) = st.last_game.lock().as_ref() {
         if seen.elapsed() <= window {
             return a.clone();
         }
+    }
+    if let Some(a) = fg.filter(|a| game::is_launcher(a)) {
+        return a;
     }
     let lang = st.settings.read().lang();
     AppInfo { name: t(lang, "desktop").into(), exe: String::new(), is_desktop: true }
@@ -332,7 +336,7 @@ pub fn track_foreground(app: &AppHandle) {
             _ => {
                 let fullscreen = fullscreen_on_capture_monitor(app);
                 let in_game = fullscreen.as_ref().is_some_and(game::is_game);
-                let found = fullscreen.or_else(|| game::foreground_app().filter(|a| !a.is_desktop));
+                let found = fullscreen.or_else(|| game::foreground_app().filter(|a| !a.is_desktop && !game::is_launcher(a)));
                 *tracked = Some(Tracked { key, at: Instant::now(), found: found.clone(), in_game });
                 (found, in_game)
             }

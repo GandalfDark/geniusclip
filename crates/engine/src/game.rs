@@ -51,6 +51,33 @@ const OVERLAY_EXES: &[&str] = &[
     "medal.exe",
 ];
 
+/// Game launchers and stores, with the name clips get while one is in front
+/// and no game was lately (Steam's windows belong to "Steam Client
+/// WebHelper"). They are in front between games, never the game itself.
+const LAUNCHER_EXES: &[(&str, &str)] = &[
+    ("steamwebhelper.exe", "Steam"),
+    ("steam.exe", "Steam"),
+    ("epicgameslauncher.exe", "Epic Games"),
+    ("battle.net.exe", "Battle.net"),
+    ("eadesktop.exe", "EA app"),
+    ("origin.exe", "Origin"),
+    ("galaxyclient.exe", "GOG Galaxy"),
+    ("riotclientux.exe", "Riot Client"),
+    ("riotclientservices.exe", "Riot Client"),
+    ("upc.exe", "Ubisoft Connect"),
+    ("ubisoftconnect.exe", "Ubisoft Connect"),
+];
+
+fn launcher_name(exe: &str) -> Option<&'static str> {
+    let exe = exe.to_lowercase();
+    LAUNCHER_EXES.iter().find(|(e, _)| *e == exe).map(|(_, name)| *name)
+}
+
+/// A game launcher or store (Steam, Epic Games, Battle.net...).
+pub fn is_launcher(app: &AppInfo) -> bool {
+    launcher_name(&app.exe).is_some()
+}
+
 /// Fullscreen apps that aren't games: browsers, video players, slideshows,
 /// calls. "Only in games" doesn't wake capture for them.
 const NOT_GAMES: &[&str] = &[
@@ -85,7 +112,7 @@ const NOT_GAMES: &[&str] = &[
 /// Whether a fullscreen app counts as a game (not a browser or a player).
 pub fn is_game(app: &AppInfo) -> bool {
     let exe = app.exe.to_lowercase();
-    !app.is_desktop && !NOT_GAMES.contains(&exe.as_str()) && !OVERLAY_EXES.contains(&exe.as_str())
+    !app.is_desktop && !NOT_GAMES.contains(&exe.as_str()) && !OVERLAY_EXES.contains(&exe.as_str()) && !is_launcher(app)
 }
 
 /// Hosts whose file description is meaningless; the window title names the app.
@@ -172,7 +199,8 @@ pub fn fullscreen_app(x: i32, y: i32, w: u32, h: u32) -> Option<AppInfo> {
         // regular windows overhang it by their frame, so they don't count.
         let near = |a: i32, b: i32| (a - b).abs() <= 1;
         if near(r.left, s.want.left) && near(r.top, s.want.top) && near(r.right, s.want.right) && near(r.bottom, s.want.bottom) {
-            if let Some(a) = app_for_window(hwnd).filter(|a| !a.is_desktop && !OVERLAY_EXES.contains(&a.exe.to_lowercase().as_str())) {
+            // A launcher filling the screen (Steam's Big Picture) isn't a game either.
+            if let Some(a) = app_for_window(hwnd).filter(|a| !a.is_desktop && !is_launcher(a) && !OVERLAY_EXES.contains(&a.exe.to_lowercase().as_str())) {
                 s.found = Some(a);
                 return false.into(); // stop: windows are enumerated top-most first
             }
@@ -208,7 +236,9 @@ fn app_for_window(hwnd: HWND) -> Option<AppInfo> {
             return Some(AppInfo { name: "Desktop".into(), exe, is_desktop: true });
         }
         let stem = Path::new(&exe).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let name = if HOST_EXES.contains(&lower.as_str()) {
+        let name = if let Some(n) = launcher_name(&lower) {
+            Some(n.to_string())
+        } else if HOST_EXES.contains(&lower.as_str()) {
             Some(window_title(hwnd)).filter(|t| !t.is_empty())
         } else {
             file_description(&full)
@@ -243,3 +273,21 @@ pub fn sanitize(name: &str) -> String {
     s
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(exe: &str) -> AppInfo {
+        AppInfo { name: exe.into(), exe: exe.into(), is_desktop: false }
+    }
+
+    #[test]
+    fn launchers_are_not_games() {
+        for exe in ["steamwebhelper.exe", "Steam.exe", "EpicGamesLauncher.exe", "Battle.net.exe"] {
+            assert!(is_launcher(&app(exe)) && !is_game(&app(exe)), "{exe}");
+        }
+        assert_eq!(launcher_name("SteamWebHelper.exe"), Some("Steam"));
+        assert!(is_game(&app("cs2.exe")) && !is_launcher(&app("cs2.exe")));
+        assert!(!is_game(&app("chrome.exe")));
+    }
+}
