@@ -6,6 +6,7 @@ use std::path::Path;
 use windows::core::{HSTRING, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL};
 use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -165,6 +166,44 @@ fn window_title(hwnd: HWND) -> String {
 
 pub fn foreground_app() -> Option<AppInfo> {
     app_for_window(unsafe { GetForegroundWindow() })
+}
+
+/// A game in front that fills its monitor (fullscreen or borderless).
+pub struct FullscreenGame {
+    pub app: AppInfo,
+    pub pid: u32,
+    /// The monitor it fills, in desktop coordinates.
+    pub monitor: RECT,
+}
+
+/// The focused window, when it is a game filling its monitor.
+pub fn foreground_fullscreen_game() -> Option<FullscreenGame> {
+    fullscreen_game(unsafe { GetForegroundWindow() })
+}
+
+/// The window, when it is a game filling its monitor.
+pub fn fullscreen_game(hwnd: HWND) -> Option<FullscreenGame> {
+    unsafe {
+        if hwnd.0.is_null() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+        let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if hmon.is_invalid() || !GetMonitorInfoW(hmon, &mut mi).as_bool() {
+            return None;
+        }
+        let mut r = RECT::default();
+        GetWindowRect(hwnd, &mut r).ok()?;
+        let m = mi.rcMonitor;
+        let near = |a: i32, b: i32| (a - b).abs() <= 1;
+        if !(near(r.left, m.left) && near(r.top, m.top) && near(r.right, m.right) && near(r.bottom, m.bottom)) {
+            return None;
+        }
+        let app = app_for_window(hwnd).filter(is_game)?;
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        Some(FullscreenGame { app, pid, monitor: m })
+    }
 }
 
 /// The top-most visible window that exactly fills the given screen rect

@@ -17,7 +17,7 @@
   import { ACCENTS } from '$lib/accents';
   import { LANGS, LOCALES } from '$lib/i18n';
   import { bytes } from '$lib/format';
-  import type { Estimate, Hotkeys, AutoStatus, AutoGameStatus } from '$lib/types';
+  import type { Estimate, Hotkeys, AutoStatus, AutoGameStatus, PerfAccess } from '$lib/types';
   import type { TKey } from '$lib/i18n';
 
   let s = $derived(app.settings!);
@@ -72,6 +72,34 @@
     });
   }
 
+  // --- In-game stats: whether Windows lets this user read frame rates.
+  let perfAccess = $state<PerfAccess | null>(null);
+  let perfAsking = $state(false);
+  $effect(() => {
+    if (!s.perfOverlay.enabled) return;
+    api
+      .perfAccess()
+      .then((a) => (perfAccess = a))
+      .catch(() => {});
+  });
+  async function allowFps() {
+    perfAsking = true;
+    try {
+      await api.grantPerfAccess();
+      perfAccess = await api.perfAccess();
+    } catch (e) {
+      app.notify(String(e), 'error');
+    } finally {
+      perfAsking = false;
+    }
+  }
+  const perfData = [
+    { id: 'fps', key: 'perf.fps' },
+    { id: 'gpu', key: 'perf.gpu' },
+    { id: 'cpu', key: 'perf.cpu' },
+    { id: 'clock', key: 'perf.clock' },
+  ] as const;
+
   const sections = [
     { id: 'capture', key: 'set.capture' },
     { id: 'audio', key: 'set.audio' },
@@ -79,6 +107,7 @@
     { id: 'autoclips', key: 'set.autoclips' },
     { id: 'folders', key: 'set.folders' },
     { id: 'overlay', key: 'set.overlay' },
+    { id: 'perf', key: 'set.perf' },
     { id: 'appearance', key: 'set.appearance' },
     { id: 'system', key: 'set.system' },
   ] as const;
@@ -208,13 +237,14 @@
   const MAX_DISK = 3600;
   const minutes = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const memLabel = (mb: number) => bytes(mb * 1048576, app.lang);
-  const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' | 'hk.saveShort' | 'hk.toggleMenu' }[] = [
+  const hkRows: { key: keyof Hotkeys; label: 'hk.saveClip' | 'hk.toggleReplay' | 'hk.screenshot' | 'hk.toggleRecording' | 'hk.saveShort' | 'hk.toggleMenu' | 'hk.togglePerf' }[] = [
     { key: 'saveClip', label: 'hk.saveClip' },
     { key: 'saveShort', label: 'hk.saveShort' },
     { key: 'toggleReplay', label: 'hk.toggleReplay' },
     { key: 'screenshot', label: 'hk.screenshot' },
     { key: 'toggleRecording', label: 'hk.toggleRecording' },
     { key: 'toggleMenu', label: 'hk.toggleMenu' },
+    { key: 'togglePerf', label: 'hk.togglePerf' },
   ];
   const shortOptions = [10, 15, 30, 60];
 </script>
@@ -495,6 +525,56 @@
           <Row label={app.t('set.sound')}>
             <Switch checked={s.overlay.sound} onchange={(v) => app.change((x) => (x.overlay.sound = v))} />
           </Row>
+        {/if}
+      </div>
+    </section>
+
+    <section id="perf" in:rise|global={{ delay: cascade(4) }}>
+      <h2>{app.t('set.perf')}</h2>
+      <div class="panel body">
+        <Row label={app.t('perf.show')} hint={app.t('perf.showHint')}>
+          <Switch checked={s.perfOverlay.enabled} onchange={(v) => app.change((x) => (x.perfOverlay.enabled = v), 0)} />
+        </Row>
+        {#if s.perfOverlay.enabled}
+          <Row label={app.t('perf.style')}>
+            <Segmented
+              value={s.perfOverlay.style}
+              onchange={(v) => app.change((x) => (x.perfOverlay.style = v), 0)}
+              options={[
+                { value: 'line' as const, label: app.t('perf.styleLine') },
+                { value: 'panel' as const, label: app.t('perf.stylePanel') },
+                { value: 'fps' as const, label: app.t('perf.styleFps') },
+              ]}
+            />
+          </Row>
+          <Row label={app.t('set.corner')}>
+            <div class="corners">
+              {#each ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const as c}
+                <button class="corner {c}" class:active={s.perfOverlay.corner === c} aria-label={app.t(`set.corner.${c}`)} onclick={() => app.change((x) => (x.perfOverlay.corner = c), 0)}>
+                  <span></span>
+                </button>
+              {/each}
+            </div>
+          </Row>
+          {#if s.perfOverlay.style !== 'fps'}
+            <div class="chips" role="group" aria-label={app.t('set.perf')}>
+              {#each perfData as d (d.id)}
+                <button class="chip" class:on={s.perfOverlay[d.id]} aria-pressed={s.perfOverlay[d.id]} onclick={() => app.change((x) => (x.perfOverlay[d.id] = !x.perfOverlay[d.id]), 0)}>
+                  <Icon name="check" size={13} stroke={2.2} />{app.t(d.key)}
+                </button>
+              {/each}
+            </div>
+          {/if}
+          {#if (s.perfOverlay.fps || s.perfOverlay.style === 'fps') && perfAccess && perfAccess !== 'granted'}
+            <div class="launch">
+              {#if perfAccess === 'needed'}
+                <span>{app.t('perf.access')}</span>
+                <button class="btn sm" disabled={perfAsking} onclick={allowFps}>{app.t('perf.allow')}</button>
+              {:else}
+                <span>{app.t('perf.signIn')}</span>
+              {/if}
+            </div>
+          {/if}
         {/if}
       </div>
     </section>

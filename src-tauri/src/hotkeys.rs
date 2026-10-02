@@ -27,13 +27,14 @@ struct Worker {
 
 static WORKER: OnceLock<Worker> = OnceLock::new();
 
-const ACTIONS: [(&str, Action); 6] = [
+const ACTIONS: [(&str, Action); 7] = [
     ("saveClip", crate::actions::save_clip),
     ("toggleReplay", crate::actions::toggle_replay),
     ("screenshot", crate::actions::screenshot),
     ("toggleRecording", crate::actions::toggle_recording),
     ("saveShort", crate::actions::save_short_clip),
     ("toggleMenu", crate::menu::toggle),
+    ("togglePerf", crate::perf::toggle),
 ];
 
 fn worker(app: &AppHandle) -> &'static Worker {
@@ -121,7 +122,7 @@ fn register_locked(app: &AppHandle) {
         vec![String::new(); ACTIONS.len()]
     } else {
         let hk = app.state::<AppState>().settings.read().hotkeys.clone();
-        vec![hk.save_clip, hk.toggle_replay, hk.screenshot, hk.toggle_recording, hk.save_short, hk.toggle_menu]
+        vec![hk.save_clip, hk.toggle_replay, hk.screenshot, hk.toggle_recording, hk.save_short, hk.toggle_menu, hk.toggle_perf]
     };
     let w = worker(app);
     let (tx, rx) = channel();

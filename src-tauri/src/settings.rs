@@ -16,6 +16,8 @@ pub struct Hotkeys {
     pub save_short: String,
     /// Opens the in-game menu.
     pub toggle_menu: String,
+    /// Shows or hides the in-game stats (see `perf`).
+    pub toggle_perf: String,
 }
 
 impl Default for Hotkeys {
@@ -29,6 +31,7 @@ impl Default for Hotkeys {
             toggle_recording: "Alt+F7".into(),
             save_short: String::new(),
             toggle_menu: "Alt+KeyX".into(),
+            toggle_perf: "Alt+F12".into(),
         }
     }
 }
@@ -40,6 +43,30 @@ pub struct OverlaySettings {
     /// "top-right" | "top-left" | "bottom-right" | "bottom-left"
     pub corner: String,
     pub sound: bool,
+}
+
+/// The in-game stats overlay (see `perf`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PerfOverlay {
+    pub enabled: bool,
+    /// "line" | "panel" | "fps"
+    pub style: String,
+    /// "top-left" | "top-right" | "bottom-left" | "bottom-right"
+    pub corner: String,
+    /// Frame rate and frame time (needs the access `fps::grant` asks for).
+    pub fps: bool,
+    pub gpu: bool,
+    /// CPU load and memory.
+    pub cpu: bool,
+    /// Time of day and the replay / recording dot.
+    pub clock: bool,
+}
+
+impl Default for PerfOverlay {
+    fn default() -> Self {
+        PerfOverlay { enabled: false, style: "line".into(), corner: "top-left".into(), fps: true, gpu: true, cpu: true, clock: true }
+    }
 }
 
 impl Default for OverlaySettings {
@@ -106,6 +133,7 @@ pub struct Settings {
     /// Accent preset id used by the UI.
     pub accent: String,
     pub overlay: OverlaySettings,
+    pub perf_overlay: PerfOverlay,
     pub auto_update: bool,
     /// Laptops: no replay while running on battery.
     pub pause_on_battery: bool,
@@ -131,6 +159,7 @@ impl Default for Settings {
             language: "auto".into(),
             accent: "violet".into(),
             overlay: OverlaySettings::default(),
+            perf_overlay: PerfOverlay::default(),
             auto_update: true,
             pause_on_battery: false,
             games_only: false,

@@ -43,6 +43,7 @@ export interface Hotkeys {
   toggleRecording: string;
   saveShort: string;
   toggleMenu: string;
+  togglePerf: string;
 }
 
 export interface Settings {
@@ -60,6 +61,7 @@ export interface Settings {
   language: string;
   accent: string;
   overlay: { enabled: boolean; corner: string; sound: boolean };
+  perfOverlay: PerfOverlay;
   autoUpdate: boolean;
   pauseOnBattery: boolean;
   gamesOnly: boolean;
@@ -211,3 +213,17 @@ export interface AutoStatus {
   cs2: AutoGameStatus;
   dota: AutoGameStatus;
 }
+
+/** The in-game stats overlay. */
+export interface PerfOverlay {
+  enabled: boolean;
+  style: 'line' | 'panel' | 'fps';
+  corner: string;
+  fps: boolean;
+  gpu: boolean;
+  cpu: boolean;
+  clock: boolean;
+}
+
+/** Whether Windows lets this user read games' frame rates. */
+export type PerfAccess = 'granted' | 'signInAgain' | 'needed';

@@ -107,11 +107,13 @@ let settings: Settings = {
     toggleRecording: "Alt+F7",
     saveShort: "",
     toggleMenu: "Alt+KeyX",
+    togglePerf: "Alt+F12",
   },
   autostart: true,
   language: "auto",
   accent: "violet",
   overlay: { enabled: true, corner: "top-right", sound: true },
+  perfOverlay: { enabled: true, style: "line", corner: "top-left", fps: true, gpu: true, cpu: true, clock: true },
   autoUpdate: true,
   pauseOnBattery: false,
   gamesOnly: false,
@@ -398,6 +400,11 @@ export function installMock() {
           await new Promise((r) => setTimeout(r, 600));
           console.log("[mock] trim_media", args);
           return null;
+        case "perf_access":
+          return new URLSearchParams(location.search).get("perfAccess") ?? "needed";
+        case "grant_perf_access":
+          await new Promise((r) => setTimeout(r, 800));
+          return true;
         case "autoclip_status":
           return {
             cs2: { found: true, installed: true, connected: true, failed: false },

@@ -1,5 +1,7 @@
 mod actions;
 mod autoclip;
+mod fps;
+mod perf;
 mod brand;
 mod commands;
 mod disk;
@@ -358,6 +360,7 @@ pub fn run() {
             recordings::spawn(handle.clone());
             spawn_codec_check(handle.clone());
             autoclip::start(&handle);
+            perf::start(&handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -379,6 +382,8 @@ pub fn run() {
             commands::media_info,
             commands::log_playback_error,
             commands::autoclip_status,
+            commands::perf_access,
+            commands::grant_perf_access,
             commands::open_path,
             commands::reveal_path,
             commands::open_media_dir,

@@ -227,6 +227,9 @@ fn apply_settings(app: &AppHandle, settings: Settings) -> CmdResult<Settings> {
     if old.pause_on_battery != new.pause_on_battery {
         crate::power::refresh();
     }
+    if old.perf_overlay != new.perf_overlay {
+        crate::perf::sync();
+    }
     if old.auto_clips != new.auto_clips {
         let h = app.clone();
         std::thread::spawn(move || crate::autoclip::sync(&h));
@@ -697,7 +700,7 @@ pub fn menu_ready() {
 /// Async: GPU performance counters can take a moment.
 #[tauri::command]
 pub async fn system_stats() -> crate::stats::Stats {
-    blocking(crate::stats::snapshot).await.unwrap_or_default()
+    blocking(|| crate::stats::snapshot(crate::stats::User::Menu)).await.unwrap_or_default()
 }
 
 static PENDING_OPEN: parking_lot::Mutex<Option<PathBuf>> = parking_lot::Mutex::new(None);
@@ -809,4 +812,22 @@ mod tests {
 #[tauri::command]
 pub async fn autoclip_status() -> CmdResult<crate::autoclip::Status> {
     blocking(crate::autoclip::status).await
+}
+
+/// Whether the in-game stats can show frame rates (see `fps::access`).
+#[tauri::command]
+pub async fn perf_access() -> CmdResult<crate::fps::Access> {
+    blocking(crate::fps::access).await
+}
+
+/// Asks Windows (as administrator) to let this user read frame rates.
+/// False when the user declined Windows' prompt.
+#[tauri::command]
+pub async fn grant_perf_access() -> CmdResult<bool> {
+    let granted = tauri::async_runtime::spawn_blocking(crate::fps::grant).await.map_err(err)?.map_err(|e| {
+        log::warn!("fps access: {e:#}");
+        err(e)
+    })?;
+    crate::perf::sync();
+    Ok(granted)
 }

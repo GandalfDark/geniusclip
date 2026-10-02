@@ -1,5 +1,5 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import type { DiskSpace, Estimate, MediaEntry, Settings, Snapshot, EngineStatus, UpdateInfo, SystemStats, AutoStatus } from './types';
+import type { DiskSpace, Estimate, MediaEntry, Settings, Snapshot, EngineStatus, UpdateInfo, SystemStats, AutoStatus, PerfAccess } from './types';
 
 export const api = {
   snapshot: () => invoke<Snapshot>('get_snapshot'),
@@ -23,6 +23,8 @@ export const api = {
     invoke<MediaEntry | null>('trim_media', { path, start, end, replace, gains, speed }),
   clipAudio: (path: string) => invoke<ClipAudio>('clip_audio', { path }),
   autoclipStatus: () => invoke<AutoStatus>('autoclip_status'),
+  perfAccess: () => invoke<PerfAccess>('perf_access'),
+  grantPerfAccess: () => invoke<boolean>('grant_perf_access'),
   openPath: (path: string) => invoke<void>('open_path', { path }),
   /** Logs a built-in player failure with the file's format (for problem reports). */
   logPlaybackError: (path: string, code: number, message: string) => invoke<void>('log_playback_error', { path, code, message }),

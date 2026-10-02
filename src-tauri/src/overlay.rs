@@ -170,6 +170,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
         "replay-paused" => t(lang, "ov.replay-paused.sub").to_string(),
         "copied" => t(lang, "ov.copied.sub").to_string(),
         "menu-unavailable" => t(lang, "ov.menu-unavailable.sub").to_string(),
+        "perf-on" => t(lang, "ov.perf-on.sub").to_string(),
         "disk-low" => {
             let (free, drive) = toast.disk.clone().unwrap_or_default();
             t(lang, "ov.disk-low.sub").replace("{free}", &crate::disk::fmt_size(lang, free)).replace("{drive}", &drive)
@@ -187,7 +188,7 @@ pub fn toast(app: &AppHandle, toast: Toast) {
     };
     let bar = match toast.kind.as_str() {
         "error" | "recording-start" => REC_RED,
-        "replay-off" | "replay-off-hint" | "already-saved" | "replay-wait" | "replay-paused" => MUTED,
+        "replay-off" | "replay-off-hint" | "already-saved" | "replay-wait" | "replay-paused" | "perf-off" => MUTED,
         "disk-low" => WARNING,
         _ => accent(&s.accent),
     };

@@ -31,8 +31,17 @@ serde_json.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 anyhow.workspace = true
-# Plus the registry, for the Windows version and CPU name in problem reports.
-windows = { workspace = true, features = ["Win32_System_Registry"] }
+# Plus the registry, for the Windows version and CPU name in problem reports,
+# and ETW and the local groups, for the in-game frame rate (see `fps`).
+windows = { workspace = true, features = [
+    "Win32_System_Registry",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_Time",
+    "Win32_NetworkManagement_NetManagement",
+    "Win32_Security_Authentication_Identity",
+] }
+# Direct2D points (the in-game stats' graph); already in the tree via windows.
+windows-numerics = "0.3"
 # NVML (GPU temperature), loaded only when an NVIDIA driver is present.
 libloading = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
